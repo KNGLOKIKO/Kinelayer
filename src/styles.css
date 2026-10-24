@@ -1,0 +1,155 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  --ml-bg: #07090d;
+  --ml-panel: #0f131b;
+  --ml-panel-2: #131822;
+  --ml-border: #1e2634;
+  --ml-border-strong: #2a3444;
+  --ml-text: #e6e9f2;
+  --ml-muted: #8b97ab;
+  --ml-accent: #7c5cff;
+  --ml-cyan: #22d3ee;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--ml-bg);
+  color: var(--ml-text);
+  font-family: Inter, system-ui, -apple-system, 'Segoe UI', 'Microsoft YaHei', sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+::-webkit-scrollbar {
+  width: 9px;
+  height: 9px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #26303f;
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #36445a;
+  background-clip: padding-box;
+}
+
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 18px;
+  background: transparent;
+  cursor: pointer;
+}
+input[type='range']::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 3px;
+  background: #26303f;
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4.5px;
+  border-radius: 50%;
+  background: #c7c0ff;
+  border: 1px solid #7c5cff;
+  box-shadow: 0 0 0 3px rgba(124, 92, 255, 0.18);
+}
+
+input[type='color'] {
+  -webkit-appearance: none;
+  appearance: none;
+  border: none;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+input[type='color']::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+input[type='color']::-webkit-color-swatch {
+  border: 1px solid var(--ml-border-strong);
+  border-radius: 6px;
+}
+
+.ml-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #26303f transparent;
+}
+
+.ml-canvas-checker {
+  background-image:
+    linear-gradient(45deg, #0e121a 25%, transparent 25%),
+    linear-gradient(-45deg, #0e121a 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #0e121a 75%),
+    linear-gradient(-45deg, transparent 75%, #0e121a 75%);
+  background-size: 18px 18px;
+  background-position: 0 0, 0 9px, 9px -9px, -9px 0;
+  background-color: #0a0d13;
+}
+
+.ml-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.028) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+.cm-editor {
+  height: 100%;
+  font-size: 12.5px;
+  background: #0b0f16 !important;
+}
+.cm-editor.cm-focused {
+  outline: none !important;
+}
+.cm-gutters {
+  background: #0b0f16 !important;
+  border-right: 1px solid #1a2130 !important;
+  color: #3f4c63 !important;
+}
+.cm-scroller {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace !important;
+  line-height: 1.55 !important;
+}
+.cm-activeLine {
+  background: rgba(124, 92, 255, 0.06) !important;
+}
+.cm-selectionBackground,
+.cm-content ::selection {
+  background: rgba(124, 92, 255, 0.28) !important;
+}
+
+.ml-drag-ghost {
+  outline: 1px dashed rgba(124, 92, 255, 0.9);
+  background: rgba(124, 92, 255, 0.08);
+}
+
+@keyframes ml-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.ml-spin {
+  animation: ml-spin 0.9s linear infinite;
+}

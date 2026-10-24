@@ -1,0 +1,16 @@
+node_modules
+dist
+dist-ssr
+*.local
+.DS_Store
+.vite
+*.tsbuildinfo
+
+# 桥接进程的运行时产物
+agent-bridge/node_modules
+agent-bridge/package-lock.json
+agent-bridge/.token
+agent-bridge/.cache
+
+# 工作区私有数据（Agent 记忆、会话产物），不进公开仓库
+.workbuddy/

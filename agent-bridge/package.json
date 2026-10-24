@@ -1,0 +1,20 @@
+{
+  "name": "motionlayer-agent-bridge",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "MotionLayer 本地桥接：WebSocket 命令中继 + MCP stdio 服务端",
+  "main": "src/bridge.js",
+  "scripts": {
+    "start": "node src/bridge.js",
+    "mcp": "node src/mcp.js",
+    "test": "node test/e2e.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
