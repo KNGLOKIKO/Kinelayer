@@ -2,6 +2,8 @@
 
 **可编程的动态海报工作台** —— 一个纯前端、可离线、命令驱动的动态海报编辑器。
 
+**在线体验**：<https://knglokiko.github.io/MotionLayer/> · **源码**：<https://github.com/KNGLOKIKO/MotionLayer>
+
 不做「拖拽拼图」，做的是「用一条命令总线把人类操作、网页内 AI、外部 Agent、独立图层窗口
 统一成同一件事」。所有能力都注册在一张表里：人点按钮、AI 调工具、Agent 走 MCP，
 最终落到总线上的都是同一条结构化 `Command`。
