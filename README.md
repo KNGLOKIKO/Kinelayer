@@ -154,6 +154,20 @@ cd agent-bridge && npm test
 
 ---
 
+## 部署（GitHub Pages）
+
+仓库已经配好 `.github/workflows/pages.yml`：推到 `main` 就自动构建并发布。
+
+```bash
+# 一次性设置：仓库 Settings → Pages → Source 选 "GitHub Actions"
+# 构建时的资源前缀由 workflow 注入
+VITE_BASE=/MotionLayer/ npm run build   # 项目页需要这个前缀
+```
+
+- 页面地址：`https://<user>.github.io/<repo>/`，改仓库名就要同步改 workflow 里的 `VITE_BASE`。
+- 免费账号的 Pages 需要仓库是 **public**。
+- 想用自定义域名：在 Pages 设置里填域名，再把 workflow 里的 `VITE_BASE` 改回 `/`。
+
 ## 数据与隐私
 
 - **项目文件**：`export.json` 导出的是纯 JSON，**不含图片/视频的 base64**（资源在 IndexedDB 里）。
