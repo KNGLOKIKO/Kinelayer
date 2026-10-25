@@ -50,7 +50,14 @@ async function realClick(cdp, selectorJs) {
 const findButton = (text) =>
   `[...document.querySelectorAll('button')].find((b) => b.textContent.trim() === ${JSON.stringify(text)})`;
 
-async function importViaChooser(cdp, filePath, buttonText = '导入工程包') {
+/**
+ * 选文件 → 预检对话框 → 确认导入。
+ *
+ * v2.5 之后导入是两步：先 `ai.inspectImport` 出降级报告，用户点「导入这份工程」才写库。
+ * 所以这里除了塞文件，还要在报告卡上点一下确认 —— 少了这一步，后面的断言全在等一个
+ * 永远不会发生的写库。
+ */
+async function importViaChooser(cdp, filePath, buttonText = '打开本地文件') {
   await cdp.conn.call('Page.setInterceptFileChooserDialog', { enabled: true });
   const chooser = cdp.conn.once('Page.fileChooserOpened');
   const clicked = await realClick(cdp, findButton(buttonText));
@@ -58,6 +65,11 @@ async function importViaChooser(cdp, filePath, buttonText = '导入工程包') {
   const info = await Promise.race([chooser, sleep(5000).then(() => null)]);
   if (!info?.backendNodeId) return { ok: false, reason: 'no-chooser' };
   await cdp.conn.call('DOM.setFileInputFiles', { files: [filePath], backendNodeId: info.backendNodeId });
+
+  const dialog = await cdp.waitFor(`!!document.querySelector('[data-testid="import-dialog"]')`, 8000);
+  if (!dialog) return { ok: false, reason: 'no-report-dialog' };
+  const confirmed = await realClick(cdp, `document.querySelector('[data-testid="import-confirm"]')`);
+  if (!confirmed) return { ok: false, reason: 'blocked-by-report' };
   return { ok: true };
 }
 

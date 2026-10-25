@@ -1,38 +1,33 @@
 /**
  * 启动页 / 工程库。
  *
- * 只读 meta 索引（project.listRecent），不加载任何一个工程本体 —— 二十个工程
- * 在列表页也只反序列化二十条 ProjectMeta。
+ * 两种形态，同一份实现：
+ *   · mode="page"    独立视图（`/`），不是 Host：只读索引、发命令，然后 location 跳进编辑器。
+ *   · mode="overlay" 编辑器里按 Ctrl+O 打开，就地切换文档，不走导航（省一次整页重载）。
+ *
+ * 它**从不**渲染编辑器 —— 那样会出现两个 Host（主时钟、撤销栈各一份），是这套架构里最贵的 bug。
  *
  * 所有写操作都回命令总线：新建 = project.create，重命名 = project.rename，
- * 删除 = project.deleteLocal（必须 confirm），复制 = project.duplicate。
- * 这里不碰 IndexedDB，也不改 store 里的 project。
+ * 删除 = project.deleteLocal（必须 confirm），导出 = project.exportBundle。
+ * 这里不碰 IndexedDB，也不改 store 里的 project（page 模式下只多写一个 lastProjectId 偏好）。
  */
 
 import { useCallback, useEffect, useState } from 'react';
-import {
-  Copy,
-  Download,
-  FolderOpen,
-  Image as ImageIcon,
-  Pencil,
-  Plus,
-  Trash2,
-  Upload,
-  X,
-} from 'lucide-react';
+import { Download, FolderOpen, Image as ImageIcon, Languages, Pencil, Plus, Sparkles, Trash2, Upload, X } from 'lucide-react';
 import { exec } from '@/core/commandBus';
 import { pushToast, updateUi, useEditor } from '@/core/store';
+import { IMPORT_ACCEPT } from '@/core/bundle';
 import type { ProjectMeta } from '@/persist/projects';
-import { Button, cx } from './primitives';
-import { importProjectFile, pickProjectFile } from './importProject';
+import { setLastProjectId } from '@/persist/projects';
+import { cx } from './primitives';
+import { pickImportFile } from './importFlow';
+import { NewProjectDialog, SIZE_PRESETS, type NewProjectValues } from './NewProjectDialog';
+import { editorUrl, go } from './routes';
+import { applyLocale } from '@/i18n/apply';
 import { t } from '@/i18n';
 
-const PRESETS: { label: string; hint: string; width: number; height: number }[] = [
-  { label: '竖版', hint: '1080 × 1440', width: 1080, height: 1440 },
-  { label: '方版', hint: '1080 × 1080', width: 1080, height: 1080 },
-  { label: '横版', hint: '1920 × 1080', width: 1920, height: 1080 },
-];
+/** 最近项目最多列这么多：再多就成资料库了，这个页面只管「接着上次干」 */
+const RECENT_LIMIT = 12;
 
 function fmtWhen(ts: number): string {
   const d = new Date(ts);
@@ -41,23 +36,27 @@ function fmtWhen(ts: number): string {
 }
 
 function fmtLen(ms: number): string {
-  return `${(ms / 1000).toFixed(1)}s`;
+  const s = ms / 1000;
+  return `${Number.isInteger(s) ? s : s.toFixed(1)}s`;
 }
 
-export function Launcher() {
-  const open = useEditor((s) => s.ui.showLauncher);
+export function Launcher({ mode = 'overlay' }: { mode?: 'overlay' | 'page' }) {
+  const overlayOpen = useEditor((s) => s.ui.showLauncher);
+  const open = mode === 'page' || overlayOpen;
   const currentId = useEditor((s) => s.project.id);
   const currentName = useEditor((s) => s.project.name);
+  const locale = useEditor((s) => s.ui.locale);
 
   const [list, setList] = useState<ProjectMeta[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [draftName, setDraftName] = useState('');
+  const [dialog, setDialog] = useState<Partial<NewProjectValues> | null>(null);
   const [nonce, setNonce] = useState(0);
 
   const refresh = useCallback(async () => {
-    const res = await exec<{ projects: ProjectMeta[] }>('project.listRecent', { limit: 50 });
-    if (res.ok && res.data) setList(res.data.projects);
+    const res = await exec<{ projects: ProjectMeta[] }>('project.listRecent', { limit: RECENT_LIMIT });
+    if (res.ok && res.data) setList(res.data.projects.slice(0, RECENT_LIMIT));
     else setList([]);
   }, []);
 
@@ -68,15 +67,15 @@ export function Launcher() {
 
   const close = useCallback(() => updateUi((ui) => { ui.showLauncher = false; }), []);
 
-  /* Esc 关闭：启动页是覆盖层，不该把编辑器困住 */
+  /* Esc 关闭：覆盖层不该把编辑器困住（page 形态没有「返回」，忽略） */
   useEffect(() => {
-    if (!open) return;
+    if (!open || mode === 'page') return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !editing) close();
+      if (e.key === 'Escape' && !editing && !dialog) close();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, editing, close]);
+  }, [open, editing, dialog, close, mode]);
 
   if (!open) return null;
 
@@ -91,14 +90,51 @@ export function Launcher() {
     }
   };
 
-  const create = (width: number, height: number) =>
+  /** 进编辑器：page 走导航（Launcher 不是 Host），overlay 就地切换 */
+  const enter = (projectId: string) => {
+    if (mode === 'page') {
+      go(editorUrl(projectId));
+      return;
+    }
+    close();
+  };
+
+  const create = (values: NewProjectValues) =>
     wrap(async () => {
-      const res = await exec('project.create', { width, height });
-      if (res.ok) close();
+      const res = await exec<{ projectId: string; name: string }>('project.create', {
+        name: values.name,
+        width: values.width,
+        height: values.height,
+        duration: values.duration,
+        fps: values.fps,
+        background: values.background,
+      });
+      if (!res.ok || !res.data) {
+        pushToast('error', res.error?.message ?? t('创建失败'), 6000);
+        return;
+      }
+      setDialog(null);
+      enter(res.data.projectId);
+    });
+
+  const quickCreate = (width: number, height: number, name?: string) =>
+    create({
+      name: name ?? t('未命名织层项目'),
+      width,
+      height,
+      duration: 5000,
+      fps: 30,
+      background: '#ffffff',
     });
 
   const openProject = (id: string) =>
     wrap(async () => {
+      if (mode === 'page') {
+        /* page 形态没有 Host 可切：只记偏好再跳转，让编辑器自己去开 */
+        await setLastProjectId(id);
+        go(editorUrl(id));
+        return;
+      }
       const res = await exec('project.open', { projectId: id });
       if (res.ok) close();
     });
@@ -109,11 +145,6 @@ export function Launcher() {
       setEditing(null);
       if (!name) return;
       await exec('project.rename', { projectId: id, name });
-    });
-
-  const duplicate = (id: string) =>
-    wrap(async () => {
-      await exec('project.duplicate', { projectId: id });
     });
 
   const remove = (meta: ProjectMeta) =>
@@ -136,20 +167,21 @@ export function Launcher() {
     wrap(async () => {
       const res = await exec<{ filename: string }>('project.exportBundle', { projectId: id });
       if (!res.ok) pushToast('error', res.error?.message ?? t('导出失败'));
+      else pushToast('success', t('已导出 {name}', { name: res.data?.filename ?? '' }));
     });
 
-  const importFile = () =>
-    wrap(async () => {
-      pickProjectFile((file) => {
-        void wrap(async () => {
-          const outcome = await importProjectFile(file);
-          if (outcome.ok) close();
-        });
-      });
-    });
+  /* 导入走「预检 → 报告 → 确认」三步，落库与跳转都在 importFlow 里统一处理 */
+  const importFile = () => pickImportFile(IMPORT_ACCEPT);
+
+  const recent = list ?? [];
+  const shown = recent.slice(0, RECENT_LIMIT);
 
   return (
-    <div className="bg-ink-950/95 fixed inset-0 z-40 flex flex-col backdrop-blur-sm" data-testid="launcher">
+    <div
+      className={cx('flex flex-col', mode === 'page' ? 'bg-ink-950 h-full' : 'bg-ink-950/95 fixed inset-0 z-40 backdrop-blur-sm')}
+      data-testid="launcher"
+      data-mode={mode}
+    >
       <header className="border-ink-700/80 flex h-14 shrink-0 items-center gap-3 border-b px-5">
         <div className="from-accent to-cyan bg-ink-750 flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br">
           <FolderOpen size={15} className="text-white" />
@@ -164,72 +196,134 @@ export function Launcher() {
 
         <div className="flex-1" />
 
-        <Button variant="outline" onClick={() => void importFile()} disabled={busy}>
-          <Upload size={12} />
-          {t('导入工程包')}
-        </Button>
         <button
           type="button"
-          onClick={close}
-          title={t('回到编辑器 (Esc)')}
-          className="text-zinc-500 transition hover:text-zinc-200"
+          onClick={() => applyLocale(locale === 'zh-CN' ? 'en-US' : 'zh-CN')}
+          title={t('切换语言')}
+          className="border-ink-700 text-zinc-400 hover:border-ink-600 hover:text-zinc-100 flex h-7 items-center gap-1 rounded-md border px-2 text-[11px] transition"
         >
-          <X size={18} />
+          <Languages size={12} />
+          {locale === 'zh-CN' ? 'EN' : '中文'}
         </button>
+        {mode === 'overlay' && (
+          <button
+            type="button"
+            onClick={close}
+            title={t('回到编辑器 (Esc)')}
+            className="text-zinc-500 transition hover:text-zinc-200"
+          >
+            <X size={18} />
+          </button>
+        )}
       </header>
 
-      <div className="ml-scroll min-h-0 flex-1 overflow-y-auto px-5 py-5">
-        {/* 新建 */}
-        <section className="mb-6">
+      <div className="ml-scroll grid min-h-0 flex-1 grid-cols-1 gap-6 overflow-y-auto px-5 py-5 md:grid-cols-[300px_minmax(0,1fr)]">
+        {/* 左栏：新建 */}
+        <section className="min-w-0">
           <div className="mb-2 text-[11px] font-medium tracking-wide text-zinc-500">{t('新建')}</div>
-          <div className="flex flex-wrap gap-2">
-            {PRESETS.map((preset) => (
+
+          <div className="space-y-1.5">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => void quickCreate(1080, 1440)}
+              data-testid="new-blank"
+              className="border-ink-700 bg-ink-850 hover:border-accent/60 hover:bg-ink-800 flex w-full items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left transition disabled:opacity-50"
+            >
+              <Plus size={14} className="text-accent-soft" />
+              <span>
+                <span className="block text-[12px] text-zinc-200">{t('空白项目')}</span>
+                <span className="block text-[10px] text-zinc-600">{t('默认 1080 × 1440 · 5s · 30fps')}</span>
+              </span>
+            </button>
+
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setDialog({})}
+              data-testid="new-custom"
+              className="border-ink-700 bg-ink-850 hover:border-accent/60 hover:bg-ink-800 flex w-full items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left transition disabled:opacity-50"
+            >
+              <Sparkles size={14} className="text-cyan" />
+              <span>
+                <span className="block text-[12px] text-zinc-200">{t('自定义尺寸')}</span>
+                <span className="block text-[10px] text-zinc-600">{t('宽高 / 单位 / 时长 / 帧率 / 背景')}</span>
+              </span>
+            </button>
+          </div>
+
+          <div className="mb-1.5 mt-4 text-[11px] font-medium tracking-wide text-zinc-500">{t('预设')}</div>
+          <div className="space-y-1">
+            {SIZE_PRESETS.map((preset) => (
               <button
-                key={preset.label}
+                key={preset.key}
                 type="button"
                 disabled={busy}
-                onClick={() => void create(preset.width, preset.height)}
-                className="border-ink-700 bg-ink-850 hover:border-accent/60 hover:bg-ink-800 flex min-w-[132px] items-center gap-2.5 rounded-lg border px-3 py-2 text-left transition disabled:opacity-50"
+                onClick={() => void quickCreate(preset.width, preset.height, `${t(preset.key)} ${preset.width}×${preset.height}`)}
+                data-testid={`preset-${preset.key}`}
+                className="hover:bg-ink-850 flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left transition disabled:opacity-50"
               >
-                <Plus size={14} className="text-accent-soft" />
-                <span>
-                  <span className="block text-[12px] text-zinc-200">{t(preset.label)}</span>
-                  <span className="block text-[10px] text-zinc-600">{preset.hint}</span>
+                <span className="text-[11.5px] text-zinc-300">{t(preset.key)}</span>
+                <span className="font-mono text-[10px] text-zinc-600">
+                  {preset.width} × {preset.height}
                 </span>
               </button>
             ))}
-            <div className="border-ink-700/70 text-[10.5px] leading-relaxed text-zinc-600 flex max-w-[280px] items-center rounded-lg border border-dashed px-3 py-2">
-              {t('工程只存在这台电脑的浏览器里（IndexedDB）。换机器请用「导出工程包」。')}
-            </div>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setDialog({})}
+              className="text-zinc-500 hover:text-zinc-200 flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left transition disabled:opacity-50"
+            >
+              <span className="text-[11.5px]">{t('自定义…')}</span>
+              <span className="text-[10px]">→</span>
+            </button>
+          </div>
+
+          <div className="border-ink-700/70 mt-4 rounded-lg border border-dashed px-2.5 py-2 text-[10px] leading-relaxed text-zinc-600">
+            {t('工程只存在这台电脑的浏览器里（IndexedDB）。换机器请用「导出工程包」。')}
           </div>
         </section>
 
-        {/* 最近工程 */}
-        <section>
+        {/* 右栏：最近项目 */}
+        <section className="min-w-0">
           <div className="mb-2 flex items-center gap-2">
-            <span className="text-[11px] font-medium tracking-wide text-zinc-500">{t('最近工程')}</span>
-            <span className="text-[10px] text-zinc-700">{list ? list.length : '…'}</span>
+            <span className="text-[11px] font-medium tracking-wide text-zinc-500">
+              {t('最近项目（最多 {n}）', { n: RECENT_LIMIT })}
+            </span>
+            <span className="text-[10px] text-zinc-700">{list ? shown.length : '…'}</span>
+            <div className="flex-1" />
+            <button
+              type="button"
+              onClick={() => void importFile()}
+              disabled={busy}
+              data-testid="open-local"
+              className="border-ink-600 text-zinc-300 hover:border-ink-500 hover:text-white inline-flex h-6 items-center gap-1.5 rounded-md border px-2 text-[11px] font-medium transition disabled:opacity-40"
+            >
+              <Upload size={12} />
+              {t('打开本地文件')}
+            </button>
           </div>
 
           {list === null && <div className="py-10 text-center text-[11px] text-zinc-600">{t('正在读取…')}</div>}
 
-          {list !== null && list.length === 0 && (
+          {list !== null && shown.length === 0 && (
             <div className="border-ink-700/70 flex flex-col items-center gap-2 rounded-xl border border-dashed py-14 text-center">
               <ImageIcon size={20} className="text-zinc-700" />
-              <div className="text-[12px] text-zinc-400">{t('还没有工程')}</div>
+              <div className="text-[12px] text-zinc-400">{t('还没有项目，从左侧新建一个')}</div>
               <div className="max-w-[360px] text-[10.5px] leading-relaxed text-zinc-600">
-                {t('上面选一个尺寸就开始，或者把之前导出的 .kly 拖进来。')}
+                {t('左边选一个预设，或者用「自定义尺寸」自己定；也可以直接打开之前导出的 .kly。')}
               </div>
             </div>
           )}
 
-          {list !== null && list.length > 0 && (
+          {shown.length > 0 && (
             <div
               className="grid gap-3"
-              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))' }}
+              style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(190px, 1fr))' }}
               data-testid="launcher-grid"
             >
-              {list.map((meta) => {
+              {shown.map((meta) => {
                 const isCurrent = meta.id === currentId;
                 return (
                   <article
@@ -250,7 +344,7 @@ export function Launcher() {
                           </div>
                         )}
                         <span className="bg-ink-950/80 absolute bottom-1 left-1.5 rounded px-1.5 py-0.5 text-[9.5px] text-zinc-400">
-                          {meta.width}×{meta.height} · {fmtLen(meta.duration)}
+                          {meta.width}×{meta.height} · {fmtLen(meta.duration)} · {meta.fps}fps
                         </span>
                         {isCurrent && (
                           <span className="bg-accent/90 absolute top-1.5 left-1.5 rounded px-1.5 py-0.5 text-[9.5px] font-medium text-white">
@@ -286,6 +380,14 @@ export function Launcher() {
                     <div className="bg-ink-950/70 absolute top-1.5 right-1.5 flex gap-0.5 rounded-md p-0.5 opacity-0 backdrop-blur transition group-hover:opacity-100 focus-within:opacity-100">
                       <button
                         type="button"
+                        title={t('打开')}
+                        onClick={() => void openProject(meta.id)}
+                        className="hover:bg-ink-800 rounded p-1 text-zinc-400 hover:text-zinc-100"
+                      >
+                        <FolderOpen size={11} />
+                      </button>
+                      <button
+                        type="button"
                         title={t('重命名')}
                         onClick={() => {
                           setEditing(meta.id);
@@ -297,15 +399,7 @@ export function Launcher() {
                       </button>
                       <button
                         type="button"
-                        title={t('复制一份')}
-                        onClick={() => void duplicate(meta.id)}
-                        className="hover:bg-ink-800 rounded p-1 text-zinc-400 hover:text-zinc-100"
-                      >
-                        <Copy size={11} />
-                      </button>
-                      <button
-                        type="button"
-                        title={t('导出 .kly')}
+                        title={t('导出工程包')}
                         onClick={() => void exportBundle(meta.id)}
                         className="hover:bg-ink-800 rounded p-1 text-zinc-400 hover:text-zinc-100"
                       >
@@ -329,10 +423,19 @@ export function Launcher() {
       </div>
 
       <footer className="border-ink-700/70 text-[10.5px] text-zinc-600 flex h-9 shrink-0 items-center gap-2 border-t px-5">
-        <span className="text-zinc-500">{t('当前：{name}', { name: currentName || '—' })}</span>
+        <span className="text-zinc-500">{mode === 'page' ? t('Kinelayer 织层 · 本机工程库') : t('当前：{name}', { name: currentName || '—' })}</span>
         <span className="text-zinc-700">·</span>
-        <span>{t('Esc 回到编辑器')}</span>
+        <span>{mode === 'page' ? t('选中一个工程进入编辑器') : t('Esc 回到编辑器')}</span>
       </footer>
+
+      {dialog && (
+        <NewProjectDialog
+          initial={dialog}
+          busy={busy}
+          onClose={() => setDialog(null)}
+          onSubmit={(values) => void create(values)}
+        />
+      )}
     </div>
   );
 }

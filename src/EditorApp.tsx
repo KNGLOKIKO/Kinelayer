@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Activity, ScanEye, Sparkles } from 'lucide-react';
 import { TopBar } from '@/ui/TopBar';
 import { LeftPanel, LeftRail } from '@/ui/LeftPanels';
@@ -7,8 +7,10 @@ import { Timeline, TimelineToggle } from '@/ui/Timeline';
 import { Inspector } from '@/ui/Inspector';
 import { AIPanel } from '@/ui/AIPanel';
 import { AuditPanel, StatusBar, Toasts } from '@/ui/Chrome';
+import { ImportReportDialog } from '@/ui/ImportReportDialog';
 import { CodeEditorDialog, ExportDialog, SettingsDialog } from '@/ui/Dialogs';
 import { Launcher } from '@/ui/Launcher';
+import { editorUrl, go, launcherUrl, replaceUrl } from '@/ui/routes';
 import { PromptDialog } from '@/ui/PromptDialog';
 import { FloatingLayerPanels } from '@/ui/FloatingLayerPanels';
 import { exec } from '@/core/commandBus';
@@ -93,17 +95,35 @@ export function EditorApp() {
       await initAI();
       await restoreFonts().catch(() => []);
       /* 打开哪一份：URL 上的 projectId 优先（分享链接/多标签），其次是上次打开的工程。
-         两者都没有 = 首次使用，把内存里的示例工程直接建档，启动页才有东西可列。 */
-      const wanted = new URLSearchParams(window.location.search).get('projectId') || (await getLastProjectId());
+         两者都没有 = 直接敲了 ?view=editor，没东西可开 —— 回启动页选一个，
+         不要凭空造一份示例工程（那会让「工程库」里凭空多出一条记录）。 */
+      const fromUrl = new URLSearchParams(window.location.search).get('projectId');
+      /* view 必须在改写 URL 之前读：下面 replaceUrl 会把 view=launcher 换成 view=editor，
+         之后再读就永远进不了「编辑器 + 工程库覆盖层」这条分支。 */
+      const viewParam = new URLSearchParams(window.location.search).get('view');
+      const wanted = fromUrl || (await getLastProjectId());
       if (disposed) return;
-      const opened = wanted ? await exec('project.open', { projectId: wanted }) : null;
+      if (!wanted) {
+        go(launcherUrl());
+        return;
+      }
+      const opened = await exec('project.open', { projectId: wanted });
       if (!opened || !opened.ok) {
-        /* 记录被删了/索引被清过：不要卡在「正在打开」，就地建档继续用 */
+        /* 记录被删了/索引被清过：不要卡在「正在打开」。没有可回退的工程就回启动页。 */
+        if (!fromUrl) {
+          go(launcherUrl());
+          return;
+        }
         const current = useEditor.getState().project;
         await ensureProjectRecorded(current);
         await setLastProjectId(current.id);
       }
-      if (new URLSearchParams(window.location.search).get('view') === 'launcher') {
+      /* 把 projectId 补进地址栏：刷新才停在编辑器，而不是掉回启动页 */
+      if (!fromUrl) {
+        const id = useEditor.getState().project.id;
+        if (id) replaceUrl(editorUrl(id));
+      }
+      if (viewParam === 'launcher') {
         updateUi((ui) => {
           ui.showLauncher = true;
         });
@@ -111,6 +131,8 @@ export function EditorApp() {
       const token = lsGet('bridge.token');
       const url = lsGet('bridge.url');
       if (token && url && !disposed) connectBridge(url, token);
+      /* 放到最后：前面任何一次换文档都不该触发 URL 同步 */
+      if (!disposed) setBooted(true);
     };
     void boot();
 
@@ -120,6 +142,23 @@ export function EditorApp() {
       unsubBridge();
     };
   }, []);
+
+  /* -------------------------------------------------- URL ↔ 当前工程同步 */
+  /**
+   * 打开/新建/导入都会换掉当前工程，但地址栏还留着上一个 projectId。
+   * 不清掉的话，刷新时 boot 会「URL 优先」把旧工程又开回来 —— 用户会以为自己的切换丢了。
+   *
+   * 必须等 boot 结束再开始同步：首帧那会儿 store 里还是内存里的示例工程，
+   * 这会儿要是抢先改写 URL，boot 待会儿读到的 projectId 就被换掉了（URL 优先的语义直接失效）。
+   */
+  const [booted, setBooted] = useState(false);
+  const liveProjectId = useEditor((s) => s.project.id);
+  useEffect(() => {
+    if (!booted || !liveProjectId) return;
+    const current = new URLSearchParams(window.location.search).get('projectId');
+    if (current === liveProjectId) return;
+    replaceUrl(editorUrl(liveProjectId));
+  }, [booted, liveProjectId]);
 
   /* -------------------------------------------------------- master clock */
   useEffect(() => {
@@ -329,6 +368,7 @@ export function EditorApp() {
       <SettingsDialog />
       <PromptDialog />
       <ExportDialog />
+      <ImportReportDialog />
       <CodeEditorDialog />
       <FloatingLayerPanels />
       <Toasts />

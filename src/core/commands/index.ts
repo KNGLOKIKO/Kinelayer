@@ -13,6 +13,7 @@ import { historyCommands } from './history';
 import { windowCommands } from './windows';
 import { exportCommands } from './export';
 import { queryCommands } from './query';
+import { aiCommands } from './ai';
 import { batchCommand } from './batch';
 
 let registered = false;
@@ -37,5 +38,6 @@ export function registerAllCommands(): void {
   registerCommands(windowCommands);
   registerCommands(exportCommands);
   registerCommands(queryCommands);
+  registerCommands(aiCommands);
   registerCommands([batchCommand]);
 }

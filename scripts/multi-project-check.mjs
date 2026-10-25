@@ -136,6 +136,14 @@ const main = async () => {
   check('dev 调试口就绪', ready);
   if (!ready) return;
 
+  /* 路由改动：`/` 现在是启动页。点「空白项目」进编辑器（等价于用户上手第一步）。
+     之后 URL 会变成 ?view=editor&projectId=…，所以后续 reload 仍停在编辑器。 */
+  await ev(`(() => { const b = document.querySelector('[data-testid="new-blank"]'); if (b) { b.click(); return true; } return false; })()`);
+  for (let i = 0; i < 60; i += 1) {
+    if (await ev('!!document.querySelector("[data-tier]")')) break;
+    await sleep(300);
+  }
+
   /* ── 1. 命令注册 ────────────────────────────────────── */
   const cmds = await ev('window.__kly.commands()');
   const wanted = ['project.listRecent', 'project.create', 'project.open', 'project.rename', 'project.deleteLocal', 'project.duplicate'];

@@ -118,6 +118,13 @@ const main = async () => {
   check('dev 调试口已改名（__kly）', ready);
   if (!ready) return;
 
+  /* 路由改动：`/` 现在是启动页 → 先点「空白项目」进编辑器，后续 reload 才停在编辑器 */
+  await ev(`(() => { const b = document.querySelector('[data-testid="new-blank"]'); if (b) { b.click(); return true; } return false; })()`);
+  for (let i = 0; i < 60; i += 1) {
+    if (await ev('!!document.querySelector("[data-tier]")')) break;
+    await sleep(300);
+  }
+
   /* ── 1. 显示层 ─────────────────────────────────────── */
   const title = await ev('document.title');
   check('页面标题用新品牌', title.includes('Kinelayer') && !title.toLowerCase().includes(OLD_NAME), `«${title}»`);
@@ -226,9 +233,13 @@ const main = async () => {
   const migrated = await waitReady();
   check('重载后编辑器仍可用', migrated);
   if (migrated) {
-    /* 自动保存来自旧库 → 说明迁移在启动时先跑完了 */
-    const name = await ev('window.__kly.state().project.name');
-    check('旧库项目已被新库接管', name === 'LEGACY-MIGRATED', String(name));
+    /* 旧库那份自动保存被迁移成「工程库里的一条记录」，而不是硬抢当前文档 ——
+       多工程之后，迁移只负责搬数据，打开哪份由 URL / lastProjectId 决定。 */
+    const listed = await ev(`(async () => {
+      const r = await window.__kly.dispatch('project.listRecent', { limit: 50 });
+      return (r.data?.projects ?? []).map((p) => p.name);
+    })()`);
+    check('旧库项目已被新库接管（进了工程列表）', listed.includes('LEGACY-MIGRATED'), JSON.stringify(listed));
 
     const both = await ev(`(async () => {
       const names = (await indexedDB.databases()).map((d) => d.name);

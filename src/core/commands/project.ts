@@ -65,6 +65,26 @@ function sessionReset(ctx: CommandContext, project: Project): void {
   });
 }
 
+/**
+ * 把一个**已经在内存里拼好**的工程变成「当前打开的工程」。
+ *
+ * 三条导入路径（.kly 工程包 / 场景 JSON / HTML 片段）最后都要做完全一样的一组动作：
+ * 旧工程先落盘 → 预加载资源（缩略图要渲染，图没就位会拍出空图）→ 建档 → 记住 lastProjectId
+ * → 解掉 detach 标记 → 覆盖 draft → 会话收尾。
+ *
+ * 抽出来是为了让 `project.importBundle` 和 `ai.importProject` 共用一份实现：
+ * 复制一遍必然会在某次改动里分叉（比如某天忘了 detach(null)），然后「导入后自动保存不生效」这种鬼 bug 就出来了。
+ */
+export async function installAsCurrentProject(ctx: CommandContext, project: Project, draft: Project): Promise<void> {
+  await flushCurrent(ctx.before);
+  await ctx.services.preloadProjectAssets(project);
+  await createProjectRecord(project);
+  await setLastProjectId(project.id);
+  detachProject(null);
+  Object.assign(draft, project);
+  sessionReset(ctx, project);
+}
+
 export const projectCommands = [
   defineCommand({
     type: 'project.new',

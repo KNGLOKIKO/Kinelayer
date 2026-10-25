@@ -237,6 +237,21 @@ export const BINDING_TARGETS: BindingTarget[] = [
 
 export type Bindings = Partial<Record<BindingTarget, string>>;
 
+/** 源工程的原始形态，决定「这一层还能不能继续降级」 */
+export type LayerOriginFormat = 'remotion' | 'html' | 'manim' | 'gsap' | 'raw' | 'scene-json' | 'ai-scene';
+
+/**
+ * 来源溯源。不参与渲染，只服务三件事：审计日志、图层树徽标、导入降级决策的记录。
+ * 手搓的图层没有这个字段（缺省 = 用户自己做的），省得给每一层都写一遍。
+ */
+export interface LayerOrigin {
+  generator: 'ai' | 'user' | 'import';
+  sourceFormat?: LayerOriginFormat;
+  /** 原始工程包的标识/文件名，方便回查「这层从哪来的」 */
+  sourceBundle?: string;
+  importedAt?: number;
+}
+
 export interface BaseLayer {
   id: string;
   type: LayerType;
@@ -255,6 +270,7 @@ export interface BaseLayer {
   outPoint: number; // ms，图层消失时间（= duration 表示直到结尾）
   bindings: Bindings;
   meta: Record<string, string>;
+  origin?: LayerOrigin;
 }
 
 export interface BackgroundLayer extends BaseLayer {

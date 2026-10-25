@@ -24,6 +24,12 @@ export const BUNDLE_FORMAT = 'kinelayer-bundle';
 export const BUNDLE_FORMAT_VERSION = 2;
 export const BUNDLE_EXT = '.kly';
 export const BUNDLE_ACCEPT = `${BUNDLE_EXT},.json,application/zip,application/json`;
+/**
+ * 导入对话框认的全部后缀。
+ * 比 BUNDLE_ACCEPT 宽是有意的：同一个按钮现在也接场景 JSON / HTML / 图片视频，
+ * 它们都会先过一遍 `ai.inspectImport`，认不出来的格式在预检阶段就被拦下（不会写库）。
+ */
+export const IMPORT_ACCEPT = [BUNDLE_EXT, '.json', '.html', '.htm', 'application/zip', 'application/json', 'image/*', 'video/*'].join(',');
 
 const ENTRY_MANIFEST = 'manifest.json';
 const ENTRY_PROJECT = 'project.json';
@@ -385,6 +391,27 @@ export async function parseBundle(bytes: Uint8Array): Promise<ParsedBundle> {
 /** 只看前 4 个字节判断是不是 ZIP：用来分流「新 .kly」与「旧 JSON 备份」 */
 export function looksLikeZip(bytes: Uint8Array): boolean {
   return bytes.length > 4 && bytes[0] === 0x50 && bytes[1] === 0x4b && (bytes[2] === 0x03 || bytes[2] === 0x05);
+}
+
+/**
+ * 只列出条目名，**不解压任何东西**。
+ *
+ * `filter` 对每个条目都会被调用一次，返回 false 就直接跳过解压 —— 所以这趟遍历的代价
+ * 只是读中央目录。导入预检用它判断「这是个 .kly、还是个 Remotion 工程、还是别的 ZIP」。
+ */
+export function zipEntryNames(bytes: Uint8Array, limit = BUNDLE_LIMITS.maxEntries): string[] {
+  const names: string[] = [];
+  try {
+    unzipSync(bytes, {
+      filter: (file) => {
+        if (names.length < limit) names.push(file.name);
+        return false;
+      },
+    });
+  } catch {
+    /* 坏包：把已经读到的名字交出去，让调用方自己判断 */
+  }
+  return names;
 }
 
 /** 给 UI 展示的一句话摘要 */

@@ -278,6 +278,7 @@ export function Button({
   title,
   className,
   type = 'button',
+  testId,
 }: {
   children: ReactNode;
   onClick?: () => void;
@@ -287,6 +288,8 @@ export function Button({
   title?: string;
   className?: string;
   type?: 'button' | 'submit';
+  /** 自检脚本用；文案会随语言变，testid 不会 */
+  testId?: string;
 }) {
   const variants: Record<string, string> = {
     ghost: 'text-zinc-300 hover:bg-ink-750 hover:text-white',
@@ -301,6 +304,7 @@ export function Button({
       title={title}
       disabled={disabled}
       onClick={onClick}
+      data-testid={testId}
       className={cx(
         'inline-flex items-center justify-center gap-1.5 rounded-md font-medium transition disabled:cursor-not-allowed disabled:opacity-40',
         size === 'sm' ? 'h-6 px-2 text-[11px]' : 'h-7 px-2.5 text-[12px]',

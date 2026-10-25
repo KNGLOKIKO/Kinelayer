@@ -26,7 +26,7 @@ import { listByCategory, type CommandCategory } from '@/core/registry';
 import { pushToast, updateUi, useEditor } from '@/core/store';
 import { idbGetAsset } from '@/persist/idb';
 import { SYSTEM_FONTS, listLocalFonts } from '@/persist/fonts';
-import type { Layer } from '@/core/types';
+import type { Layer, LayerOrigin } from '@/core/types';
 import { Badge, Button, EmptyState, IconButton, TextInput, cx } from './primitives';
 
 import { t } from '@/i18n';
@@ -82,6 +82,16 @@ function layerIcon(type: Layer['type']) {
     default:
       return <Square size={13} />;
   }
+}
+
+/** 徽标的悬浮说明：只放能核对的事实（谁生成的、从哪种格式来的、什么时候） */
+function originTitle(origin: LayerOrigin): string {
+  const generator = origin.generator === 'ai' ? t('AI 生成') : t('外部导入');
+  const parts = [generator];
+  if (origin.sourceFormat) parts.push(origin.sourceFormat);
+  if (origin.sourceBundle) parts.push(origin.sourceBundle);
+  if (origin.importedAt) parts.push(new Date(origin.importedAt).toLocaleString());
+  return parts.join(' · ');
 }
 
 function LayerRow({ layer, index }: { layer: Layer; index: number }) {
@@ -149,6 +159,18 @@ function LayerRow({ layer, index }: { layer: Layer; index: number }) {
         <span className="min-w-0 flex-1 truncate text-[11.5px]">{layer.name}</span>
       )}
       {layer.type === 'code' ? <Badge tone="cyan">code</Badge> : null}
+      {/*
+        来源徽标：AI 生成的层和导入的层长得跟手搓的一模一样，
+        不标出来用户会以为「这层本来就是我做的」，然后奇怪为什么改不了。
+        悬浮到徽标上给出 生成方式 · 来源格式 · 导入时间。
+      */}
+      {layer.origin && (
+        <span title={originTitle(layer.origin)}>
+          <Badge tone={layer.origin.generator === 'ai' ? 'accent' : 'neutral'}>
+            {layer.origin.generator === 'ai' ? 'AI' : t('导入')}
+          </Badge>
+        </span>
+      )}
       {!isBg && (
         <button
           type="button"

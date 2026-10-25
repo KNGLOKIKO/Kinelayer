@@ -11,45 +11,18 @@ import { applyLocale } from '@/i18n/apply';
 import { LOCALES } from '@/i18n';
 import { connectBridge, disconnectBridge } from '@/ai/bridgeClient';
 import { recoverLegacyProject } from '@/persist/projects';
-import { importProjectFile, pickProjectFile } from './importProject';
+import { pickImportFile } from './importFlow';
+import { IMPORT_ACCEPT } from '@/core/bundle';
 import { lsGet, lsSet } from '@/persist/storage';
 
 import { AgentAccessPanel } from './AgentAccessPanel';
 import { t } from '@/i18n';
 /* ------------------------------------------------------------------ modal */
 
-export function Modal({
-  title,
-  onClose,
-  children,
-  width = 720,
-  footer,
-}: {
-  title: string;
-  onClose: () => void;
-  children: React.ReactNode;
-  width?: number;
-  footer?: React.ReactNode;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6 backdrop-blur-sm" onMouseDown={onClose}>
-      <div
-        className="border-ink-600 bg-ink-850 animate-fadeIn flex max-h-[86vh] w-full flex-col overflow-hidden rounded-xl border shadow-pop"
-        style={{ maxWidth: width }}
-        onMouseDown={(e) => e.stopPropagation()}
-      >
-        <div className="border-ink-700 flex h-11 shrink-0 items-center justify-between border-b px-4">
-          <span className="text-[12.5px] font-semibold text-zinc-200">{title}</span>
-          <IconButton size={24} onClick={onClose}>
-            <X size={14} />
-          </IconButton>
-        </div>
-        <div className="ml-scroll min-h-0 flex-1 overflow-y-auto p-4">{children}</div>
-        {footer && <div className="border-ink-700 flex shrink-0 items-center justify-end gap-2 border-t px-4 py-2.5">{footer}</div>}
-      </div>
-    </div>
-  );
-}
+/* Modal 本体搬到了 ./Modal.tsx：启动页也要用，不能为了一个外壳把 CodeMirror 拖进 chunk */
+import { Modal } from './Modal';
+
+export { Modal };
 
 /* ---------------------------------------------------------------- settings */
 
@@ -71,7 +44,7 @@ export function SettingsDialog() {
   const locale = useEditor((s) => s.ui.locale);
   const [token, setToken] = useState(() => lsGet('bridge.token') ?? '');
   const [url, setUrl] = useState(() => lsGet('bridge.url') ?? 'ws://127.0.0.1:2718');
-  const importFile = () => pickProjectFile((file) => void importProjectFile(file));
+  const importFile = () => pickImportFile(IMPORT_ACCEPT);
 
   /* 数据页要显示「本机有几个工程」，只读索引，不加载工程本体 */
   const projectId = useEditor((s) => s.project.id);
@@ -230,11 +203,18 @@ export function SettingsDialog() {
             <Button variant="outline" onClick={() => void exec('project.exportBundle', {})}>
               {t('导出工程包 .kly')}
             </Button>
-            <Button variant="outline" onClick={() => void importFile()}>
-              {t('导入工程包 .kly')}
+            <Button variant="outline" onClick={() => void importFile()} testId="settings-import">
+              {t('导入文件…')}
             </Button>
             <Button variant="ghost" onClick={() => void exec('export.json', {})}>
               {t('导出 JSON 备份')}
+            </Button>
+            <Button
+              variant="outline"
+              testId="export-ai-scene"
+              onClick={() => void exec('ai.exportProject', { download: true, includeCode: true })}
+            >
+              {t('导出 scene.ai.json')}
             </Button>
             <Button
               variant="outline"

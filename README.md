@@ -55,8 +55,10 @@ Kinelayer/
 │  │  ├─ temporal.ts           自研撤销栈：immer patches / inverse patches / 700ms 合并
 │  │  ├─ store.ts              Zustand 三段式：project（存盘）/ ui / runtime（都不存盘）
 │  │  ├─ defaults.ts           工厂 + normalizeProject（读宽容、写严格）+ 演示项目
-│  │  ├─ commands/*.ts         74 条命令，按领域分文件（图层/文本/代码/背景/项目/资源/字体/时间轴/动画/选择/历史/窗口/导出/查询/批处理）
+│  │  ├─ commands/*.ts         78 条命令，按领域分文件（图层/文本/代码/背景/项目/资源/字体/时间轴/动画/选择/历史/窗口/导出/查询/AI/批处理）
 │  │  ├─ bundle.ts             工程包（.kly）：ZIP 打包/解包、逐文件 sha256、五道解压闸门
+│  │  ├─ importPipeline.ts     【v2.5】导入管线的纯函数部分：嗅探 → 预检报告 → 映射成图层/轨道
+│  │  ├─ aiScene.ts            【v2.5】`scene.ai.json`：给 Agent 的语义投影（秒制、无 base64、代码摘要）
 │  │  └─ summary.ts            给 AI 的项目摘要（不含 base64，代码截断）
 │  ├─ render/                  ★ 渲染层：纯函数，不知道 React 的存在
 │  │  ├─ renderScene.ts        渲染单入口：预览 / PNG / WebM / 镜像 全走这里
@@ -73,9 +75,13 @@ Kinelayer/
 │  ├─ windows/                 ★ 多窗口：协议、Host、Client、镜像 UI、图层时间轴、独立页入口
 │  ├─ ai/                      ★ AI：OpenAI 兼容客户端、加密配置、演示 Agent、桥接客户端
 │  ├─ ui/                      舞台、时间轴、属性面板、图层面板、AI 面板、对话框
-│  │  ├─ Launcher.tsx          启动页：最近工程卡片网格 + 新建预设 + 重命名/复制/删除/导入
+│  │  ├─ Launcher.tsx          启动页：page（独立视图）/ overlay（编辑器内 Ctrl+O）两种形态
+│  │  ├─ LauncherPage.tsx      路由 `/` 的入口：只挂启动页与 Toast，不挂 Host
+│  │  ├─ NewProjectDialog.tsx  新建项目：名称 / 预设 / 宽高 + 单位换算 / 时长 / 帧率 / 背景
+│  │  ├─ routes.ts             `?view=editor|layer|launcher` 的 URL 构造与跳转
 │  │  ├─ layout.ts             响应式三档（wide ≥1440 / mid ≥1080 / narrow），rAF 节流
-│  │  └─ importProject.ts      统一导入入口：按 ZIP 头分流 .kly 工程包 / 旧 JSON 备份
+│  │  ├─ importFlow.ts         导入状态机：选文件 → 预检 → 报告 → 确认 → 写库（成功后关覆盖层/跳编辑器）
+│  │  └─ ImportReportDialog.tsx 导入预检报告：格式、可编辑程度、图层统计、降级说明、缺失资源
 │  ├─ app/services.ts          把「副作用能力」注入命令层的服务表
 │  ├─ EditorApp.tsx            三栏布局 + 引导 + 主时钟 + 自动保存 + 快捷键 + 窄屏抽屉
 │  └─ main.tsx                 注册命令 → 注入服务 → 按 URL 分流主窗口/图层窗口
@@ -89,7 +95,9 @@ Kinelayer/
 │  ├─ rename-check.mjs         21 项 · 品牌迁移与格式迁移
 │  ├─ multi-project-check.mjs  32 项 · 多工程、索引、旧单工程迁移
 │  ├─ agent-panel-check.mjs    16 项 · 桌面 Agent 提示词面板
-│  └─ bundle-check.mjs         20 项 · .kly 真下载/真导入/敌意包拒绝
+│  ├─ bundle-check.mjs         20 项 · .kly 真下载/真导入/敌意包拒绝
+│  ├─ launcher-check.mjs       22 项 · 启动页路由/新建对话框/单位换算/缩略图/删除/英文模式
+│  └─ ai-check.mjs             33 项 · v2.5 导入预检/降级映射/scene.ai.json 往返/Remotion 明确拒绝
 └─ docs/
    ├─ 00-reference-notes.md    参考项目提取报告（第十四章）
    ├─ 01-known-limitations.md  已知限制与扩展点
@@ -103,7 +111,7 @@ Kinelayer/
 
 ---
 
-## 命令一览（74 条）
+## 命令一览（78 条）
 
 | 分类  | 条数 | 代表命令                                                                                                                                                                                                                          |
 | --- | -- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -122,6 +130,7 @@ Kinelayer/
 | 窗口  | 4  | `window.openLayer` `window.closeLayer` `window.focusLayer` `window.setMode`                                                                                                                                                   |
 | 导出  | 4  | `export.png` `export.webm` `export.json` `export.commands`                                                                                                                                                                    |
 | 查询  | 4  | `query.project` `query.layer` `query.registry` `query.capture`                                                                                                                                                                |
+| AI  | 4  | `ai.inspectImport` `ai.importProject` `ai.exportProject` `ai.queryCodeLayer`                                                                                                                                                   |
 | 批处理 | 1  | `command.batch`（多条命令合成一个撤销点，失败原子回滚）                                                                                                                                                                                           |
 
 每条命令都自带：zod schema、中文描述、可直接跑的 `example`、
@@ -159,14 +168,27 @@ v2 之前一次只能开一个工程，关掉标签页就等于把旧的忘了�
 
 ### 启动页（工程库）
 
-`Ctrl/Cmd + O`，或直接开 `?view=launcher`。卡片网格列出本机所有工程：缩略图、名字、
-尺寸、时长、图层数、更新时间；当前工程带「当前」徽章。悬停出操作条 —— 重命名、复制一份、
-导出 `.kly`、删除；头部有「新建」（竖版 1080×1440 / 方版 1080×1080 / 横版 1920×1080）
-和「导入工程包」。
+访问根路径就是启动页，`Ctrl/Cmd + O` 在编辑器里打开同一个库（覆盖层，不重新加载）。
 
-**卡片上没有一个操作直接碰 IndexedDB**：全部走 `project.rename` / `project.duplicate` /
-`project.deleteLocal` / `project.create` / `project.open`。所以在启动页做的事，和 AI 或
-外部 Agent 做的事是同一件事，撤销栈、审计日志、dryRun 都一致。
+| 路由 | 视图 |
+| --- | --- |
+| `/` | 启动页（独立视图，**不是 Host**，只读索引 + 发命令） |
+| `/?view=editor&projectId=xxx` | 编辑器（唯一 Host） |
+| `/?view=layer&layerId=…&host=…` | 图层独立窗口（纯 Client） |
+| `/?view=launcher` | 编辑器 + 工程库覆盖层（历史深链） |
+
+启动页**从不渲染编辑器** —— 那会同时存在两个 Host（主时钟、撤销栈各一份）。点「打开」只做两件事：
+写 `lastProjectId`，然后 `location` 跳进 `?view=editor&projectId=…`。三个视图分开打包，
+列工程不需要先把 CodeMirror 和渲染引擎拉下来。
+
+左栏新建：空白项目（1080×1440 / 5s / 30fps）、自定义尺寸、四个预设（海报 / 横幅 / 方形 / 竖屏）。
+右栏最近项目（最多 12 张，按更新时间降序），悬停出「打开 / 重命名 / 导出工程包 / 删除」，
+右上角「打开本地 .kly 文件」。空状态明确告诉你从左边新建。
+
+**新建对话框**：项目名（≤60）、预设填充、宽高（40–8000px）、时长（0.5–600s，0.1 步进）、
+帧率（24/25/30/60）、背景色。宽高支持 **px / mm / cm / in** 四种单位，按 96dpi 换算
+（1mm = 96/25.4 px），切单位时数字跟着换算、物理尺寸不变；**数据层永远只存 px**。
+创建后直接进编辑器，并且当场写一次缩略图 —— 否则回到工程库就是一张空白卡。
 
 删除当前工程时会先 `detach`：自动保存从此跳过它，否则定时器一响就把刚删的工程写回来。
 
@@ -206,13 +228,61 @@ in/out 之外压暗、每条属性轨道一条细线、关键帧按属性配色�
 
 ---
 
+## v2.5 · AI 代码视频：导入与语义导出（阶段 A）
+
+这一阶段的定位是「让 AI 生成的工程进得来、出得去」，三条原则：
+
+1. **代码是一等公民图层**。导入不了的东西不硬塞成图片：能映射成文本/图片/轨道的就映射，
+   映射不了又确实要画的（矩形、圆、路径）降级成 canvas2d 代码层 —— 位置/尺寸/透明度照样能打关键帧，
+   只是内部不可逐元素编辑。
+2. **导入先预检，再落库**。`ai.inspectImport` 是纯函数，给字节或文本就能算出「会得到什么」：
+   格式、可编辑程度、图层/代码层/轨道/关键帧计数、每一处降级的原因、缺失的资源。
+   用户确认后 `ai.importProject` 才写库（它内部会再跑一次同样的预检，Agent 跳过第一步也拿得到报告）。
+3. **导出带「工程语义层」**。`ai.exportProject` 产出 `scene.ai.json`：时间统一秒、缓动压成字符串、
+   代码层给 `codeSummary` + `codeLines` + `codeBytes`，**不含任何 base64**。
+
+### 判据：什么被映射，什么被降级
+
+| 输入 | 结果 | 可编辑程度 |
+| --- | --- | --- |
+| `.kly` 工程包 | 走 `project.importBundle`（校验 sha256） | 100 |
+| 原生 `project.json` | `normalizeProject` 精确还原（认的是 blendMode/animation/inPoint 这套原生字段，不是 `layers[0].type`） | 100 |
+| `scene.ai.json` | 摊平回场景形状再走同一条映射管线 | 96 起 |
+| 场景 JSON（Rendervid / cadence 风格） | 文本→文本层、图片视频→媒体层、坐标/尺寸/时序→图层属性、`tracks`→属性轨道；矩形/圆→canvas2d 代码层 | 70–96 |
+| HTML / GSAP 片段 | 整段作为 `html` 代码层 | 55 |
+| 图片 / 视频 | 建画布 + 媒体层 | 30 |
+| Remotion 工程 | **明确拒绝**（浏览器里跑不了 TSX，不假装导入成功），等阶段 B 的静态解析 | — |
+
+`scene.ai.json` 能原路导回（33 项自检里有一组往返用例）：导出的语义投影再导入，
+图层数、文字内容、轨道与关键帧都能对上；媒体层因为不带二进制，只会剩资源名 ——
+这一点在预检报告里明写，不靠用户自己发现。
+
+### 每一层都记得自己从哪来
+
+`LayerOrigin = { generator, sourceFormat, sourceBundle, importedAt }`，不参与渲染，
+只服务三件事：图层树上的来源徽标（`AI` / `导入` + 悬浮看详情）、导入降级决策的审计、以及「这层为什么改不了」。
+
+### 相关命令
+
+```
+ai.inspectImport   { stageId | text, name?, format? }        → { report, importable }
+ai.importProject   { stageId | text, mode? }                 → { projectId, format, fidelity, counts… }
+ai.exportProject   { projectId?, includeCode?, download? }   → { filename, text, bytes, layers… }
+ai.queryCodeLayer  { layerId?, includeCode? }                → 代码层摘要（不拉整份场景）
+```
+
+阶段 B（Remotion 静态解析 + `remotion-component` 引擎）与阶段 C（HTML/GSAP 结构化提取）
+还没做，README 与 `docs/01-known-limitations.md` 都按「没做」写。
+
+---
+
 ## 快捷键
 
 | 操作            | 快捷键                                     |
 | ------------- | --------------------------------------- |
 | 撤销 / 重做       | `Ctrl/Cmd + Z` / `Ctrl/Cmd + Shift + Z` |
 | 复制选中图层        | `Ctrl/Cmd + D`                          |
-| 打开工程库（启动页）    | `Ctrl/Cmd + O`                          |
+| 打开工程库（覆盖层）    | `Ctrl/Cmd + O`                          |
 | 导出工程包 `.kly` | `Ctrl/Cmd + S`                          |
 | 播放 / 暂停       | `Space`                                 |
 | 删除选中          | `Delete` / `Backspace`                  |

@@ -54,6 +54,14 @@ export interface Services {
   stageBundle(file: File): Promise<{ stageId: string; name: string; bytes: number; zip: boolean }>;
   /** 取走暂存内容（取一次就没了），过期或不存在返回 null */
   takeBundleStage(stageId: string): Promise<Uint8Array | null>;
+  /**
+   * 偷看暂存内容（取走后仍在）。
+   * 导入预检 `ai.inspectImport` 要读，用户确认后 `ai.importProject` 还要再读一次 ——
+   * 用 takeBundleStage 会把文件吃没了，第二次导入直接报「文件已过期」。
+   */
+  peekBundleStage(stageId: string): Promise<{ name: string; bytes: Uint8Array } | null>;
+  /** 保存一份文本产物（scene.ai.json / 降级报告 / 命令清单），触发下载 */
+  saveTextFile(filename: string, text: string, mime?: string): Promise<{ filename: string; bytes: number }>;
   capture(o: CaptureOptions): Promise<{ dataUrl: string; width: number; height: number }>;
   importAsset(input: ImportAssetInput): Promise<AssetMeta>;
   removeAsset(id: string): Promise<void>;

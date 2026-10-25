@@ -56,8 +56,10 @@ Kinelayer/
 │  │  ├─ temporal.ts           Hand-rolled undo: immer patches / inverse patches / 700ms coalescing
 │  │  ├─ store.ts              Zustand in three slices: project (persisted) / ui / runtime (never persisted)
 │  │  ├─ defaults.ts           Factories + normalizeProject (lenient read, strict write) + demo project
-│  │  ├─ commands/*.ts         74 commands, one file per domain (layer/text/code/background/project/asset/font/timeline/animation/selection/history/window/export/query/batch)
+│  │  ├─ commands/*.ts         78 commands, one file per domain (layer/text/code/background/project/asset/font/timeline/animation/selection/history/window/export/query/AI/batch)
 │  │  ├─ bundle.ts             Project package (.kly): ZIP packing/unpacking, per-file sha256, five unzip gates
+│  │  ├─ importPipeline.ts     [v2.5] Import pipeline, pure functions: sniff → inspect report → map to layers/tracks
+│  │  ├─ aiScene.ts            [v2.5] `scene.ai.json`: the semantic projection agents read (seconds, no base64, code digest)
 │  │  └─ summary.ts            Project summary for the AI (no base64, code truncated)
 │  ├─ render/                  ★ Rendering: pure functions, unaware that React exists
 │  │  ├─ renderScene.ts        The single render entry: preview / PNG / WebM / mirror all go through it
@@ -75,7 +77,8 @@ Kinelayer/
 │  ├─ ui/                      Stage, timeline, inspector, layer panel, AI panel, dialogs
 │  │  ├─ Launcher.tsx          Launcher: recent-project card grid + size presets + rename/duplicate/delete/import
 │  │  ├─ layout.ts             Three responsive tiers (wide ≥1440 / mid ≥1080 / narrow), rAF-throttled
-│  │  └─ importProject.ts      Single import entry: routes on the ZIP header to .kly package vs legacy JSON
+│  │  ├─ importFlow.ts         Import state machine: pick → inspect → report → confirm → write (then leave the overlay)
+│  │  └─ ImportReportDialog.tsx Import report: format, editable score, layer counts, degradation notes, missing assets
 │  ├─ app/services.ts          Injects "side-effect capabilities" into the command layer
 │  ├─ EditorApp.tsx            Shell + tour + master clock + autosave + shortcuts + narrow-screen drawers
 │  └─ main.tsx                 Register commands → inject services → route by URL to host or layer window
@@ -89,7 +92,9 @@ Kinelayer/
 │  ├─ rename-check.mjs         21 · brand and format migration
 │  ├─ multi-project-check.mjs  32 · multi-project, index, legacy single-project migration
 │  ├─ agent-panel-check.mjs    16 · desktop-agent prompt panel
-│  └─ bundle-check.mjs         20 · .kly real download / real import / hostile package rejection
+│  ├─ bundle-check.mjs         20 · .kly real download / real import / hostile package rejection
+│  ├─ launcher-check.mjs       22 · launcher routing, new-project dialog, unit conversion, thumbnails, English mode
+│  └─ ai-check.mjs             33 · [v2.5] import inspect, degradation mapping, scene.ai.json round trip, Remotion refusal
 └─ docs/
    ├─ 00-reference-notes.md    Reference-project extraction report (chapter 14)
    ├─ 01-known-limitations.md  Known limits and extension points
@@ -103,7 +108,7 @@ injected through `services.ts`.
 
 ---
 
-## Commands at a glance (74)
+## Commands at a glance (78)
 
 | Category | Count | Representative commands |
 | --- | --- | --- |
@@ -122,6 +127,7 @@ injected through `services.ts`.
 | Window | 4 | `window.openLayer` `window.closeLayer` `window.focusLayer` `window.setMode` |
 | Export | 4 | `export.png` `export.webm` `export.json` `export.commands` |
 | Query | 4 | `query.project` `query.layer` `query.registry` `query.capture` |
+| AI | 4 | `ai.inspectImport` `ai.importProject` `ai.exportProject` `ai.queryCodeLayer` |
 | Batch | 1 | `command.batch` (many commands collapsed into one undo point, atomic rollback on failure) |
 
 Every command carries a zod schema, a description, a runnable `example`, and metadata such as
@@ -207,6 +213,50 @@ the playhead is a red line, and you can jump to the previous/next keyframe.
 It stays a **read-only mirror**: dragging emits `{ kind: 'command', command: 'timeline.seek' }` to the host,
 and the host decides the landing point and broadcasts it back. Seeks are throttled to 80ms keeping the last
 position, so scrubbing across the whole timeline produces a sparse stream instead of flooding the queue.
+
+---
+
+## v2.5 · AI code video: importing in, exporting semantics out (phase A)
+
+The job of this phase is to let AI-generated projects come in and go out, under three rules:
+
+1. **Code is a first-class layer.** Whatever cannot be mapped is not disguised as a picture: text/images/timing
+   map to native layers and tracks, and things that still need drawing (rectangles, circles, paths) degrade into
+   a canvas2d code layer — position/size/opacity stay keyframable, only the internals stop being element-editable.
+2. **Inspect first, then write.** `ai.inspectImport` is a pure function: given bytes or text it answers
+   "what will this import produce" — format, editable score, layer/code/track/keyframe counts, every degradation
+   reason, missing assets. Only after the user confirms does `ai.importProject` write (it re-runs the same
+   inspection internally, so an agent that skips step one still gets the report).
+3. **Export carries a semantic layer.** `ai.exportProject` emits `scene.ai.json`: seconds instead of milliseconds,
+   easing flattened to strings, code layers carrying `codeSummary` + `codeLines` + `codeBytes`, and **no base64**.
+
+| Input | Result | Editable |
+| --- | --- | --- |
+| `.kly` package | goes through `project.importBundle` (sha256 verified) | 100 |
+| native `project.json` | `normalizeProject` restores it exactly (detected by blendMode/animation/inPoint, not `layers[0].type`) | 100 |
+| `scene.ai.json` | flattened back to scene shape, then the same pipeline | 96+ |
+| scene JSON (Rendervid / cadence style) | text→text layer, media→media layer, box/timing→layer props, `tracks`→property tracks; rect/circle→canvas2d code layer | 70–96 |
+| HTML / GSAP snippet | whole snippet as an `html` code layer | 55 |
+| image / video | canvas + media layer | 30 |
+| Remotion project | **refused on purpose** (no TSX execution in the browser; no pretending), until phase B adds static parsing | — |
+
+`scene.ai.json` round-trips: re-importing the semantic projection keeps layer count, text and keyframes;
+media layers keep only the asset name because the export carries no binary, and the report says so instead of
+letting users discover it themselves.
+
+Every layer remembers where it came from — `LayerOrigin = { generator, sourceFormat, sourceBundle, importedAt }` —
+which drives the `AI` / `Import` badge in the layer tree, the audit trail for degradation decisions, and the
+answer to "why can't I edit inside this layer".
+
+```
+ai.inspectImport   { stageId | text, name?, format? }        → { report, importable }
+ai.importProject   { stageId | text, mode? }                 → { projectId, format, fidelity, counts… }
+ai.exportProject   { projectId?, includeCode?, download? }   → { filename, text, bytes, layers… }
+ai.queryCodeLayer  { layerId?, includeCode? }                → code-layer digests (no full scene)
+```
+
+Phase B (Remotion static parsing + a `remotion-component` engine) and phase C (structured HTML/GSAP extraction)
+are not implemented; both READMEs and `docs/01-known-limitations.md` say so.
 
 ---
 

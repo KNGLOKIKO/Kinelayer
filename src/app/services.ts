@@ -104,6 +104,19 @@ export function ensureServices(): void {
       stages.delete(stageId);
       return item.bytes;
     },
+    async peekBundleStage(stageId) {
+      pruneStages();
+      const item = stages.get(stageId);
+      if (!item) return null;
+      /* 偷看不刷新 at：TTL 从「选中文件」那一刻算起，免得反复预检把一份过期文件续命 */
+      return { name: item.name, bytes: item.bytes };
+    },
+    async saveTextFile(filename, text, mime = 'application/json') {
+      const blob = new Blob([text], { type: `${mime};charset=utf-8` });
+      downloadBlob(blob, filename);
+      pushToast('success', t('已导出 {name}', { name: filename }));
+      return { filename, bytes: blob.size };
+    },
     async capture(opts) {
       const project = useEditor.getState().project;
       return captureFrame(project, { maxWidth: opts.maxWidth ?? 720, layerId: opts.layerId ?? null, time: opts.time });
