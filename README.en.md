@@ -56,12 +56,13 @@ MotionLayer/
 │  │  ├─ temporal.ts           Hand-rolled undo: immer patches / inverse patches / 700ms coalescing
 │  │  ├─ store.ts              Zustand in three slices: project (persisted) / ui / runtime (never persisted)
 │  │  ├─ defaults.ts           Factories + normalizeProject (lenient read, strict write) + demo project
-│  │  ├─ commands/*.ts         59 commands, one file per domain (layer/text/code/background/project/asset/font/timeline/selection/history/window/export/query/batch)
+│  │  ├─ commands/*.ts         67 commands, one file per domain (layer/text/code/background/project/asset/font/timeline/animation/selection/history/window/export/query/batch)
 │  │  └─ summary.ts            Project summary for the AI (no base64, code truncated)
 │  ├─ render/                  ★ Rendering: pure functions, unaware that React exists
 │  │  ├─ renderScene.ts        The single render entry: preview / PNG / WebM / mirror all go through it
 │  │  ├─ geometry.ts           Coordinates, hit testing, fitViewport, snapping
-│  │  ├─ animation.ts          Expression compilation, noise, preset sampling, three-slot composition
+│  │  ├─ animation.ts          Expression compilation, noise, preset sampling, three-slot composition + track override
+│  │  ├─ keyframes.ts          [v2] Keyframe evaluation: evaluateTrack / applyTracks / cubic-bezier
 │  │  ├─ text.ts               Manual line breaking (per-char for CJK, per-word for Latin), gradient text, tracking
 │  │  ├─ codeEngine.ts         canvas2d / glsl / html engines + sandbox + circuit breaker + signal bus
 │  │  ├─ assets.ts             Image/video pool (IndexedDB → ImageBitmap / VideoElement)
@@ -89,7 +90,7 @@ injected through `services.ts`.
 
 ---
 
-## Commands at a glance (59)
+## Commands at a glance (67)
 
 | Category | Count | Representative commands |
 | --- | --- | --- |
@@ -102,6 +103,7 @@ injected through `services.ts`.
 | Asset | 3 | `asset.import` `asset.place` `asset.remove` |
 | Font | 3 | `font.register` `font.load` `font.remove` |
 | Timeline | 5 | `timeline.play` `timeline.pause` `timeline.seek` `timeline.setLayerTiming` `timeline.setLoop` |
+| Animation v2 | 8 | `animation.setKeyframe` `animation.removeKeyframe` `animation.moveKeyframes` `animation.setEasing` `animation.setKeyframeValue` `animation.clearTrack` `animation.setAutoKeyframe` `animation.applyPreset` |
 | Selection | 4 | `selection.set` `selection.toggle` `selection.add` `selection.clear` |
 | History | 3 | `history.undo` `history.redo` `history.clear` |
 | Window | 4 | `window.openLayer` `window.closeLayer` `window.focusLayer` `window.setMode` |
@@ -111,6 +113,31 @@ injected through `services.ts`.
 
 Every command carries a zod schema, a description, a runnable `example`, and metadata such as
 `mutating / dangerous / undoable / coalesce / asyncHandler / resetsHistory`.
+
+---
+
+## v2 · Keyframes
+
+v1 had three preset slots (enter / exit / emphasis) — enough for a stiff fade, not enough for real motion.
+v2 adds **property tracks** on top, and demotes the presets to one-click sugar: what they generate are
+ordinary tracks, and there is no second animation runtime.
+
+| Concept | Notes |
+| --- | --- |
+| `AnimatableProperty` | `x` `y` `width` `height` `rotation` `opacity` `fontSize` `letterSpacing`. One admission rule: the value must be uniquely derivable from `(keyframes, localTime)` |
+| `Keyframe.time` | **Milliseconds relative to the layer's `inPoint`** — never an absolute time. Move the layer and every keyframe follows |
+| `EasingSpec` | Any existing easing name, or a `cubic-bezier` curve (same meaning as CSS; solved with Newton iterations plus a bisection fallback) |
+| Evaluation order | base properties → preset slots (whole-span decoration) → **tracks (absolute, they win)** → expression bindings |
+| Auto-keyframe | With it on, changing a property that **already has a track** drops a keyframe at the playhead. Implemented in the command layer, so humans, the AI and agents behave identically |
+
+In the timeline: `A` on each layer row toggles auto-keyframe, the diamond button opens the preset menu.
+Expand a layer with the chevron to see its property tracks; the diamond on a track adds a keyframe at the
+playhead, dragging a diamond shifts the selection (committed on release — one drag, one undo entry), and
+`Shift`-click multi-selects so you can change easing or delete as a group. Layers pushed outside the
+duration are highlighted in red, and the "N layers out of range · fix" button pulls them back in one go.
+
+Project files carry `schemaVersion` (currently 2). v1 files are migrated by `normalizeAnimation` on read,
+and always written back at the current version — lenient read, strict write.
 
 ---
 

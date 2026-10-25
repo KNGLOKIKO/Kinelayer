@@ -55,12 +55,13 @@ MotionLayer/
 │  │  ├─ temporal.ts           自研撤销栈：immer patches / inverse patches / 700ms 合并
 │  │  ├─ store.ts              Zustand 三段式：project（存盘）/ ui / runtime（都不存盘）
 │  │  ├─ defaults.ts           工厂 + normalizeProject（读宽容、写严格）+ 演示项目
-│  │  ├─ commands/*.ts         59 条命令，按领域分文件（图层/文本/代码/背景/项目/资源/字体/时间轴/选择/历史/窗口/导出/查询/批处理）
+│  │  ├─ commands/*.ts         67 条命令，按领域分文件（图层/文本/代码/背景/项目/资源/字体/时间轴/动画/选择/历史/窗口/导出/查询/批处理）
 │  │  └─ summary.ts            给 AI 的项目摘要（不含 base64，代码截断）
 │  ├─ render/                  ★ 渲染层：纯函数，不知道 React 的存在
 │  │  ├─ renderScene.ts        渲染单入口：预览 / PNG / WebM / 镜像 全走这里
 │  │  ├─ geometry.ts           坐标系、命中测试、fitViewport、吸附
-│  │  ├─ animation.ts          表达式编译、噪声、预设采样、三槽位合成
+│  │  ├─ animation.ts          表达式编译、噪声、预设采样、三槽位合成 + 轨道覆盖
+│  │  ├─ keyframes.ts          【v2】关键帧求值：evaluateTrack / applyTracks / cubic-bezier
 │  │  ├─ text.ts               手工断行（CJK 按字 / 拉丁按词）、渐变字、字距
 │  │  ├─ codeEngine.ts         canvas2d / glsl / html 三引擎 + 沙箱 + 熔断 + 信号总线
 │  │  ├─ assets.ts             图片/视频资源池（IndexedDB → ImageBitmap/VideoElement）
@@ -87,7 +88,7 @@ MotionLayer/
 
 ---
 
-## 命令一览（59 条）
+## 命令一览（67 条）
 
 | 分类  | 条数 | 代表命令                                                                                                                                                                                                                          |
 | --- | -- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -109,6 +110,30 @@ MotionLayer/
 
 每条命令都自带：zod schema、中文描述、可直接跑的 `example`、
 以及 `mutating / dangerous / undoable / coalesce / asyncHandler / resetsHistory` 等元信息。
+
+---
+
+## v2 · 关键帧
+
+v1 只有「入场 / 退场 / 强调」三个预设槽位，能做出生硬的淡入淡出，做不出真正的动效。
+v2 在它上面加了**属性轨道**，而预设变成「一键生成关键帧」的语法糖——生成完就是普通轨道，
+运行时没有第二套动画系统。
+
+| 概念 | 说明 |
+| --- | --- |
+| `AnimatableProperty` | `x` `y` `width` `height` `rotation` `opacity` `fontSize` `letterSpacing`。准入标准只有一条：值必须能由 `(keyframes, localTime)` 唯一算出 |
+| `Keyframe.time` | **相对图层 `inPoint` 的毫秒数**，绝不存绝对时间。整段图层挪位时关键帧自动跟着走 |
+| `EasingSpec` | 复用既有缓动名，或 `cubic-bezier` 自定义曲线（与 CSS 同义，牛顿迭代 + 二分求解） |
+| 求值优先级 | 基础属性 → 预设槽位（整段修饰）→ **轨道（绝对定点，赢）** → 表达式绑定 |
+| 自动关键帧 | 开关打开后，改动**已有轨道**的属性会在当前播放头自动落点。实现在命令层，所以人、AI、Agent 行为完全一致 |
+
+用法：时间轴上每个图层左侧的 `A` 是自动关键帧开关，菱形按钮是预设菜单；点图层名前的箭头
+展开属性轨道，轨道右侧的菱形「在播放头打点」，拖菱形整体平移（松手才提交，一次拖动只留一个撤销点），
+`Shift` 点可多选后统一改缓动或删除。缩短时长导致越界的图层会在时间轴上标红，点顶部的
+「N 个图层越界 · 修复」一次收回。
+
+工程文件带 `schemaVersion`（当前为 2）。读入时 v1 文件会被 `normalizeAnimation` 平滑迁移，
+写出永远是当前版本——读宽容、写严格。
 
 ---
 
