@@ -4,6 +4,10 @@ import { createEmptyProject, normalizeProject } from '../defaults';
 import { unpackProject } from '../projectFile';
 import { LIMITS, getBackground, type Project } from '../types';
 import { clamp } from '../geometry';
+import { BundleError, blobOf, buildBundle, bytesToDataUrl, parseBundle } from '../bundle';
+import { uid } from '../ids';
+import { idbGetAsset, idbPutAsset } from '@/persist/idb';
+import { listStoredFonts, registerFontFace } from '@/persist/fonts';
 import {
   createProjectRecord,
   deleteProjectRecord,
@@ -326,6 +330,131 @@ export const projectCommands = [
       if (ctx.dryRun) return { from: sourceId, name, dryRun: true };
       const copy = await duplicateProjectRecord(source, payload.nameSuffix);
       return { projectId: copy.id, name: copy.name, from: sourceId };
+    },
+  }),
+
+  defineCommand({
+    type: 'project.exportBundle',
+    category: '项目',
+    mutating: false,
+    undoable: false,
+    description:
+      '导出工程包（.kly / ZIP）：project.json + manifest.json + assets/ + fonts/，二进制原样打包并逐文件带 sha256。不带 projectId 时导出当前工程。',
+    schema: z.object({ projectId: z.string().min(1).max(80).optional() }),
+    example: {},
+    handler: async (draft, payload, ctx) => {
+      const sourceId = payload.projectId ?? draft.id;
+      const source = sourceId === draft.id ? draft : await loadProjectRecord(sourceId);
+      if (!source) throw new CommandFailure('NOT_FOUND', `工程不存在：${sourceId}`);
+
+      const assets: { id: string; name: string; mime: string; bytes: Uint8Array }[] = [];
+      const missing: string[] = [];
+      for (const meta of source.assets) {
+        const rec = await idbGetAsset(meta.id);
+        if (!rec?.blob) {
+          missing.push(meta.name);
+          continue;
+        }
+        assets.push({
+          id: meta.id,
+          name: rec.name,
+          mime: rec.mime || meta.mime,
+          bytes: new Uint8Array(await rec.blob.arrayBuffer()),
+        });
+      }
+
+      /* 只带「工程里真的用到了的上传字体」；系统字体不打包，换台机器照样有 */
+      const used = new Set(source.fonts.filter((f) => f.source === 'upload').map((f) => f.family));
+      const fonts = used.size ? (await listStoredFonts()).filter((f) => used.has(f.family)) : [];
+
+      const { bytes, manifest } = await buildBundle({ project: source, assets, fonts });
+      const saved = await ctx.services.saveBundle(bytes, source);
+      return {
+        filename: saved.filename,
+        bytes: saved.bytes,
+        formatVersion: manifest.formatVersion,
+        assets: manifest.assets.length,
+        fonts: manifest.fonts.length,
+        missingAssets: missing,
+      };
+    },
+  }),
+
+  defineCommand({
+    type: 'project.importBundle',
+    category: '项目',
+    mutating: true,
+    resetsHistory: true,
+    asyncHandler: true,
+    description:
+      '导入工程包（.kly / ZIP）。文件二进制走 services 暂存区，这里只收 stageId：校验清单与 sha256 → 资源落库 → 新建一条工程记录并打开（不会覆盖同名工程）。',
+    schema: z.object({ stageId: z.string().min(3).max(80) }),
+    example: { stageId: 'st_abc' },
+    handler: async (draft, payload, ctx) => {
+      const bytes = await ctx.services.takeBundleStage(payload.stageId);
+      if (!bytes) throw new CommandFailure('NOT_FOUND', '导入文件已过期，请重新选择');
+
+      let parsed;
+      try {
+        parsed = await parseBundle(bytes);
+      } catch (err) {
+        if (err instanceof BundleError) throw new CommandFailure('VALIDATION', err.message, { code: err.code });
+        throw new CommandFailure('VALIDATION', `工程包解析失败：${(err as Error).message}`);
+      }
+
+      /* 换新 id：导入是「新增一份」，不该覆盖本机同名的旧工程 */
+      const project = normalizeProject({ ...parsed.project, id: uid('prj') });
+      project.createdAt = Date.now();
+      project.updatedAt = Date.now();
+      project.name = `${project.name}`.slice(0, 80) || '导入的工程';
+      project.version = draft.version + 1;
+
+      const summary = {
+        projectId: project.id,
+        name: project.name,
+        assets: parsed.assets.length,
+        fonts: parsed.fonts.length,
+        totalBytes: parsed.totalBytes,
+        version: parsed.manifest.formatVersion,
+      };
+      if (ctx.dryRun) return { ...summary, dryRun: true };
+
+      await flushCurrent(ctx.before);
+
+      /* 资源先进库，再截图建档：缩略图要渲染，图片没就位会拍出一张空图 */
+      for (const asset of parsed.assets) {
+        if (await idbGetAsset(asset.id)) continue; // 同一个包里重复的 id 只写一次
+        const blob = blobOf(asset.bytes, asset.mime);
+        await idbPutAsset({
+          id: asset.id,
+          name: asset.name,
+          kind: asset.mime.startsWith('video') ? 'video' : 'image',
+          mime: asset.mime,
+          size: blob.size,
+          createdAt: Date.now(),
+          blob,
+        });
+      }
+      for (const font of parsed.fonts) {
+        try {
+          await registerFontFace({
+            family: font.family,
+            weight: font.weight,
+            style: font.style,
+            dataUrl: bytesToDataUrl(font.bytes, font.mime),
+          });
+        } catch {
+          /* 字体坏了不该拦住整个导入：渲染层会退回系统字体 */
+        }
+      }
+
+      await ctx.services.preloadProjectAssets(project);
+      await createProjectRecord(project);
+      await setLastProjectId(project.id);
+      detachProject(null);
+      Object.assign(draft, project);
+      sessionReset(ctx, project);
+      return summary;
     },
   }),
 

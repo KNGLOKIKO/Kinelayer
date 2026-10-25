@@ -12,7 +12,7 @@
 ![Deploy](https://img.shields.io/github/actions/workflow/status/KNGLOKIKO/Kinelayer/pages.yml?label=deploy)
 ![Demo](https://img.shields.io/badge/demo-online-brightgreen)
 
-**可编程的动态海报工作台** —— 一个纯前端、可离线、命令驱动的动态海报编辑器。
+**Kinelayer · 织层** —— 一个纯前端、可离线、命令驱动的动态海报编辑器。
 
 **在线体验**：<https://knglokiko.github.io/Kinelayer/> · **源码**：<https://github.com/KNGLOKIKO/Kinelayer>
 
@@ -55,7 +55,8 @@ Kinelayer/
 │  │  ├─ temporal.ts           自研撤销栈：immer patches / inverse patches / 700ms 合并
 │  │  ├─ store.ts              Zustand 三段式：project（存盘）/ ui / runtime（都不存盘）
 │  │  ├─ defaults.ts           工厂 + normalizeProject（读宽容、写严格）+ 演示项目
-│  │  ├─ commands/*.ts         72 条命令，按领域分文件（图层/文本/代码/背景/项目/资源/字体/时间轴/动画/选择/历史/窗口/导出/查询/批处理）
+│  │  ├─ commands/*.ts         74 条命令，按领域分文件（图层/文本/代码/背景/项目/资源/字体/时间轴/动画/选择/历史/窗口/导出/查询/批处理）
+│  │  ├─ bundle.ts             工程包（.kly）：ZIP 打包/解包、逐文件 sha256、五道解压闸门
 │  │  └─ summary.ts            给 AI 的项目摘要（不含 base64，代码截断）
 │  ├─ render/                  ★ 渲染层：纯函数，不知道 React 的存在
 │  │  ├─ renderScene.ts        渲染单入口：预览 / PNG / WebM / 镜像 全走这里
@@ -69,19 +70,30 @@ Kinelayer/
 │  │  ├─ exporters.ts          PNG / WebM（手动推帧）/ JSON
 │  │  └─ thumbnail.ts          工程缩略图（长边 480；首帧全单色时退到 0.5s 重拍）
 │  ├─ persist/                 ★ 持久化：工程本体 + 索引 + 资源 + 偏好、两代旧库迁移、本地字体
-│  ├─ windows/                 ★ 多窗口：协议、Host、Client、镜像 UI、独立页入口
+│  ├─ windows/                 ★ 多窗口：协议、Host、Client、镜像 UI、图层时间轴、独立页入口
 │  ├─ ai/                      ★ AI：OpenAI 兼容客户端、加密配置、演示 Agent、桥接客户端
 │  ├─ ui/                      舞台、时间轴、属性面板、图层面板、AI 面板、对话框
+│  │  ├─ Launcher.tsx          启动页：最近工程卡片网格 + 新建预设 + 重命名/复制/删除/导入
+│  │  ├─ layout.ts             响应式三档（wide ≥1440 / mid ≥1080 / narrow），rAF 节流
+│  │  └─ importProject.ts      统一导入入口：按 ZIP 头分流 .kly 工程包 / 旧 JSON 备份
 │  ├─ app/services.ts          把「副作用能力」注入命令层的服务表
-│  ├─ EditorApp.tsx            三栏布局 + 引导 + 主时钟 + 自动保存 + 快捷键
+│  ├─ EditorApp.tsx            三栏布局 + 引导 + 主时钟 + 自动保存 + 快捷键 + 窄屏抽屉
 │  └─ main.tsx                 注册命令 → 注入服务 → 按 URL 分流主窗口/图层窗口
 ├─ agent-bridge/               ★ 本机桥接（Node 18+，独立依赖）
 │  ├─ src/bridge.js            WS + HTTP 中继（127.0.0.1:2718，令牌鉴权）
 │  ├─ src/mcp.js               MCP stdio 服务端：工具从 manifest 动态生成
 │  └─ test/e2e.mjs             16 项端到端自检（假 Host + 真 MCP 客户端）
+├─ scripts/                    ★ 端到端自检（headless Edge + CDP，需 dev server 跑在 5273）
+│  ├─ _cdp.mjs                 公共壳：起浏览器、连 CDP、waitFor/截图/开新标签、结果收集
+│  ├─ v2-check.mjs             17 项 · 关键帧与时间轴
+│  ├─ rename-check.mjs         21 项 · 品牌迁移与格式迁移
+│  ├─ multi-project-check.mjs  32 项 · 多工程、索引、旧单工程迁移
+│  ├─ agent-panel-check.mjs    16 项 · 桌面 Agent 提示词面板
+│  └─ bundle-check.mjs         20 项 · .kly 真下载/真导入/敌意包拒绝
 └─ docs/
    ├─ 00-reference-notes.md    参考项目提取报告（第十四章）
    ├─ 01-known-limitations.md  已知限制与扩展点
+   ├─ 02-bundle-format.md      工程包格式（.kly = ZIP）规范与敌意输入闸门
    └─ 03-agent-integration.md  Agent 接入说明（中英双份，.en.md 为英文版）
 ```
 
@@ -91,7 +103,7 @@ Kinelayer/
 
 ---
 
-## 命令一览（67 条）
+## 命令一览（74 条）
 
 | 分类  | 条数 | 代表命令                                                                                                                                                                                                                          |
 | --- | -- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -100,7 +112,7 @@ Kinelayer/
 | 代码  | 4  | `code.setSource` `code.setEngine` `code.setParams` `code.resetRuntime`                                                                                                                                                        |
 | 背景  | 2  | `background.set` `background.setCode`                                                                                                                                                                                         |
 | 画布  | 3  | `canvas.resize` `canvas.setDuration` `canvas.setFps`                                                                                                                                                                          |
-| 项目  | 8  | `project.new` `project.load` `project.create` `project.open` `project.rename` `project.duplicate` `project.deleteLocal` `project.listRecent`                                                                                 |
+| 项目  | 10 | `project.new` `project.load` `project.create` `project.open` `project.rename` `project.duplicate` `project.deleteLocal` `project.listRecent` `project.exportBundle` `project.importBundle` |
 | 资源  | 3  | `asset.import` `asset.place` `asset.remove`                                                                                                                                                                                   |
 | 字体  | 3  | `font.register` `font.load` `font.remove`                                                                                                                                                                                     |
 | 时间轴 | 5  | `timeline.play` `timeline.pause` `timeline.seek` `timeline.setLayerTiming` `timeline.setLoop`                                                                                                                                 |
@@ -141,13 +153,67 @@ v2 在它上面加了**属性轨道**，而预设变成「一键生成关键帧�
 
 ---
 
+## v3 · 工作台：多工程、工程包、三档屏幕、图层时间轴
+
+v2 之前一次只能开一个工程，关掉标签页就等于把旧的忘了。v3 补的是「工作台」这一层。
+
+### 启动页（工程库）
+
+`Ctrl/Cmd + O`，或直接开 `?view=launcher`。卡片网格列出本机所有工程：缩略图、名字、
+尺寸、时长、图层数、更新时间；当前工程带「当前」徽章。悬停出操作条 —— 重命名、复制一份、
+导出 `.kly`、删除；头部有「新建」（竖版 1080×1440 / 方版 1080×1080 / 横版 1920×1080）
+和「导入工程包」。
+
+**卡片上没有一个操作直接碰 IndexedDB**：全部走 `project.rename` / `project.duplicate` /
+`project.deleteLocal` / `project.create` / `project.open`。所以在启动页做的事，和 AI 或
+外部 Agent 做的事是同一件事，撤销栈、审计日志、dryRun 都一致。
+
+删除当前工程时会先 `detach`：自动保存从此跳过它，否则定时器一响就把刚删的工程写回来。
+
+### 工程包 `.kly` = 真 ZIP
+
+`Ctrl/Cmd + S` 导出的 `.kly` 是一个 ZIP：`manifest.json` + `project.json` +
+`assets/`（图片视频原文件）+ `fonts/`（只含用户上传的字体），逐文件带 sha256。
+资源不再是 base64，所以工程包能真的带走素材，换台机器打开图片还在。
+
+读包时假定包是敌意的：条目数 / 单文件大小 / 总大小 / 压缩比 / 路径穿越五道闸门
+全部在 inflate **之前**判定。导入会换新 id，不覆盖本机同名工程；字体缺失降级到系统字体，
+资源缺失才报错。完整规范见 [工程包格式](docs/02-bundle-format.md)。
+
+老备份不会作废：`looksLikeZip()` 只看前两字节，是 `PK` 就走工程包，否则走旧的
+`project.load`（v1 JSON 外壳、更早的裸 `Project` JSON 都认）。
+
+### 响应式三档
+
+| 档位 | 宽度 | 布局 |
+| --- | --- | --- |
+| `wide` | ≥ 1440 | 左 268 + 舞台 + 右 318，全套文字标签 |
+| `mid` | ≥ 1080 | 面板收窄到 232 / 288，顶栏隐藏副标题 |
+| `narrow` | < 1080 | 两个面板变**抽屉**（覆盖层，不挤压舞台），底栏胶囊开关面板 / 时间轴 / 检查器；顶栏只留图标 |
+
+阈值在 `src/ui/layout.ts` 的 `WIDE_MIN` / `MID_MIN`，`useLayoutTier()` 用 rAF 节流监听
+`resize`，不给每次拖动都跑一轮 React 渲染。
+
+### 图层独立窗口里的时间轴
+
+图层窗口（`?layer=<id>`）原来只能看属性，现在中间多了一条自己的时间轴：
+in/out 之外压暗、每条属性轨道一条细线、关键帧按属性配色画成菱形、播放头红线，
+还能跳到上一个/下一个关键帧。
+
+它是**只读镜像**：拖动只发 `{ kind: 'command', command: 'timeline.seek' }` 给 Host，
+落点由 Host 决定并广播回来。seek 节流到 80ms（保留最后一次落点），
+所以拖着划过整条时间轴也只会打出一串稀疏的 seek，不会把消息队列灌满。
+
+---
+
 ## 快捷键
 
 | 操作            | 快捷键                                     |
 | ------------- | --------------------------------------- |
 | 撤销 / 重做       | `Ctrl/Cmd + Z` / `Ctrl/Cmd + Shift + Z` |
 | 复制选中图层        | `Ctrl/Cmd + D`                          |
-| 导出 JSON       | `Ctrl/Cmd + S`                          |
+| 打开工程库（启动页）    | `Ctrl/Cmd + O`                          |
+| 导出工程包 `.kly` | `Ctrl/Cmd + S`                          |
 | 播放 / 暂停       | `Space`                                 |
 | 删除选中          | `Delete` / `Backspace`                  |
 | 取消选择          | `Esc`                                   |
@@ -187,7 +253,7 @@ npm run mcp
 状态栏出现「Agent 已连接」就通了。
 
 **不想手写配置**：打开「设置 → 桌面 Agent」，那里有一份由命令注册表实时生成的接入提示词——
-站点地址、两种接入方式、72 条命令的能力范围、七条调用契约、七条权限边界、错误码处置、
+站点地址、两种接入方式、74 条命令的能力范围、七条调用契约、七条权限边界、错误码处置、
 外加三条 `curl` 自检命令，一键复制就能交给本机 Agent 工具；旁边还有「复制 MCP 配置」。
 
 Claude Desktop 配置示例见 `agent-bridge/claude-desktop-config.json`。
@@ -229,9 +295,11 @@ VITE_BASE=/Kinelayer/ npm run build   # 项目页需要这个前缀
 
 ## 数据与隐私
 
-- **项目文件**：`export.json` 产出 `.kly` 工程包（JSON 外壳 + `format: "kinelayer-bundle"`），**不含图片/视频的 base64**（资源在 IndexedDB 里）。
-  导入时既认 `.kly`，也认旧版裸项目 JSON，老备份不会因为改格式而打不开。
-  换机器要带上素材重新导入，这是为了不让项目文件变成几十 MB 的怪物。
+- **工程包 `.kly`**：真 ZIP —— `manifest.json` + `project.json` + `assets/` + `fonts/`，逐文件 sha256。
+  素材二进制原样躺在包里（不再 base64，体积不膨胀 33%），换台机器打开图片还在；
+  系统字体不打包（本来就有，且避免字体授权问题）。格式规范见 `docs/02-bundle-format.md`。
+- **JSON 备份**：设置 → 数据 → 导出 JSON 备份，产出纯 JSON 工程本体，不含二进制 —— 适合进 git 看 diff。
+- **导入宽容**：`.kly`、v1 JSON 外壳、更早的裸 `Project` JSON 三种都认，老备份不会因为改格式而打不开。
 - **自动保存**：每 1.6s 把项目写进 IndexedDB（`kinelayer` 库），刷新页面自动恢复。
 - **不出网**：除你主动配置的 AI 接口外，应用不发起任何网络请求；没有 CDN、没有埋点、没有远程字体。
 - **升级不丢数据**：品牌更名时数据库与存储键都换了名字，首次启动会把旧库数据**整份复制**到新库，
@@ -243,6 +311,7 @@ VITE_BASE=/Kinelayer/ npm run build   # 项目页需要这个前缀
 
 - [参考项目提取报告](docs/00-reference-notes.md) —— 第十四章逐项说明「借什么 / 为什么不搬 / 差异在哪」
 - [已知限制与扩展点](docs/01-known-limitations.md) —— 导出格式、沙箱边界、多窗口降级链、性能账本
+- [工程包格式](docs/02-bundle-format.md) —— `.kly` 的 ZIP 布局、manifest 字段、五道敌意输入闸门、错误码
 
 ## 许可
 

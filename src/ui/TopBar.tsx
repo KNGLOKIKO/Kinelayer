@@ -1,6 +1,7 @@
 
 import {
   Download,
+  FolderOpen,
   Layers,
   Maximize2,
   Pause,
@@ -17,6 +18,7 @@ import {
 import { updateUi, useEditor } from '@/core/store';
 import { exec } from '@/core/commandBus';
 import { IconButton, TextInput, cx } from './primitives';
+import { useLayoutTier } from './layout';
 import { applyLocale } from '@/i18n/apply';
 
 import { t } from '@/i18n';
@@ -38,6 +40,8 @@ export function TopBar() {
   const bridge = useEditor((s) => s.runtime.bridge);
   const zoom = useEditor((s) => s.ui.zoom);
   const locale = useEditor((s) => s.ui.locale);
+  const tier = useLayoutTier();
+  const dense = tier !== 'wide';
 
   return (
     <header className="border-ink-700/80 bg-ink-900/95 relative z-30 flex h-12 shrink-0 items-center gap-3 border-b px-3">
@@ -47,22 +51,35 @@ export function TopBar() {
         </div>
         <div className="leading-none">
           <div className="text-[12.5px] font-semibold tracking-tight text-zinc-100">Kinelayer</div>
-          <div className="mt-0.5 text-[9.5px] tracking-[0.18em] text-zinc-600">{t('动态海报工作台')}</div>
+          {!dense && <div className="mt-0.5 text-[9.5px] tracking-[0.18em] text-zinc-600">{t('动态海报工作台')}</div>}
         </div>
       </div>
 
       <div className="bg-ink-700 h-5 w-px" />
+
+      <IconButton
+        title={t('工程库 (Ctrl+O)')}
+        onClick={() =>
+          updateUi((u) => {
+            u.showLauncher = true;
+          })
+        }
+      >
+        <FolderOpen size={15} />
+      </IconButton>
 
       <TextInput
         value={project.name}
         onCommit={(v) => {
           if (v.trim()) void exec('project.rename', { name: v.trim() });
         }}
-        className="h-7 max-w-[260px] border-transparent bg-transparent px-1.5 text-[12.5px] font-medium hover:border-ink-700"
+        className={cx('h-7 border-transparent bg-transparent px-1.5 text-[12.5px] font-medium hover:border-ink-700', tier === 'wide' ? 'max-w-[260px]' : 'max-w-[150px]')}
       />
-      <span className="text-[10.5px] text-zinc-600">
-        {project.width}×{project.height} · v{project.version}
-      </span>
+      {tier !== 'narrow' && (
+        <span className="text-[10.5px] whitespace-nowrap text-zinc-600">
+          {project.width}×{project.height} · v{project.version}
+        </span>
+      )}
 
       <div className="flex-1" />
 
@@ -112,7 +129,7 @@ export function TopBar() {
         ) : (
           <WifiOff size={12} className="text-zinc-600" />
         )}
-        <span className="text-[10px] text-zinc-500">Agent</span>
+        {tier !== 'narrow' && <span className="text-[10px] text-zinc-500">Agent</span>}
       </div>
 
       <button
@@ -131,7 +148,7 @@ export function TopBar() {
         className="bg-ink-750 hover:bg-ink-700 flex h-7 items-center gap-1.5 rounded-md px-2 text-[12px] text-zinc-300"
       >
         <Plug size={13} />
-        {t('接入')}
+        {tier !== 'narrow' && t('接入')}
       </button>
 
       <button

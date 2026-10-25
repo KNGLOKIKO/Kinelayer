@@ -4,7 +4,8 @@
  * 覆盖：
  *   1. 页面标题 / 顶栏 / 正文不再出现旧品牌名
  *   2. IndexedDB 库名 = kinelayer，且 BroadcastChannel 名 = kinelayer-bus（源码级）
- *   3. 工程包导出：后缀 .kly、外壳 format = kinelayer-bundle、schemaVersion 仍是 2
+ *   3. 工程包导出：JSON 备份后缀 .json、外壳 format = kinelayer-bundle、schemaVersion 仍是 2；
+ *      .kly 已是真 ZIP（project.exportBundle），清单版本 2
  *   4. 导入宽容：新工程包 + 旧版裸项目 JSON 都能载入
  *   5. 旧库迁移：往旧库里塞一条自动保存 → 重载 → 新库自动接管，旧库仍在
  *
@@ -162,10 +163,25 @@ const main = async () => {
     const parsed = JSON.parse(text);
     return { filename: res.data?.filename ?? res.filename, format: parsed.format, schemaVersion: parsed.project?.schemaVersion, hasProject: !!parsed.project };
   })()`);
-  check('导出文件后缀 .kly', /\.kly$/.test(exported.filename), exported.filename);
+  /* .kly 现在是真 ZIP 工程包（project.exportBundle），export.json 退回纯 JSON 备份 */
+  check('JSON 备份后缀 .json', /\.json$/.test(exported.filename), exported.filename);
   check('外壳 format = kinelayer-bundle', exported.format === 'kinelayer-bundle', String(exported.format));
   check('外壳内确实是项目对象', exported.hasProject === true);
   check('schemaVersion 未被改动（仍为 2）', exported.schemaVersion === 2, String(exported.schemaVersion));
+
+  /* 品牌格式的另一半：.kly 必须是 ZIP，且清单里 format 也是 kinelayer-bundle */
+  const zipExport = await ev(`(async () => {
+    const orig = URL.createObjectURL;
+    let cap = null;
+    URL.createObjectURL = (b) => { cap = b; return orig.call(URL, b); };
+    const res = await window.__kly.dispatch('project.exportBundle', {});
+    URL.createObjectURL = orig;
+    const head = new Uint8Array(await cap.slice(0, 4).arrayBuffer());
+    return { filename: res.data?.filename, bytes: res.data?.bytes, head: [...head], fv: res.data?.formatVersion };
+  })()`);
+  check('.kly 工程包后缀是 .kly', /\.kly$/.test(zipExport.filename ?? ''), zipExport.filename);
+  check('.kly 是真的 ZIP（PK 头）', zipExport.head[0] === 0x50 && zipExport.head[1] === 0x4b, zipExport.head.join(','));
+  check('.kly 清单版本为 2', zipExport.fv === 2, String(zipExport.fv));
 
   /* ── 4. 导入宽容 ───────────────────────────────────── */
   const roundtrip = await ev(`(async () => {
@@ -178,7 +194,7 @@ const main = async () => {
     const b = await window.__kly.dispatch('project.load', { data: JSON.stringify(project) });
     return { viaBundle, viaRaw: window.__kly.state().project.name, okA: a.ok, okB: b.ok };
   })()`);
-  check('导入 .kly 工程包成功', roundtrip.okA && roundtrip.viaBundle === '包体往返测试', roundtrip.viaBundle);
+  check('导入 v1 JSON 外壳（旧 .kly）仍成功', roundtrip.okA && roundtrip.viaBundle === '包体往返测试', roundtrip.viaBundle);
   check('导入旧版裸 JSON 仍兼容', roundtrip.okB && roundtrip.viaRaw === '裸 JSON 兼容测试', roundtrip.viaRaw);
 
   /* ── 5. 旧库迁移（真实链路） ───────────────────────── */

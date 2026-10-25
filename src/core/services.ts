@@ -48,6 +48,12 @@ export interface Services {
     onProgress: (p: number) => void,
   ): Promise<{ filename: string; bytes: number; frames: number }>;
   exportJson(): Promise<{ filename: string; bytes: number }>;
+  /** 工程包（.kly / ZIP）下载。打包在命令层做，这里只负责落盘 */
+  saveBundle(bytes: Uint8Array, project: Project): Promise<{ filename: string; bytes: number }>;
+  /** 读进来的文件先放进暂存区：命令 payload 只带 stageId，避免把几十 MB 二进制塞进 JSON */
+  stageBundle(file: File): Promise<{ stageId: string; name: string; bytes: number; zip: boolean }>;
+  /** 取走暂存内容（取一次就没了），过期或不存在返回 null */
+  takeBundleStage(stageId: string): Promise<Uint8Array | null>;
   capture(o: CaptureOptions): Promise<{ dataUrl: string; width: number; height: number }>;
   importAsset(input: ImportAssetInput): Promise<AssetMeta>;
   removeAsset(id: string): Promise<void>;

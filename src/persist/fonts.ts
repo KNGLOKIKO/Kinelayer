@@ -48,8 +48,12 @@ export async function restoreFonts(): Promise<string[]> {
   return Array.from(new Set(restored));
 }
 
-export async function removeFont(family: string): Promise<void> {
-  for (const [key, face] of faces.entries()) {
+/** 导出工程包时用：把用户上传的字体连同二进制一起带走 */
+export async function listStoredFonts(): Promise<StoredFont[]> {
+  return (await idbGetKV<StoredFont[]>(KEY)) ?? [];
+}
+
+export async function removeFont(family: string): Promise<void> {  for (const [key, face] of faces.entries()) {
     if (key.startsWith(`${family}|`)) {
       document.fonts.delete(face);
       faces.delete(key);

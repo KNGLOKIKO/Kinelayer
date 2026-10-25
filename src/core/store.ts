@@ -42,6 +42,8 @@ const initialUi: UiState = {
   timelineZoom: 1,
   showSettings: false,
   settingsTab: 'ai',
+  showLauncher: false,
+  narrowDrawer: null,
   showExport: false,
   showPrompt: false,
   locale: detectLocale(),

@@ -8,6 +8,7 @@ import { Inspector } from '@/ui/Inspector';
 import { AIPanel } from '@/ui/AIPanel';
 import { AuditPanel, StatusBar, Toasts } from '@/ui/Chrome';
 import { CodeEditorDialog, ExportDialog, SettingsDialog } from '@/ui/Dialogs';
+import { Launcher } from '@/ui/Launcher';
 import { PromptDialog } from '@/ui/PromptDialog';
 import { FloatingLayerPanels } from '@/ui/FloatingLayerPanels';
 import { exec } from '@/core/commandBus';
@@ -28,6 +29,7 @@ import { connectBridge, subscribeBridgeSync } from '@/ai/bridgeClient';
 import { getLayerWindowHost } from '@/windows/host';
 import { ensureServices } from '@/app/services';
 import { cx } from '@/ui/primitives';
+import { useLayoutTier } from '@/ui/layout';
 
 import { t } from '@/i18n';
 // 同上：label 存中文原文，渲染时再 t()
@@ -37,10 +39,10 @@ const TABS = [
   { id: 'audit' as const, label: '审计', icon: Activity },
 ];
 
-function RightPanel() {
+function RightPanel({ width = 318 }: { width?: number }) {
   const tab = useEditor((s) => s.ui.rightTab);
   return (
-    <aside className="border-ink-700/80 bg-ink-850/60 flex w-[318px] shrink-0 flex-col border-l">
+    <aside className="border-ink-700/80 bg-ink-850/60 flex shrink-0 flex-col border-l" style={{ width }}>
       <div className="border-ink-700/70 flex h-8 shrink-0 items-center gap-0.5 border-b px-1.5">
         {TABS.map((item) => {
           const Icon = item.icon;
@@ -72,6 +74,14 @@ function RightPanel() {
 }
 
 export function EditorApp() {
+  /* 响应式三档：只切外壳，舞台/总线无感 */
+  const tier = useLayoutTier();
+  const drawer = useEditor((s) => s.ui.narrowDrawer);
+  const showTimeline = useEditor((s) => s.ui.showTimeline);
+  const setDrawer = (next: 'left' | 'right' | null) =>
+    updateUi((ui) => {
+      ui.narrowDrawer = next;
+    });
   /* ---------------------------------------------------------- bootstrap */
   useEffect(() => {
     ensureServices();
@@ -92,6 +102,11 @@ export function EditorApp() {
         const current = useEditor.getState().project;
         await ensureProjectRecorded(current);
         await setLastProjectId(current.id);
+      }
+      if (new URLSearchParams(window.location.search).get('view') === 'launcher') {
+        updateUi((ui) => {
+          ui.showLauncher = true;
+        });
       }
       const token = lsGet('bridge.token');
       const url = lsGet('bridge.url');
@@ -170,6 +185,8 @@ export function EditorApp() {
   /* ----------------------------------------------------------- shortcuts */
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      /* 启动页是覆盖层：它盖在编辑器上时，Delete/Backspace 不该穿透去删图层 */
+      if (useEditor.getState().ui.showLauncher) return;
       const target = e.target as HTMLElement | null;
       const typing =
         target instanceof HTMLInputElement ||
@@ -191,7 +208,14 @@ export function EditorApp() {
       }
       if (mod && e.key.toLowerCase() === 's') {
         e.preventDefault();
-        void exec('export.json', {});
+        void exec('project.exportBundle', {});
+        return;
+      }
+      if (mod && e.key.toLowerCase() === 'o') {
+        e.preventDefault();
+        updateUi((ui) => {
+          ui.showLauncher = true;
+        });
         return;
       }
       if (typing) return;
@@ -242,19 +266,66 @@ export function EditorApp() {
   }, []);
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="flex h-full flex-col overflow-hidden" data-tier={tier}>
       <TopBar />
       <div className="flex min-h-0 flex-1">
         <LeftRail />
-        <LeftPanel />
+        {tier !== 'narrow' && <LeftPanel width={tier === 'mid' ? 232 : 268} />}
         <main className="relative flex min-w-0 flex-1 flex-col">
           <Stage />
           <Timeline />
           <TimelineToggle />
         </main>
-        <RightPanel />
+        {tier !== 'narrow' && <RightPanel width={tier === 'mid' ? 288 : 318} />}
       </div>
+
+      {/* 窄屏：面板改成抽屉，同一时刻只开一个（覆盖层不挤压舞台） */}
+      {tier === 'narrow' && (
+        <>
+          {drawer && (
+            <div className="fixed inset-0 z-30 bg-black/45" onMouseDown={() => setDrawer(null)}>
+              <div
+                className={cx('absolute inset-y-0 flex shadow-pop', drawer === 'left' ? 'left-12' : 'right-0')}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                {drawer === 'left' ? <LeftPanel width={288} /> : <RightPanel width={300} />}
+              </div>
+            </div>
+          )}
+          <div className="border-ink-700 bg-ink-900/95 shadow-pop fixed bottom-3 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-full border px-1.5 py-1">
+            <button
+              type="button"
+              onClick={() => setDrawer(drawer === 'left' ? null : 'left')}
+              className={cx(
+                'rounded-full px-2.5 py-1 text-[11px]',
+                drawer === 'left' ? 'bg-accent/20 text-accent-soft' : 'text-zinc-400 hover:text-zinc-100',
+              )}
+            >
+              {t('面板')}
+            </button>
+            <button
+              type="button"
+              onClick={() => updateUi((ui) => { ui.showTimeline = !ui.showTimeline; })}
+              className="rounded-full px-2.5 py-1 text-[11px] text-zinc-400 hover:text-zinc-100"
+            >
+              {showTimeline ? t('收起时间轴') : t('时间轴')}
+            </button>
+            <button
+              type="button"
+              onClick={() => setDrawer(drawer === 'right' ? null : 'right')}
+              className={cx(
+                'rounded-full px-2.5 py-1 text-[11px]',
+                drawer === 'right' ? 'bg-accent/20 text-accent-soft' : 'text-zinc-400 hover:text-zinc-100',
+              )}
+            >
+              {t('检查器')}
+            </button>
+          </div>
+        </>
+      )}
+
       <StatusBar />
+      <Launcher />
       <SettingsDialog />
       <PromptDialog />
       <ExportDialog />

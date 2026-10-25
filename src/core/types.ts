@@ -378,6 +378,10 @@ export interface UiState {
   showSettings: boolean;
   /** 设置对话框当前分页。放在 store 里，切语言整树重建后不会跳回第一页 */
   settingsTab: 'ai' | 'bridge' | 'agent' | 'data';
+  /** 启动页（工程库）。放 store 同样是为了切语言不丢 */
+  showLauncher: boolean;
+  /** 窄屏档：左右面板改成抽屉，同一时刻只开一个 */
+  narrowDrawer: 'left' | 'right' | null;
   showExport: boolean;
   /** AI 接入提示词面板 */
   showPrompt: boolean;

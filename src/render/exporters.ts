@@ -1,6 +1,6 @@
 import type { Project } from '@/core/types';
 import { isCode, isText } from '@/core/types';
-import { KINELAYER_FILE_EXT, packProject } from '@/core/projectFile';
+import { packProject } from '@/core/projectFile';
 import { prepareVideos, renderScene } from './renderScene';
 import { preloadFonts } from './text';
 import { rasterizeHtml } from './htmlRaster';
@@ -182,11 +182,12 @@ export async function captureFrame(
 }
 
 export function exportProjectJson(project: Project): { filename: string; bytes: number } {
-  /* 外面套一层工程包外壳：manifest 里的 format 用来认「这是不是我们的文件」，
-     真正的版本迁移仍然看 project.schemaVersion。 */
+  /* 旧版「大 JSON」备份。.kly 现在是 ZIP 工程包（见 core/bundle.ts），
+     这里退成 .json：内容还是带外壳的裸工程，不带资源二进制。
+     两个格式都能被导入入口认出来（看前 4 字节是不是 PK）。 */
   const json = JSON.stringify(packProject(project), null, 2);
   const blob = new Blob([json], { type: 'application/json' });
-  const filename = buildFilename(project, KINELAYER_FILE_EXT.slice(1));
+  const filename = buildFilename(project, 'json');
   downloadBlob(blob, filename);
   return { filename, bytes: blob.size };
 }

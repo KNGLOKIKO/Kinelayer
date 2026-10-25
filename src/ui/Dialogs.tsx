@@ -11,7 +11,7 @@ import { applyLocale } from '@/i18n/apply';
 import { LOCALES } from '@/i18n';
 import { connectBridge, disconnectBridge } from '@/ai/bridgeClient';
 import { recoverLegacyProject } from '@/persist/projects';
-import { KINELAYER_FILE_ACCEPT } from '@/core/projectFile';
+import { importProjectFile, pickProjectFile } from './importProject';
 import { lsGet, lsSet } from '@/persist/storage';
 
 import { AgentAccessPanel } from './AgentAccessPanel';
@@ -71,6 +71,7 @@ export function SettingsDialog() {
   const locale = useEditor((s) => s.ui.locale);
   const [token, setToken] = useState(() => lsGet('bridge.token') ?? '');
   const [url, setUrl] = useState(() => lsGet('bridge.url') ?? 'ws://127.0.0.1:2718');
+  const importFile = () => pickProjectFile((file) => void importProjectFile(file));
 
   /* 数据页要显示「本机有几个工程」，只读索引，不加载工程本体 */
   const projectId = useEditor((s) => s.project.id);
@@ -218,7 +219,7 @@ export function SettingsDialog() {
       {tab === 'data' && (
         <div className="space-y-3 text-[11.5px] leading-relaxed text-zinc-400">
           <p>
-            {t('每个工程单独存一条本地记录（工程本体在 projects，列表信息在 meta 索引里），自动保存每 1.6 秒写一次。工程包里不含任何 base64：图片/视频/字体二进制只存在本机库里。')}
+            {t('每个工程单独存一条本地记录（工程本体在 projects，列表信息在 meta 索引里），自动保存每 1.6 秒写一次。工程包 .kly 是 ZIP：project.json + manifest.json + assets/ + fonts/，二进制原样打包、逐文件带 sha256；旧的 .json 备份仍可导入。')}
           </p>
           <div className="border-ink-700 bg-ink-900/60 rounded-lg border px-3 py-2 font-mono text-[10.5px] text-zinc-500">
             {lib
@@ -226,25 +227,14 @@ export function SettingsDialog() {
               : t('正在读取本机工程…')}
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" onClick={() => void exec('export.json', {})}>
+            <Button variant="outline" onClick={() => void exec('project.exportBundle', {})}>
               {t('导出工程包 .kly')}
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => {
-                const input = document.createElement('input');
-                input.type = 'file';
-                input.accept = KINELAYER_FILE_ACCEPT;
-                input.onchange = async () => {
-                  const file = input.files?.[0];
-                  if (!file) return;
-                  const text = await file.text();
-                  await exec('project.load', { data: text });
-                };
-                input.click();
-              }}
-            >
+            <Button variant="outline" onClick={() => void importFile()}>
               {t('导入工程包 .kly')}
+            </Button>
+            <Button variant="ghost" onClick={() => void exec('export.json', {})}>
+              {t('导出 JSON 备份')}
             </Button>
             <Button
               variant="outline"

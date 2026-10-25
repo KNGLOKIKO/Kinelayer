@@ -1,7 +1,8 @@
 import { setServices } from '@/core/services';
 import { pushToast, updateUi, useEditor } from '@/core/store';
 import { uid } from '@/core/ids';
-import { captureFrame, exportPng, exportProjectJson, exportWebm } from '@/render/exporters';
+import { captureFrame, exportPng, exportProjectJson, exportWebm, buildFilename, downloadBlob } from '@/render/exporters';
+import { blobOf, looksLikeZip } from '@/core/bundle';
 import { preloadAssets, ensureAsset } from '@/render/assets';
 import { idbDeleteAsset, idbPutAsset } from '@/persist/idb';
 import { loadFonts, registerFontFace, removeFont } from '@/persist/fonts';
@@ -44,6 +45,20 @@ async function measure(blob: Blob, kind: 'image' | 'video'): Promise<{ width?: n
 
 let installed = false;
 
+/**
+ * 导入暂存区：文件二进制不进命令 payload。
+ * 命令是 JSON，几十 MB 的 zip 转 base64 既占内存又会被 schema 上限挡住；
+ * 所以 UI 先把 File 读成字节放这儿，命令只拿一个 stageId 来取。
+ * 不落 IndexedDB：刷新页面就失效，正好符合「选完就导」的一次性语义。
+ */
+const stages = new Map<string, { bytes: Uint8Array; name: string; at: number }>();
+const STAGE_TTL = 5 * 60 * 1000;
+
+function pruneStages(): void {
+  const now = Date.now();
+  for (const [id, item] of stages) if (now - item.at > STAGE_TTL) stages.delete(id);
+}
+
 export function ensureServices(): void {
   if (installed) return;
   installed = true;
@@ -67,6 +82,27 @@ export function ensureServices(): void {
       const result = exportProjectJson(project);
       pushToast('success', t('已导出 {name}', { name: result.filename }));
       return result;
+    },
+    async saveBundle(bytes, project) {
+      const filename = buildFilename(project, 'kly');
+      downloadBlob(blobOf(bytes, 'application/zip'), filename);
+      pushToast('success', t('已导出 {name}', { name: filename }));
+      return { filename, bytes: bytes.length };
+    },
+    async stageBundle(file) {
+      pruneStages();
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const stageId = uid('st');
+      stages.set(stageId, { bytes, name: file.name, at: Date.now() });
+      /* 顺手认一下格式：ZIP 走 importBundle，纯 JSON 走旧的 project.load */
+      return { stageId, name: file.name, bytes: bytes.length, zip: looksLikeZip(bytes) };
+    },
+    async takeBundleStage(stageId) {
+      pruneStages();
+      const item = stages.get(stageId);
+      if (!item) return null;
+      stages.delete(stageId);
+      return item.bytes;
     },
     async capture(opts) {
       const project = useEditor.getState().project;

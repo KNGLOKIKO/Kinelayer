@@ -5,6 +5,7 @@ import type { Layer, Project } from '@/core/types';
 import { computeLayerFrame } from '@/render/animation';
 import { renderScene } from '@/render/renderScene';
 import { Badge, NumberInput, Slider, TextInput, cx } from '@/ui/primitives';
+import { LayerTimeline } from './LayerTimeline';
 
 import { t } from '@/i18n';
 const TYPE_LABEL: Record<string, string> = {
@@ -120,6 +121,15 @@ export function LayerMirror({
           {t('只读镜像 · 主窗口渲染')}
         </div>
       </div>
+
+      {/* 图层自己的时间轴：拖动/跳关键帧都回到主窗口的命令总线 */}
+      <LayerTimeline
+        project={project}
+        layer={layer}
+        time={time}
+        compact={compact}
+        onSeek={(ms) => void commit('timeline.seek', { time: ms })}
+      />
 
       {!compact && (
         <div className="border-ink-700/70 max-h-[46%] shrink-0 space-y-2 overflow-y-auto border-t p-2.5">

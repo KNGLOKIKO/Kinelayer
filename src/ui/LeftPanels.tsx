@@ -618,10 +618,10 @@ function CommandsPanel() {
 
 /* ------------------------------------------------------------------ shell */
 
-export function LeftPanel() {
+export function LeftPanel({ width = 268 }: { width?: number }) {
   const tab = useEditor((s) => s.ui.leftTab);
   return (
-    <aside className="border-ink-700/80 bg-ink-850/60 flex w-[268px] shrink-0 flex-col border-r">
+    <aside className="border-ink-700/80 bg-ink-850/60 flex shrink-0 flex-col border-r" style={{ width }}>
       {tab === 'layers' && <LayersPanel />}
       {tab === 'assets' && <AssetsPanel />}
       {tab === 'fonts' && <FontsPanel />}

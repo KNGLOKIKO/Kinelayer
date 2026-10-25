@@ -6,6 +6,7 @@ import { clamp } from '@/core/geometry';
 import { ANIMATABLE_PROPERTIES, PROPERTY_LABELS, type AnimatableProperty, type Keyframe, type Layer } from '@/core/types';
 import { currentValue, trackOf, ANIM_PRESET_TRACKS, type AnimPresetTrack } from '@/core/commands/animation';
 import { IconButton, Toggle, cx } from './primitives';
+import { useLayoutTier } from './layout';
 import { t } from '@/i18n';
 
 function fmt(ms: number): string {
@@ -37,6 +38,7 @@ export function Timeline() {
   const expanded = useEditor((s) => s.ui.expandedTracks);
   const selectedKeyframes = useEditor((s) => s.ui.selectedKeyframes);
   const zoom = useEditor((s) => s.ui.timelineZoom);
+  const tier = useLayoutTier();
   const laneRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState(false);
   const [presetFor, setPresetFor] = useState<string | null>(null);
@@ -124,7 +126,12 @@ export function Timeline() {
   const single = picked.length === 1 ? (picked[0] as (typeof picked)[number]) : null;
 
   return (
-    <section className="border-ink-700/80 bg-ink-900/90 flex h-[230px] shrink-0 flex-col border-t">
+    <section
+      className={cx(
+        'border-ink-700/80 bg-ink-900/90 flex shrink-0 flex-col border-t',
+        tier === 'narrow' ? 'h-[168px]' : tier === 'mid' ? 'h-[204px]' : 'h-[230px]',
+      )}
+    >
       <div className="border-ink-700/70 flex h-8 shrink-0 items-center gap-2 border-b px-2">
         <IconButton size={22} active={playing} onClick={() => void exec(playing ? 'timeline.pause' : 'timeline.play')} title={t('播放 / 暂停')}>
           {playing ? <Pause size={12} /> : <Play size={12} />}

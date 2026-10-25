@@ -3,7 +3,7 @@ import './styles.css';
 import App from './App';
 import { registerAllCommands } from './core/commands';
 import { ensureServices } from './app/services';
-import { readLayerParams } from './windows/host';
+import { buildLayerUrl, getLayerWindowHost, readLayerParams } from './windows/host';
 import { useEditor } from './core/store';
 import { setActiveLocale } from './i18n';
 import { dispatch } from './core/commandBus';
@@ -27,6 +27,8 @@ if (import.meta.env.DEV) {
     dispatch: (type: string, payload?: unknown) => dispatch(type, payload ?? {}, { source: 'user' }),
     state: () => useEditor.getState(),
     commands: () => listCommands().map((c) => c.type),
+    /** e2e 用：拿到某个图层的独立窗口地址（含本窗口 hostId） */
+    layerUrl: (layerId: string) => buildLayerUrl(layerId, getLayerWindowHost().hostId),
   };
 }
 
