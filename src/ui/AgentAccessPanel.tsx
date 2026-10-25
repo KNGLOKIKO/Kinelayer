@@ -17,8 +17,15 @@ const BRIDGE = {
   tokenHeader: 'x-kinelayer-token',
 } as const;
 
-/** 用户此刻打开的是哪个站点。写进提示词，Agent 才不会去请求站点地址做编辑 */
-const SITE = typeof window !== 'undefined' ? window.location.origin : '';
+/**
+ * 用户此刻打开的是哪个页面。写进提示词，Agent 才不会去请求站点地址做编辑。
+ * 取 origin + 目录（不是 origin）：部署在项目页时真实地址是 /Kinelayer/，只给 origin 会漏掉子路径。
+ */
+const SITE = (() => {
+  if (typeof window === 'undefined') return '';
+  const { origin, pathname } = window.location;
+  return origin + pathname.replace(/[^/]*$/, '');
+})();
 
 const FLOW = [
   { zh: '读清单', cmd: 'GET /manifest' },

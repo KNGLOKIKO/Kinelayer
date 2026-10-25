@@ -172,9 +172,10 @@ const main = async () => {
   // 在线站点上下文：写清「用户打开的是哪个站点」，同时强调命令永远打本机
   const siteCtx = await ev(`(() => {
     const text = document.querySelector('pre').textContent;
-    return { origin: location.origin, hasOrigin: text.includes(location.origin), local: text.includes('127.0.0.1:2718') };
+    const expected = location.origin + location.pathname.replace(/[^/]*$/, '');
+    return { origin: location.origin, expected, hasSite: text.includes(expected), local: text.includes('127.0.0.1:2718') };
   })()`);
-  check('提示词写明当前站点地址', siteCtx.hasOrigin && siteCtx.local, JSON.stringify(siteCtx));
+  check('提示词写明当前站点地址', siteCtx.hasSite && siteCtx.local, JSON.stringify(siteCtx));
 
   // 自检区 + MCP 配置复制
   const extra = await ev(`(async () => {
