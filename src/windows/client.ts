@@ -2,6 +2,7 @@ import type { CommandResult } from '@/core/registry';
 import type { CommandRequest, ClientToHost, HostToClient, SnapshotMessage, TimeMessage } from './protocol';
 import { CHANNEL_NAME } from './protocol';
 import { uid } from '@/core/ids';
+import { t } from '@/i18n';
 
 /**
  * Client 端：只读镜像。
@@ -97,7 +98,7 @@ export class LayerWindowClient {
         ok: false,
         commandId: requestId,
         type,
-        error: { code: 'RUNTIME', message: '与主窗口的连接已断开' },
+        error: { code: 'RUNTIME', message: t('与主窗口的连接已断开') },
         projectVersion: 0,
         durationMs: 0,
         dryRun: false,
@@ -118,7 +119,7 @@ export class LayerWindowClient {
           ok: false,
           commandId: requestId,
           type,
-          error: { code: 'ABORTED', message: '主窗口 10s 未响应（可能正在导出）' },
+          error: { code: 'ABORTED', message: t('主窗口 10s 未响应（可能正在导出）') },
           projectVersion: 0,
           durationMs: 10000,
           dryRun: false,

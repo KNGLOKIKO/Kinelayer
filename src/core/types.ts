@@ -281,6 +281,10 @@ export interface UiState {
   showTimeline: boolean;
   showSettings: boolean;
   showExport: boolean;
+  /** AI 接入提示词面板 */
+  showPrompt: boolean;
+  /** 界面语言（只影响 UI 文案，不改项目数据） */
+  locale: 'zh-CN' | 'en-US';
   codeEditorFor: string | null;
   windowMode: WindowMode;
   floatingWindows: string[];

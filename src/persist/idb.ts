@@ -3,6 +3,8 @@
  * Project 里只存 AssetMeta，二进制永远不进入 Project / 命令 payload / AI 上下文。
  */
 
+import { t } from '@/i18n';
+
 const DB_NAME = 'motionlayer';
 const DB_VERSION = 1;
 const STORE_ASSETS = 'assets';
@@ -34,7 +36,7 @@ function openDb(): Promise<IDBDatabase> {
       }
     };
     req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error ?? new Error('IndexedDB 打开失败'));
+    req.onerror = () => reject(req.error ?? new Error(t('IndexedDB 打开失败')));
   });
   return dbPromise;
 }
@@ -43,10 +45,10 @@ function tx<T>(store: string, mode: IDBTransactionMode, fn: (s: IDBObjectStore) 
   return openDb().then(
     (db) =>
       new Promise<T>((resolve, reject) => {
-        const t = db.transaction(store, mode);
-        const req = fn(t.objectStore(store));
+        const txn = db.transaction(store, mode);
+        const req = fn(txn.objectStore(store));
         req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error ?? new Error('IndexedDB 操作失败'));
+        req.onerror = () => reject(req.error ?? new Error(t('IndexedDB 操作失败')));
       }),
   );
 }

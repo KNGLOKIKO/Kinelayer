@@ -7,6 +7,7 @@ import { computeLayerFrame } from '@/render/animation';
 import { renderScene } from '@/render/renderScene';
 import type { CodeLayer, Layer, Project } from '@/core/types';
 
+import { t } from '@/i18n';
 type Handle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'rotate';
 
 interface DragState {
@@ -741,7 +742,7 @@ export function Stage() {
 
       {selectedIds.length === 0 && !editingText && (
         <div className="pointer-events-none absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-ink-700 bg-ink-900/90 px-3 py-1 text-[10.5px] text-zinc-500">
-          <MousePointer2 size={11} /> 拖拽移动 · 双击编辑文本 · 空格拖拽平移 · Ctrl+滚轮缩放
+          <MousePointer2 size={11} /> {t('拖拽移动 · 双击编辑文本 · 空格拖拽平移 · Ctrl+滚轮缩放')}
         </div>
       )}
     </div>

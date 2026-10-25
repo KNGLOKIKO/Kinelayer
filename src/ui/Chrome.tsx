@@ -3,6 +3,7 @@ import { dismissToast, useEditor } from '@/core/store';
 import { Badge, cx } from './primitives';
 import type { CommandSource } from '@/core/registry';
 
+import { t } from '@/i18n';
 export function StatusBar() {
   const project = useEditor((s) => s.project);
   const selected = useEditor((s) => s.ui.selectedIds.length);
@@ -23,22 +24,22 @@ export function StatusBar() {
             bridge.state === 'connected' ? 'bg-emerald-400' : bridge.state === 'error' ? 'bg-rose-500' : 'bg-zinc-600',
           )}
         />
-        {bridge.state === 'connected' ? `Agent 已连接 · ${bridge.agents} 个客户端` : bridge.message}
+        {bridge.state === 'connected' ? t('Agent 已连接 · {n} 个客户端', { n: bridge.agents }) : bridge.message}
       </span>
       <span className="text-ink-700">|</span>
-      <span>{project.layers.length} 图层</span>
-      <span>选中 {selected}</span>
-      <span>撤销栈 {past}</span>
+      <span>{t('{n} 图层', { n: project.layers.length })}</span>
+      <span>{t('选中 {n}', { n: selected })}</span>
+      <span>{t('撤销栈 {n}', { n: past })}</span>
       <span>v{project.version}</span>
-      {errors > 0 && <span className="text-rose-400">{errors} 个失败命令</span>}
+      {errors > 0 && <span className="text-rose-400">{t('{n} 个失败命令', { n: errors })}</span>}
       <div className="flex-1" />
       {progress.active && (
         <span className="flex items-center gap-1 text-accent-soft">
           <Loader2 size={10} className="ml-spin" /> {progress.label}
         </span>
       )}
-      <span>窗口：{windowMode === 'popup' ? '系统弹窗' : windowMode === 'pip' ? '画中画' : '应用内浮动'}</span>
-      <span className="text-zinc-600">Command Bus · Host 权威</span>
+      <span>{t('窗口：{mode}', { mode: windowMode === 'popup' ? t('系统弹窗') : windowMode === 'pip' ? t('画中画') : t('应用内浮动') })}</span>
+      <span className="text-zinc-600">{t('Command Bus · Host 权威')}</span>
     </footer>
   );
 }
@@ -55,12 +56,12 @@ export function AuditPanel() {
   return (
     <div className="flex h-full flex-col">
       <div className="border-ink-700/70 flex h-9 items-center gap-2 border-b px-2.5">
-        <span className="text-[11px] font-semibold tracking-[0.08em] text-zinc-300 uppercase">审计日志</span>
+        <span className="text-[11px] font-semibold tracking-[0.08em] text-zinc-300 uppercase">{t('审计日志')}</span>
         <Badge>{audit.length}</Badge>
-        <span className="text-[9.5px] text-zinc-600">最近 200 条</span>
+        <span className="text-[9.5px] text-zinc-600">{t('最近 200 条')}</span>
       </div>
       <div className="ml-scroll flex-1 overflow-y-auto">
-        {audit.length === 0 && <div className="p-4 text-center text-[11px] text-zinc-600">还没有命令被执行。</div>}
+        {audit.length === 0 && <div className="p-4 text-center text-[11px] text-zinc-600">{t('还没有命令被执行。')}</div>}
         {[...audit].reverse().map((entry) => (
           <div key={`${entry.id}-${entry.ts}`} className="border-ink-700/50 flex items-start gap-1.5 border-b px-2.5 py-1.5">
             <span className={cx('mt-1 h-1.5 w-1.5 shrink-0 rounded-full', entry.ok ? 'bg-emerald-400' : 'bg-rose-500')} />

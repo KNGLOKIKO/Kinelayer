@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 
+import { t } from '@/i18n';
 export function cx(...parts: (string | false | null | undefined)[]): string {
   return parts.filter(Boolean).join(' ');
 }

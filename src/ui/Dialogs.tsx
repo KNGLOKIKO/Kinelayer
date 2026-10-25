@@ -7,9 +7,12 @@ import type { BackgroundLayer, CodeLayer } from '@/core/types';
 import { Badge, Button, Field, IconButton, NumberInput, Select, TextInput, Toggle, cx } from './primitives';
 import { CodeEditor } from './CodeEditor';
 import { useAIConfig } from '@/ai/config';
+import { applyLocale } from '@/i18n/apply';
+import { LOCALES } from '@/i18n';
 import { connectBridge, disconnectBridge } from '@/ai/bridgeClient';
 import { idbDeleteKV } from '@/persist/idb';
 
+import { t } from '@/i18n';
 /* ------------------------------------------------------------------ modal */
 
 export function Modal({
@@ -50,7 +53,7 @@ export function Modal({
 const TABS = [
   { id: 'ai', label: 'AI 通道' },
   { id: 'bridge', label: 'Agent 桥接' },
-  { id: 'data', label: '数据与安全' },
+  { id: 'data', label: '数据与安全' }, // label 存中文，渲染时 t()
 ] as const;
 
 export function SettingsDialog() {
@@ -58,6 +61,7 @@ export function SettingsDialog() {
   const [tab, setTab] = useState<'ai' | 'bridge' | 'data'>('ai');
   const ai = useAIConfig();
   const bridge = useEditor((s) => s.runtime.bridge);
+  const locale = useEditor((s) => s.ui.locale);
   const [token, setToken] = useState(() => localStorage.getItem('ml.bridge.token') ?? '');
   const [url, setUrl] = useState(() => localStorage.getItem('ml.bridge.url') ?? 'ws://127.0.0.1:2718');
 
@@ -65,56 +69,72 @@ export function SettingsDialog() {
   const close = () => updateUi((ui) => { ui.showSettings = false; });
 
   return (
-    <Modal title="设置" onClose={close} width={680}>
+    <Modal title={t('设置')} onClose={close} width={680}>
       <div className="mb-4 flex gap-1">
-        {TABS.map((t) => (
+        {TABS.map((item) => (
           <button
-            key={t.id}
+            key={item.id}
             type="button"
-            onClick={() => setTab(t.id)}
+            onClick={() => setTab(item.id)}
             className={cx(
               'rounded-md px-2.5 py-1 text-[11.5px] transition',
-              tab === t.id ? 'bg-accent/20 text-accent-soft' : 'text-zinc-500 hover:bg-ink-800 hover:text-zinc-200',
+              tab === item.id ? 'bg-accent/20 text-accent-soft' : 'text-zinc-500 hover:bg-ink-800 hover:text-zinc-200',
             )}
           >
-            {t.label}
+            {t(item.label)}
           </button>
         ))}
       </div>
 
       {tab === 'ai' && (
         <div className="space-y-3">
+          <Field label={t('界面语言')} hint={t('只影响界面文案与导出文件名；项目数据不受影响。')}>
+            <div className="flex gap-1">
+              {LOCALES.map((l) => (
+                <button
+                  key={l.id}
+                  type="button"
+                  onClick={() => applyLocale(l.id)}
+                  className={cx(
+                    'rounded-md border px-2 py-1 text-[11.5px] transition',
+                    locale === l.id ? 'border-accent/60 bg-accent/20 text-accent-soft' : 'border-ink-700 text-zinc-400 hover:text-zinc-200',
+                  )}
+                >
+                  {l.label}
+                </button>
+              ))}
+            </div>
+          </Field>
           <div className="rounded-lg border border-ink-700 bg-ink-900/60 p-3 text-[11px] leading-relaxed text-zinc-500">
-            通道 A：浏览器内直连任意 OpenAI 兼容接口（OpenAI / DeepSeek / Moonshot / 本地 vLLM 均可）。
-            工具定义由命令注册表自动生成，上下文只传项目摘要，不传任何 base64。
+            {t('通道 A：浏览器内直连任意 OpenAI 兼容接口（OpenAI / DeepSeek / Moonshot / 本地 vLLM 均可）。 工具定义由命令注册表自动生成，上下文只传项目摘要，不传任何 base64。')}
           </div>
-          <Field label="Base URL" hint="需以 /v1 结尾（例如 https://api.deepseek.com/v1）">
+          <Field label="Base URL" hint={t('需以 /v1 结尾（例如 https://api.deepseek.com/v1）')}>
             <TextInput value={ai.config.baseUrl} onCommit={(v) => void ai.save({ baseUrl: v.trim() })} placeholder="https://api.openai.com/v1" />
           </Field>
-          <Field label="API Key" hint="使用 WebCrypto AES-GCM 加密后存 localStorage，密钥存在 IndexedDB">
+          <Field label="API Key" hint={t('使用 WebCrypto AES-GCM 加密后存 localStorage，密钥存在 IndexedDB')}>
             <TextInput
               value={ai.config.apiKeyMasked}
               onCommit={(v) => void ai.save({ apiKey: v.trim() })}
-              placeholder={ai.hasKey ? '已保存，输入新值可覆盖' : 'sk-...'}
+              placeholder={ai.hasKey ? t('已保存，输入新值可覆盖') : 'sk-...'}
               type="password"
             />
           </Field>
-          <Field label="模型">
+          <Field label={t('模型')}>
             <TextInput value={ai.config.model} onCommit={(v) => void ai.save({ model: v.trim() })} placeholder="gpt-4o-mini" />
           </Field>
           <div className="flex items-center gap-4 pt-1">
             <Toggle
               value={ai.config.requireConfirm}
               onChange={(v) => void ai.save({ requireConfirm: v })}
-              label="修改类命令需确认后执行"
+              label={t('修改类命令需确认后执行')}
             />
-            <Toggle value={ai.config.demoMode} onChange={(v) => void ai.save({ demoMode: v })} label="离线演示模式（无需 Key）" />
+            <Toggle value={ai.config.demoMode} onChange={(v) => void ai.save({ demoMode: v })} label={t('离线演示模式（无需 Key）')} />
           </div>
           <div className="flex items-center gap-2 pt-1">
             <Button variant="accent" onClick={() => void ai.test()}>
-              测试连接
+              {t('测试连接')}
             </Button>
-            {ai.testState === 'ok' && <span className="flex items-center gap-1 text-[11px] text-emerald-400"><Check size={12} /> 可用</span>}
+            {ai.testState === 'ok' && <span className="flex items-center gap-1 text-[11px] text-emerald-400"><Check size={12} /> {t('可用')}</span>}
             {ai.testState === 'loading' && <Loader2 size={12} className="ml-spin text-zinc-500" />}
             {ai.testState === 'fail' && <span className="text-[11px] text-rose-400">{ai.testMessage}</span>}
           </div>
@@ -124,15 +144,13 @@ export function SettingsDialog() {
       {tab === 'bridge' && (
         <div className="space-y-3">
           <div className="rounded-lg border border-ink-700 bg-ink-900/60 p-3 text-[11px] leading-relaxed text-zinc-500">
-            通道 B：先在本机运行 <code className="text-cyan">npm run bridge</code>（WS 127.0.0.1:2718），
-            再把终端打印的 token 粘到这里。MCP Server 由 <code className="text-cyan">npm run mcp</code> 启动，
-            工具清单从当前页面的命令注册表实时同步。
+            {t('通道 B：先在本机运行')} <code className="text-cyan">npm run bridge</code>{t('（WS 127.0.0.1:2718）， 再把终端打印的 token 粘到这里。MCP Server 由')} <code className="text-cyan">npm run mcp</code> {t('启动， 工具清单从当前页面的命令注册表实时同步。')}
           </div>
-          <Field label="WebSocket 地址">
+          <Field label={t('WebSocket 地址')}>
             <TextInput value={url} onCommit={(v) => { setUrl(v); localStorage.setItem('ml.bridge.url', v); }} />
           </Field>
           <Field label="Token">
-            <TextInput value={token} onCommit={(v) => { setToken(v); localStorage.setItem('ml.bridge.token', v.trim()); }} placeholder="bridge 启动时打印的 token" />
+            <TextInput value={token} onCommit={(v) => { setToken(v); localStorage.setItem('ml.bridge.token', v.trim()); }} placeholder={t('bridge 启动时打印的 token')} />
           </Field>
           <div className="flex items-center gap-2">
             <Button
@@ -141,7 +159,7 @@ export function SettingsDialog() {
                 connectBridge(url, token);
               }}
             >
-              连接桥接
+              {t('连接桥接')}
             </Button>
             <Button
               variant="outline"
@@ -149,10 +167,10 @@ export function SettingsDialog() {
                 disconnectBridge();
               }}
             >
-              断开
+              {t('断开')}
             </Button>
             <span className="text-[11px] text-zinc-500">
-              状态：{bridge.state} · {bridge.message}
+              {t('状态：{state} · {message}', { state: bridge.state, message: bridge.message })}
             </span>
           </div>
           <div className="rounded-lg border border-ink-700 bg-ink-900/60 p-3 font-mono text-[10.5px] leading-relaxed text-zinc-500">
@@ -174,12 +192,11 @@ export function SettingsDialog() {
       {tab === 'data' && (
         <div className="space-y-3 text-[11.5px] leading-relaxed text-zinc-400">
           <p>
-            项目 JSON 不含任何 base64；图片/视频/字体二进制存在 IndexedDB（库名 <code className="text-cyan">motionlayer</code>）。
-            自动保存每 2 秒写入一次，刷新页面会恢复上次的项目。
+            {t('项目 JSON 不含任何 base64；图片/视频/字体二进制存在 IndexedDB 的 motionlayer 库。自动保存每 1.6 秒写入一次，刷新页面会恢复上次的项目。')}
           </p>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => void exec('export.json', {})}>
-              导出项目 JSON
+              {t('导出项目 JSON')}
             </Button>
             <Button
               variant="outline"
@@ -196,27 +213,26 @@ export function SettingsDialog() {
                 input.click();
               }}
             >
-              导入项目 JSON
+              {t('导入项目 JSON')}
             </Button>
             <Button
               variant="danger"
               onClick={() => {
-                if (!confirm('清空自动保存并新建空白项目？IndexedDB 中的资源不会删除。')) return;
+                if (!confirm(t('清空自动保存并新建空白项目？IndexedDB 中的资源不会删除。'))) return;
                 void (async () => {
                   await idbDeleteKV('project.autosave');
-                  await exec('project.new', { name: '未命名海报', width: 1080, height: 1440 });
+                  await exec('project.new', { name: t('未命名海报'), width: 1080, height: 1440 });
                 })();
               }}
             >
-              清空自动保存
+              {t('清空自动保存')}
             </Button>
           </div>
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-[11px] text-amber-200/90">
             <div className="mb-1 flex items-center gap-1.5 font-medium">
-              <AlertTriangle size={12} /> 安全提示
+              <AlertTriangle size={12} /> {t('安全提示')}
             </div>
-            API Key 的加密只能防止「明文落在磁盘上」，不能防御同源 XSS。代码层是同源 JS 沙箱（防误用，不防恶意），
-            不要运行来路不明的代码。AI 的修改默认需要确认，危险命令需要二次确认。
+            {t('API Key 的加密只能防止「明文落在磁盘上」，不能防御同源 XSS。代码层是同源 JS 沙箱（防误用，不防恶意）， 不要运行来路不明的代码。AI 的修改默认需要确认，危险命令需要二次确认。')}
           </div>
         </div>
       )}
@@ -241,13 +257,13 @@ export function ExportDialog() {
 
   return (
     <Modal
-      title="导出"
+      title={t('导出')}
       onClose={close}
       width={520}
       footer={
         <>
           <Button variant="ghost" onClick={close}>
-            关闭
+            {t('关闭')}
           </Button>
           <Button
             variant="outline"
@@ -259,7 +275,7 @@ export function ExportDialog() {
             }}
           >
             {busy === 'png' ? <Loader2 size={12} className="ml-spin" /> : null}
-            导出 PNG
+            {t('导出 PNG')}
           </Button>
           <Button
             variant="accent"
@@ -271,61 +287,60 @@ export function ExportDialog() {
             }}
           >
             {busy === 'webm' ? <Loader2 size={12} className="ml-spin" /> : <Play size={12} />}
-            导出 WebM
+            {t('导出 WebM')}
           </Button>
         </>
       }
     >
       <div className="space-y-4">
         <div className="rounded-lg border border-ink-700 bg-ink-900/60 p-3 text-[11px] leading-relaxed text-zinc-500">
-          导出走与预览完全相同的 <code className="text-cyan">renderScene()</code>，只是换了一个离屏 Canvas。
-          导出前会 await 所有字体、视频帧与 HTML 栅格化。
+          {t('导出走与预览完全相同的 renderScene()，只是换了一个离屏 Canvas；导出前会 await 所有字体、视频帧与 HTML 栅格化。')}
         </div>
 
         <div className="space-y-2">
-          <div className="text-[11px] font-semibold tracking-wider text-zinc-400">PNG 静帧</div>
+          <div className="text-[11px] font-semibold tracking-wider text-zinc-400">{t('PNG 静帧')}</div>
           <div className="grid grid-cols-2 gap-2">
-            <Field label="倍率">
+            <Field label={t('倍率')}>
               <Select
                 value={String(scale)}
                 options={[
-                  { value: '1', label: '1× 原始尺寸' },
-                  { value: '2', label: '2× 高清' },
-                  { value: '3', label: '3× 印刷' },
-                  { value: '0.5', label: '0.5× 预览' },
+                  { value: '1', label: t('1× 原始尺寸') },
+                  { value: '2', label: t('2× 高清') },
+                  { value: '3', label: t('3× 印刷') },
+                  { value: '0.5', label: t('0.5× 预览') },
                 ]}
                 onChange={(v) => setScale(Number(v))}
               />
             </Field>
-            <Field label="输出尺寸">
+            <Field label={t('输出尺寸')}>
               <div className="border-ink-700 bg-ink-900/60 rounded-md border px-2 py-1 text-[11.5px] text-zinc-400">
                 {Math.round(project.width * scale)} × {Math.round(project.height * scale)}
               </div>
             </Field>
           </div>
-          <Toggle value={transparent} onChange={setTransparent} label="透明背景（不绘制背景层）" />
+          <Toggle value={transparent} onChange={setTransparent} label={t('透明背景（不绘制背景层）')} />
         </div>
 
         <div className="space-y-2">
-          <div className="text-[11px] font-semibold tracking-wider text-zinc-400">WebM 视频</div>
+          <div className="text-[11px] font-semibold tracking-wider text-zinc-400">{t('WebM 视频')}</div>
           <div className="grid grid-cols-2 gap-2">
-            <Field label="帧率">
+            <Field label={t('帧率')}>
               <NumberInput value={fps} onCommit={setFps} min={1} max={60} suffix="fps" />
             </Field>
-            <Field label="码率档位">
+            <Field label={t('码率档位')}>
               <Select
                 value={String(quality)}
                 options={[
-                  { value: '40', label: '小体积' },
-                  { value: '70', label: '标准' },
-                  { value: '92', label: '高画质' },
+                  { value: '40', label: t('小体积') },
+                  { value: '70', label: t('标准') },
+                  { value: '92', label: t('高画质') },
                 ]}
                 onChange={(v) => setQuality(Number(v))}
               />
             </Field>
           </div>
           <p className="text-[10.5px] leading-relaxed text-zinc-600">
-            逐帧手动推帧（captureStream(0) + requestFrame）。导出耗时约等于视频时长，导出期间命令总线仍会串行等待。
+            {t('逐帧手动推帧（captureStream(0) + requestFrame）。导出耗时约等于视频时长，导出期间命令总线仍会串行等待。')}
           </p>
         </div>
 
@@ -375,7 +390,7 @@ const GLSL_TEMPLATE = `void main() {
 
 const HTML_TEMPLATE = `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;
   background:linear-gradient(135deg,#101828,#2a1147);color:#fff;font:600 42px/1.2 system-ui;">
-  可编程 HTML 层
+  {t('可编程 HTML 层')}
 </div>`;
 
 export function CodeEditorDialog() {
@@ -404,16 +419,16 @@ export function CodeEditorDialog() {
 
   return (
     <Modal
-      title={`代码编辑器 · ${layer.name}`}
+      title={t('代码编辑器 · {name}', { name: layer.name })}
       onClose={close}
       width={980}
       footer={
         <>
           <span className="mr-auto text-[10.5px] text-zinc-600">
-            {info.error ? <span className="text-rose-400">{info.error}</span> : '语法错误会在关闭编辑器后逐帧捕获'}
+            {info.error ? <span className="text-rose-400">{info.error}</span> : t('语法错误会在关闭编辑器后逐帧捕获')}
           </span>
           <Button variant="ghost" onClick={close}>
-            取消
+            {t('取消')}
           </Button>
           <Button
             variant="accent"
@@ -424,7 +439,7 @@ export function CodeEditorDialog() {
               close();
             }}
           >
-            应用（一条命令）
+            {t('应用（一条命令）')}
           </Button>
         </>
       }
@@ -433,9 +448,9 @@ export function CodeEditorDialog() {
         <Badge tone="cyan">{layer.code.engine}</Badge>
         <div className="flex-1" />
         {[
-          { label: 'canvas2d 模板', src: CANVAS2D_TEMPLATE, engine: 'canvas2d' as const },
-          { label: 'GLSL 模板', src: GLSL_TEMPLATE, engine: 'glsl' as const },
-          { label: 'HTML 模板', src: HTML_TEMPLATE, engine: 'html' as const },
+          { label: t('canvas2d 模板'), src: CANVAS2D_TEMPLATE, engine: 'canvas2d' as const },
+          { label: t('GLSL 模板'), src: GLSL_TEMPLATE, engine: 'glsl' as const },
+          { label: t('HTML 模板'), src: HTML_TEMPLATE, engine: 'html' as const },
         ].map((t) => (
           <Button
             key={t.label}

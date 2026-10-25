@@ -2,6 +2,7 @@ import { buildToolSchemas } from '@/core/registry';
 import { summarizeProject } from '@/core/summary';
 import { updateRuntime, useEditor } from '@/core/store';
 import { dispatch } from '@/core/commandBus';
+import { t } from '@/i18n';
 
 let socket: WebSocket | null = null;
 let manifestTimer: number | null = null;
@@ -33,7 +34,7 @@ export function connectBridge(url: string, token: string): void {
     socket.close();
   }
   updateRuntime((rt) => {
-    rt.bridge = { state: 'connecting', message: '连接中…', agents: 0 };
+    rt.bridge = { state: 'connecting', message: t('连接中…'), agents: 0 };
   });
   let ws: WebSocket;
   try {
@@ -49,7 +50,7 @@ export function connectBridge(url: string, token: string): void {
 
   ws.onopen = () => {
     updateRuntime((rt) => {
-      rt.bridge = { state: 'connected', message: '已连接本地桥接', agents: rt.bridge.agents };
+      rt.bridge = { state: 'connected', message: t('已连接本地桥接'), agents: rt.bridge.agents };
     });
     sendManifest();
     if (manifestTimer) window.clearInterval(manifestTimer);
@@ -66,13 +67,13 @@ export function connectBridge(url: string, token: string): void {
     if (manifestTimer) window.clearInterval(manifestTimer);
     manifestTimer = null;
     updateRuntime((rt) => {
-      rt.bridge = { state: 'off', message: '未连接', agents: 0 };
+      rt.bridge = { state: 'off', message: t('未连接'), agents: 0 };
     });
   };
 
   ws.onerror = () => {
     updateRuntime((rt) => {
-      rt.bridge = { state: 'error', message: '连接失败：检查 bridge 是否启动、token 是否一致', agents: 0 };
+      rt.bridge = { state: 'error', message: t('连接失败：检查 bridge 是否启动、token 是否一致'), agents: 0 };
     });
   };
 

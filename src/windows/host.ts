@@ -4,6 +4,7 @@ import { uid } from '@/core/ids';
 import { updateUi, useEditor } from '@/core/store';
 import type { SnapshotMessage, ClientToHost, HostToClient, CommandRequest, ResultMessage } from './protocol';
 import { CHANNEL_NAME } from './protocol';
+import { t } from '@/i18n';
 
 interface DocumentPictureInPicture {
   requestWindow(options?: { width?: number; height?: number }): Promise<Window>;
@@ -156,12 +157,12 @@ export class LayerWindowHost {
         setTimeout(() => this.flushSnapshot(), 300);
         return { ok: true, mode: 'popup' };
       }
-      return { ok: false, mode: 'popup', message: '弹窗被浏览器拦截' };
+      return { ok: false, mode: 'popup', message: t('弹窗被浏览器拦截') };
     }
 
     if (mode === 'pip') {
       const dpip = window.documentPictureInPicture;
-      if (!dpip) return { ok: false, mode: 'pip', message: '当前浏览器不支持 Document Picture-in-Picture' };
+      if (!dpip) return { ok: false, mode: 'pip', message: t('当前浏览器不支持 Document Picture-in-Picture') };
       try {
         const pip = await dpip.requestWindow({ width: 560, height: 820 });
         const iframe = pip.document.createElement('iframe');

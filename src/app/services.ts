@@ -8,6 +8,7 @@ import { loadFonts, registerFontFace, removeFont } from '@/persist/fonts';
 import { getLayerWindowHost } from '@/windows/host';
 import type { AssetMeta } from '@/core/types';
 
+import { t } from '@/i18n';
 function dataUrlToBlob(dataUrl: string): Blob {
   const [meta, b64] = dataUrl.split(',');
   const mime = /data:([^;]+)/.exec(meta ?? '')?.[1] ?? 'application/octet-stream';
@@ -52,19 +53,19 @@ export function ensureServices(): void {
     async exportPng(opts) {
       const project = useEditor.getState().project;
       const result = await exportPng(project, opts);
-      pushToast('success', `已导出 ${result.filename}`);
+      pushToast('success', t('已导出 {name}', { name: result.filename }));
       return result;
     },
     async exportWebm(opts, onProgress) {
       const project = useEditor.getState().project;
       const result = await exportWebm(project, opts, onProgress);
-      pushToast('success', `已导出 ${result.filename}（${result.frames} 帧）`);
+      pushToast('success', t('已导出 {name}（{n} 帧）', { name: result.filename, n: result.frames }));
       return result;
     },
     async exportJson() {
       const project = useEditor.getState().project;
       const result = exportProjectJson(project);
-      pushToast('success', `已导出 ${result.filename}`);
+      pushToast('success', t('已导出 {name}', { name: result.filename }));
       return result;
     },
     async capture(opts) {
@@ -108,13 +109,13 @@ export function ensureServices(): void {
     async openLayerWindow(layerId, mode) {
       let result = await host.open(layerId, mode);
       if (result.ok) return result;
-      const reason = result.message ?? '打开失败';
+      const reason = result.message ?? t('打开失败');
       if (mode !== 'pip') {
         const pip = await host.open(layerId, 'pip');
         if (pip.ok) return pip;
       }
       const panel = await host.open(layerId, 'panel');
-      return panel.ok ? { ...panel, message: `${reason}，已降级为应用内浮动窗口` } : panel;
+      return panel.ok ? { ...panel, message: t('{reason}，已降级为应用内浮动窗口', { reason }) } : panel;
     },
     closeLayerWindow(layerId) {
       host.close(layerId);

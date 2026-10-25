@@ -6,6 +6,7 @@ import { computeLayerFrame } from '@/render/animation';
 import { renderScene } from '@/render/renderScene';
 import { Badge, NumberInput, Slider, TextInput, cx } from '@/ui/primitives';
 
+import { t } from '@/i18n';
 const TYPE_LABEL: Record<string, string> = {
   text: '文本层',
   image: '图片层',
@@ -86,14 +87,14 @@ export function LayerMirror({
   if (!layer) {
     return (
       <div className="flex h-full items-center justify-center p-6 text-center text-[11.5px] text-zinc-500">
-        图层已被删除，或该项目已关闭。
+        {t('图层已被删除，或该项目已关闭。')}
       </div>
     );
   }
 
   const commit = async (type: string, payload: unknown) => {
     const res = await onCommand(type, payload);
-    setError(res.ok ? null : (res.error?.message ?? '执行失败'));
+    setError(res.ok ? null : (res.error?.message ?? t('执行失败')));
   };
 
   return (
@@ -103,7 +104,7 @@ export function LayerMirror({
           <TypeIcon type={layer.type} />
         </span>
         <span className="min-w-0 flex-1 truncate text-[12px] font-medium text-zinc-200">{layer.name}</span>
-        <Badge tone="neutral">{TYPE_LABEL[layer.type] ?? layer.type}</Badge>
+        <Badge tone="neutral">{t(TYPE_LABEL[layer.type] ?? layer.type)}</Badge>
         <span
           className={cx(
             'h-1.5 w-1.5 rounded-full',
@@ -116,7 +117,7 @@ export function LayerMirror({
       <div ref={wrapRef} className="ml-canvas-checker relative min-h-0 flex-1">
         <canvas ref={canvasRef} className="absolute inset-0 block" />
         <div className="pointer-events-none absolute bottom-1.5 left-0 w-full text-center text-[9.5px] text-zinc-600">
-          只读镜像 · 主窗口渲染
+          {t('只读镜像 · 主窗口渲染')}
         </div>
       </div>
 
@@ -132,16 +133,16 @@ export function LayerMirror({
               <NumberInput value={layer.y} onCommit={(y) => void commit('layer.update', { id: layer.id, patch: { y } })} suffix="px" />
             </label>
             <label className="block">
-              <span className="mb-0.5 block text-[10px] text-zinc-500">宽</span>
+              <span className="mb-0.5 block text-[10px] text-zinc-500">{t('宽')}</span>
               <NumberInput value={layer.width} onCommit={(width) => void commit('layer.update', { id: layer.id, patch: { width } })} suffix="px" />
             </label>
             <label className="block">
-              <span className="mb-0.5 block text-[10px] text-zinc-500">高</span>
+              <span className="mb-0.5 block text-[10px] text-zinc-500">{t('高')}</span>
               <NumberInput value={layer.height} onCommit={(height) => void commit('layer.update', { id: layer.id, patch: { height } })} suffix="px" />
             </label>
           </div>
           <Slider
-            label="不透明度"
+            label={t('不透明度')}
             value={layer.opacity}
             min={0}
             max={1}
@@ -151,7 +152,7 @@ export function LayerMirror({
           />
           {layer.type === 'text' && (
             <label className="block">
-              <span className="mb-0.5 block text-[10px] text-zinc-500">文本内容</span>
+              <span className="mb-0.5 block text-[10px] text-zinc-500">{t('文本内容')}</span>
               <TextInput
                 value={layer.text}
                 onCommit={(text) => void commit('text.setContent', { id: layer.id, text })}
@@ -161,12 +162,12 @@ export function LayerMirror({
           )}
           {layer.type === 'code' && (
             <div className="rounded border border-ink-700 bg-ink-900/60 p-1.5 text-[10px] text-zinc-500">
-              代码层请在主窗口的代码编辑器中修改 · {layer.code.engine}
+              {t('代码层请在主窗口的代码编辑器中修改 · {engine}', { engine: layer.code.engine })}
             </div>
           )}
           {error && <div className="rounded border border-rose-500/30 bg-rose-500/10 px-2 py-1 text-[10px] text-rose-300">{error}</div>}
           <div className="flex items-center gap-1 text-[9.5px] text-zinc-600">
-            <Layers size={10} /> {Math.round(time)}ms · 命令由主窗口执行
+            <Layers size={10} /> {t('{ms}ms · 命令由主窗口执行', { ms: Math.round(time) })}
           </div>
         </div>
       )}

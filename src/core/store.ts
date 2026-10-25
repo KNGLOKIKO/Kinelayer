@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { detectLocale } from '@/i18n';
 import { createDemoProject, createEmptyProject } from './defaults';
 import type { Project, RuntimeState, ToastItem, UiState } from './types';
 import type { HistoryEntry } from './temporal';
@@ -38,6 +39,8 @@ const initialUi: UiState = {
   showTimeline: true,
   showSettings: false,
   showExport: false,
+  showPrompt: false,
+  locale: detectLocale(),
   codeEditorFor: null,
   windowMode: 'popup',
   floatingWindows: [],

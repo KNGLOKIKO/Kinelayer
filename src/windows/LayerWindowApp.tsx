@@ -5,6 +5,7 @@ import type { SnapshotMessage } from './protocol';
 import { LayerMirror } from './LayerMirror';
 import { readLayerParams } from './host';
 
+import { t } from '@/i18n';
 export default function LayerWindowApp() {
   const { layerId, hostId } = readLayerParams();
   const clientRef = useRef<LayerWindowClient | null>(null);
@@ -44,9 +45,9 @@ export default function LayerWindowApp() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
         <Unplug size={22} className="text-zinc-600" />
-        <div className="text-[12.5px] text-zinc-300">缺少图层参数</div>
+        <div className="text-[12.5px] text-zinc-300">{t('缺少图层参数')}</div>
         <div className="max-w-[320px] text-[11px] leading-relaxed text-zinc-600">
-          这个页面只能由主窗口的「独立窗口」按钮打开：它会带上 layer 与 host 参数。
+          {t('这个页面只能由主窗口的「独立窗口」按钮打开：它会带上 layer 与 host 参数。')}
         </div>
       </div>
     );
@@ -56,16 +57,16 @@ export default function LayerWindowApp() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-8 text-center">
         <Loader2 size={20} className="ml-spin text-accent-soft" />
-        <div className="text-[12px] text-zinc-300">{status === 'disconnected' ? '主窗口无响应' : '正在连接主窗口…'}</div>
+        <div className="text-[12px] text-zinc-300">{status === 'disconnected' ? t('主窗口无响应') : t('正在连接主窗口…')}</div>
         <div className="max-w-[300px] text-[11px] leading-relaxed text-zinc-600">
-          Client 只发命令请求、不持有状态。若主窗口已关闭，请回到主窗口重新打开图层窗口。
+          {t('Client 只发命令请求、不持有状态。若主窗口已关闭，请回到主窗口重新打开图层窗口。')}
         </div>
         <button
           type="button"
           className="rounded-md border border-ink-600 px-2.5 py-1 text-[11px] text-zinc-400 hover:text-zinc-100"
           onClick={() => window.location.reload()}
         >
-          重试
+          {t('重试')}
         </button>
       </div>
     );
@@ -84,7 +85,7 @@ export default function LayerWindowApp() {
             ok: false,
             commandId: 'none',
             type,
-            error: { code: 'RUNTIME', message: '未连接' },
+            error: { code: 'RUNTIME', message: t('未连接') },
             projectVersion: 0,
             durationMs: 0,
             dryRun: false,

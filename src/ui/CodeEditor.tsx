@@ -7,6 +7,7 @@ import { bracketMatching, indentOnInput, syntaxHighlighting, defaultHighlightSty
 import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from '@codemirror/autocomplete';
 import { oneDark } from '@codemirror/theme-one-dark';
 
+import { t } from '@/i18n';
 export function CodeEditor({
   value,
   onChange,

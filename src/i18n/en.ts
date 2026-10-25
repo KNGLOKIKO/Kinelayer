@@ -1,0 +1,458 @@
+import type { Locale } from './index';
+
+/**
+ * 英文词典。
+ *
+ * key 一律是**中文原文**（见 i18n/index.ts 的设计说明），value 是译文。
+ * 未命中的 key 会原样回退成中文，所以这里漏一条不会崩，只是漏翻。
+ */
+export const en: Record<string, string> = {
+  // ── 编辑器画布 ──────────────────────────────────────────
+  '拖拽移动 · 双击编辑文本 · 空格拖拽平移 · Ctrl+滚轮缩放':
+    'Drag to move · double-click to edit text · space-drag to pan · Ctrl+wheel to zoom',
+  '· 空格 + 拖拽：平移画布；Ctrl + 滚轮：缩放': '· Space + drag: pan the canvas; Ctrl + wheel: zoom',
+  '· 双击文本层：就地编辑；拖拽手柄缩放，顶部圆点旋转':
+    '· Double-click a text layer to edit in place; drag handles to resize, the top dot to rotate',
+  '· 所有改动都会进入同一个撤销栈': '· Every change lands on the same undo stack',
+  '· 选中后按方向键微调 1px（Shift 为 10px）':
+    '· With a layer selected, arrow keys nudge by 1px (Shift for 10px)',
+
+  // ── 顶栏 / 全局 ─────────────────────────────────────────
+  层动: 'MotionLayer',
+  撤销: 'Undo',
+  重做: 'Redo',
+  '撤销 (Ctrl+Z)': 'Undo (Ctrl+Z)',
+  '重做 (Ctrl+Shift+Z)': 'Redo (Ctrl+Shift+Z)',
+  '播放 / 暂停': 'Play / Pause',
+  '播放 / 暂停 (Space)': 'Play / Pause (Space)',
+  回到开头: 'Back to start',
+  '适应窗口 (Shift+1)': 'Fit to window (Shift+1)',
+  导出: 'Export',
+  设置: 'Settings',
+  接入: 'Integrate',
+  界面语言: 'Interface language',
+  'AI 接入提示词': 'AI integration prompt',
+  'AI 接入提示词（复制给任意模型 / MCP 客户端）':
+    'AI integration prompt (copy to any model / MCP client)',
+  关闭: 'Close',
+  取消: 'Cancel',
+  重试: 'Retry',
+  删除: 'Delete',
+  复制: 'Copy',
+  清除: 'Clear',
+  失败: 'Failed',
+  执行失败: 'Failed',
+
+  // ── 左侧面板 ────────────────────────────────────────────
+  图层: 'Layers',
+  资源: 'Assets',
+  命令: 'Commands',
+  字体: 'Fonts',
+  添加图层: 'Add layer',
+  图片层: 'Image layer',
+  文本层: 'Text layer',
+  代码层: 'Code layer',
+  视频层: 'Video layer',
+  背景层: 'Background layer',
+  '把图片或视频拖进来': 'Drop images or video here',
+  '导入图片 / 视频': 'Import image / video',
+  '点击放置到画布': 'Click to place on the canvas',
+  上传: 'Upload',
+  '上传字体文件': 'Upload font file',
+  '扫描本地字体（需授权）': 'Scan local fonts (needs permission)',
+  搜索字体: 'Search fonts',
+  '搜索命令 / 分类': 'Search commands / categories',
+  '这份列表与 AI 工具、MCP 工具同源。改这里就是改能力。':
+    'This list is the same source the AI and MCP tools read from — change it here and you change what they can do.',
+  命令注册表: 'Command registry',
+  整理: 'Tidy',
+  '修复越界与时间区间': 'Fix out-of-bounds and time ranges',
+  运行: 'Run',
+  '来源 user': 'source: user',
+  '先选中一个文本层': 'Select a text layer first',
+  显示: 'Show',
+  隐藏: 'Hide',
+  锁定: 'Lock',
+  解锁: 'Unlock',
+  导入失败: 'Import failed',
+  '读取文件失败': 'Could not read the file',
+  '字体注册失败': 'Font registration failed',
+  '请求授权中…': 'Requesting permission…',
+  '在独立窗口编辑': 'Edit in its own window',
+
+  // ── 检查器 · 画布 / 背景 ─────────────────────────────────
+  画布: 'Canvas',
+  '画布 / 背景': 'Canvas / Background',
+  宽: 'W',
+  高: 'H',
+  时长: 'Duration',
+  背景: 'Background',
+  纯色: 'Solid',
+  渐变: 'Gradient',
+  径向: 'Radial',
+  颜色: 'Color',
+  '+ 增加色标': '+ Add stop',
+  '编辑背景代码': 'Edit background code',
+  '在左侧「资源」里选一张图，点「设为背景」，或用命令 background.set 指定 assetId。':
+    'Pick an image in the Assets panel and hit “Set as background”, or pass an assetId to the background.set command.',
+  '在左侧资源面板导入': 'Import from the Assets panel',
+  安全区: 'Safe area',
+  吸附: 'Snap',
+  循环: 'Loop',
+
+  // ── 检查器 · 通用 ───────────────────────────────────────
+  变换: 'Transform',
+  对齐: 'Align',
+  顶对齐: 'Top',
+  居中: 'Center',
+  底对齐: 'Bottom',
+  '居中并复位旋转': 'Center and reset rotation',
+  操作提示: 'Tips',
+  '复制图层': 'Duplicate layer',
+  独立窗口: 'In own window',
+  删除图层: 'Delete layer',
+  可见: 'Visible',
+  不透明度: 'Opacity',
+  混合模式: 'Blend mode',
+
+  // ── 检查器 · 文本 / 图片 / 外观 ──────────────────────────
+  字重: 'Weight',
+  字号: 'Size',
+  字距: 'Tracking',
+  行高: 'Line height',
+  大写: 'Uppercase',
+  自动换行: 'Wrap',
+  重置文本样式: 'Reset text style',
+  描边: 'Stroke',
+  圆角: 'Radius',
+  填充: 'Fill',
+  填充方式: 'Fill type',
+  '使用渐变填充': 'Use gradient fill',
+  包含: 'Contain',
+  覆盖: 'Cover',
+  拉伸: 'Stretch',
+  文本: 'Text',
+  线性: 'Linear',
+  旋转: 'Rotate',
+  图片: 'Image',
+  视频: 'Video',
+  未选择资源: 'No asset selected',
+  '未选择视频资源': 'No video selected',
+  外观: 'Look',
+  亮度: 'Brightness',
+  对比度: 'Contrast',
+  饱和度: 'Saturation',
+  灰度: 'Grayscale',
+  模糊: 'Blur',
+  阴影模糊: 'Shadow blur',
+  播放速度: 'Playback speed',
+  静音: 'Mute',
+
+  // ── 检查器 · 动画 / 表达式 / 时间轴区间 ──────────────────
+  动画: 'Animation',
+  入场: 'Enter',
+  退场: 'Exit',
+  强调: 'Emphasis',
+  延迟: 'Delay',
+  曲线: 'Curve',
+  强度: 'Intensity',
+  '属性绑定（表达式）': 'Property binding (expression)',
+  '留空表示不绑定': 'Leave empty to unbind',
+  '每帧求值，可用 time(ms)、w、h、i 与 Math 函数。例如 rotation = sin(time*0.001)*6。':
+    'Evaluated every frame; time (ms), w, h, i and the Math functions are in scope — e.g. rotation = sin(time*0.001)*6.',
+  时间轴区间: 'Timeline range',
+  出现: 'In',
+  消失: 'Out',
+  '消失填 0 表示持续到结尾。': 'Leave Out at 0 to run through to the end.',
+  '由主时钟 seek 驱动，预览与导出取同一帧':
+    'Driven by the host clock’s seek — preview and export grab the same frame',
+  引擎: 'Engine',
+  '打开编辑器': 'Open editor',
+  代码: 'Code',
+  代码驱动: 'Code-driven',
+  帧率: 'Frame rate',
+
+  // ── 时间轴 ─────────────────────────────────────────────
+  时间轴: 'Timeline',
+  收起时间轴: 'Collapse timeline',
+
+  // ── 导出对话框 ─────────────────────────────────────────
+  'PNG 静帧': 'PNG still',
+  'WebM 视频': 'WebM video',
+  输出尺寸: 'Output size',
+  倍率: 'Scale',
+  '0.5× 预览': '0.5× preview',
+  '1× 原始尺寸': '1× native',
+  '2× 高清': '2× HD',
+  '3× 印刷': '3× print',
+  '透明背景（不绘制背景层）': 'Transparent background (skip the background layer)',
+  码率档位: 'Bitrate preset',
+  小体积: 'Small',
+  标准: 'Standard',
+  高画质: 'High quality',
+  '导出走与预览完全相同的 renderScene()，只是换了一个离屏 Canvas；导出前会 await 所有字体、视频帧与 HTML 栅格化。':
+    'Export runs the exact same renderScene() as the preview, just against an offscreen canvas — and it awaits every font, video frame and HTML rasterization first.',
+  '逐帧手动推帧（captureStream(0) + requestFrame）。导出耗时约等于视频时长，导出期间命令总线仍会串行等待。':
+    'Frames are pushed one at a time (captureStream(0) + requestFrame). Export takes roughly as long as the video itself, and the command bus keeps queueing serially meanwhile.',
+  '导出项目 JSON': 'Export project JSON',
+  '导入项目 JSON': 'Import project JSON',
+  未命名海报: 'Untitled poster',
+  已保存: 'Saved',
+  '已保存，输入新值可覆盖': 'Saved — type a new value to replace it',
+  清空自动保存: 'Clear autosave',
+  '清空自动保存并新建空白项目？IndexedDB 中的资源不会删除。':
+    'Clear the autosave and start a blank project? Assets in IndexedDB are kept.',
+  '项目 JSON 不含任何 base64；图片/视频/字体二进制存在 IndexedDB 的 motionlayer 库。自动保存每 1.6 秒写入一次，刷新页面会恢复上次的项目。':
+    'The project JSON holds no base64 — image, video and font binaries live in the IndexedDB “motionlayer” database. Autosave writes every 1.6s, and reloading restores your last project.',
+  '应用（一条命令）': 'Apply (one command)',
+
+  // ── 设置 · AI ──────────────────────────────────────────
+  '通道 A：浏览器内直连任意 OpenAI 兼容接口（OpenAI / DeepSeek / Moonshot / 本地 vLLM 均可）。 工具定义由命令注册表自动生成，上下文只传项目摘要，不传任何 base64。':
+    'Channel A: hit any OpenAI-compatible endpoint straight from the browser (OpenAI, DeepSeek, Moonshot, a local vLLM — all fine). Tool definitions are generated from the command registry, and only a project summary goes into the context — never any base64.',
+  '通道 B：先在本机运行 ': 'Channel B: run ',
+  '（WS 127.0.0.1:2718）， 再把终端打印的 token 粘到这里。MCP Server 由 ':
+    ' (WS 127.0.0.1:2718) on your machine, then paste the token it prints into the field below. The MCP server is started by ',
+  '启动， 工具清单从当前页面的命令注册表实时同步。':
+    ' — its tool list syncs live from the command registry of this page.',
+  模型: 'Model',
+  测试连接: 'Test connection',
+  连接桥接: 'Connect bridge',
+  断开: 'Disconnect',
+  可用: 'Available',
+  未连接: 'Not connected',
+  '离线演示模式（无需 Key）': 'Offline demo mode (no key needed)',
+  '只影响界面文案与导出文件名；项目数据不受影响。':
+    'Affects interface copy and exported filenames only — project data is untouched.',
+  安全提示: 'Safety',
+  'API Key 的加密只能防止「明文落在磁盘上」，不能防御同源 XSS。代码层是同源 JS 沙箱（防误用，不防恶意）， 不要运行来路不明的代码。AI 的修改默认需要确认，危险命令需要二次确认。':
+    'Encrypting the API key only keeps it from sitting in plaintext on disk — it does nothing against same-origin XSS. The code layer is a same-origin JS sandbox: it guards against accidents, not against malice, so never run code from an untrusted source. AI edits need confirmation by default, and dangerous commands need a second one.',
+  '可编程 HTML 层': 'Programmable HTML layer',
+  '语法错误会在关闭编辑器后逐帧捕获': 'Syntax errors surface per frame once you close the editor',
+  'HTML 模板': 'HTML template',
+  'GLSL 模板': 'GLSL template',
+  'canvas2d 模板': 'canvas2d template',
+  'WebSocket 地址': 'WebSocket URL',
+  'bridge 启动时打印的 token': 'the token printed when the bridge starts',
+
+  // ── AI 面板 ────────────────────────────────────────────
+  '待确认的命令': 'Commands awaiting confirmation',
+  '危险操作，需要二次确认': 'Dangerous — needs a second confirmation',
+  修改需确认: 'Confirm edits',
+  '修改类命令需确认后执行': 'Commands that change the project run only after you approve them',
+  自动执行: 'Run automatically',
+  批准执行: 'Approve',
+  拒绝: 'Reject',
+  '确认执行（不可逆）': 'Confirm (irreversible)',
+  '用户拒绝执行': 'Rejected by the user',
+  '已取消，未执行任何命令。': 'Cancelled — no commands ran.',
+  已应用: 'Applied',
+  '正在处理…': 'Working…',
+  '已达到单轮 6 次工具调用上限，先停在这里。可以继续追问。':
+    'Hit the 6-tool-call limit for one turn, stopping here. Ask again to keep going.',
+  '截图已返回并在界面展示，避免把 base64 塞回上下文。':
+    'The screenshot came back and is shown inline, keeping base64 out of the context.',
+  清空对话: 'Clear chat',
+  '对话已清空。项目状态不受影响。': 'Chat cleared — project state is untouched.',
+  '发送 (Enter)': 'Send (Enter)',
+  演示模式: 'Demo mode',
+  'AI 操作': 'AI actions',
+  '参数 JSON 解析失败': 'Could not parse the JSON arguments',
+  '我是命令总线上的一个客户端。所有修改都会变成结构化命令，可以单条撤销。当前是离线演示模式，可在设置里接入真实模型。':
+    'I am a client on the command bus. Every change becomes a structured command you can undo one by one. Right now I am in offline demo mode — connect a real model in Settings.',
+  '描述你想做的修改，例如：把标题改成两行，字号 96':
+    'Describe the change — e.g. “split the title into two lines, 96px”',
+
+  // ── 提示词面板 ──────────────────────────────────────────
+  把模型回复粘回这里: 'Paste the model’s reply back here',
+  附带当前项目上下文: 'Include the current project context',
+  复制提示词: 'Copy prompt',
+  '复制提示词 → 粘到任意对话框 → 把回复粘回下面的执行区':
+    'Copy the prompt → paste it into any chat → paste the reply into the box below',
+  通用大模型: 'Any LLM',
+  'MCP 客户端': 'MCP client',
+  示例: 'Example',
+  解析: 'Parse',
+  重新生成: 'Regenerate',
+  用法: 'How to use',
+  '下载 .md': 'Download .md',
+  '已下载 motionlayer-ai-prompt.md': 'Downloaded motionlayer-ai-prompt.md',
+  '支持代码围栏 / 裸 JSON / 单条命令': 'Accepts code fences, bare JSON, or a single command',
+  '全部通过校验才会生效；任一条失败会整体回滚':
+    'Nothing applies unless every command validates — one failure rolls back the whole batch',
+  '执行中…': 'Running…',
+  '加了一个标题，并让它 800ms 淡入。': 'Added a title and faded it in over 800ms.',
+  '这一行是 AI 加的': 'Added by the AI',
+  '这是 OpenAI 兼容接口需要的 tools 数组，直接放进请求体的 tools 字段；模型返回 tool_calls 后，把 name 里的 __ 换回 . 就是命令类型。':
+    'This is the tools array an OpenAI-compatible endpoint expects — drop it straight into the request body’s tools field. When the model returns tool_calls, swap the __ in each name back to . to get the command type.',
+  '给自建 Agent 用的 tools 数组（与 MCP 同源，来自命令注册表）':
+    'The tools array for your own agent — same source as MCP, generated from the command registry',
+  '配置片段在仓库 agent-bridge/claude-desktop-config.json，把路径换成你本机的绝对路径。':
+    'The config snippet ships at agent-bridge/claude-desktop-config.json — swap in the absolute path on your machine.',
+  '桥接只监听 127.0.0.1，令牌在 agent-bridge/.token；MCP 侧工具清单与上面的提示词同源，在编辑器里新增命令后客户端重新拉一次 tools/list 即可。':
+    'The bridge binds to 127.0.0.1 only, and the token lives in agent-bridge/.token. The MCP tool list comes from the same place as the prompt above, so after adding commands in the editor just have the client re-fetch tools/list.',
+  'Claude Desktop / Cursor 直连本机 bridge，模型可自己调工具':
+    'Claude Desktop / Cursor talk to the local bridge and call the tools themselves',
+  '参数 params（JSON）': 'Arguments (JSON)',
+
+  // ── 审计 / Chrome ──────────────────────────────────────
+  审计: 'Audit',
+  审计日志: 'Audit log',
+  'Command Bus · Host 权威': 'Command Bus · Host authoritative',
+  '还没有命令被执行。': 'No commands have run yet.',
+  '最近 200 条': 'Latest 200',
+  系统弹窗: 'System popup',
+  画中画: 'Picture-in-picture',
+  应用内浮动: 'In-app floating',
+  应用内浮动窗口: 'Floating layer window',
+
+  // ── 图层独立窗口 ────────────────────────────────────────
+  属性: 'Properties',
+  文本内容: 'Text content',
+  '只读镜像 · 主窗口渲染': 'Read-only mirror · rendered by the host',
+  '图层已被删除，或该项目已关闭。': 'This layer was deleted, or the project has been closed.',
+  缺少图层参数: 'Missing layer parameter',
+  '正在连接主窗口…': 'Connecting to the host…',
+  '主窗口无响应': 'The host is not responding',
+  '这个页面只能由主窗口的「独立窗口」按钮打开：它会带上 layer 与 host 参数。':
+    'This page can only be opened from the host window’s “In own window” button — it carries the layer and host parameters.',
+  'Client 只发命令请求、不持有状态。若主窗口已关闭，请回到主窗口重新打开图层窗口。':
+    'The client only sends command requests and holds no state. If the host window has closed, reopen the layer window from it.',
+
+  // ── 动态拼接（含 {占位符}） ─────────────────────────────
+  '工具 {n}+ 由注册表生成': '{n}+ tools generated from the registry',
+  '未知命令：{type}': 'Unknown command: {type}',
+  '工具参数不是合法 JSON：{snippet}': 'Tool arguments are not valid JSON: {snippet}',
+  '截图 {w}×{h}': 'Screenshot {w}×{h}',
+  'command.batch（{n} 条）': 'command.batch ({n} commands)',
+  'Agent 已连接 · {n} 个客户端': 'Agent connected · {n} client(s)',
+  '{n} 图层': '{n} layers',
+  '选中 {n}': 'Selected {n}',
+  '撤销栈 {n}': 'Undo stack {n}',
+  '{n} 个失败命令': '{n} failed commands',
+  '窗口：{mode}': 'Window: {mode}',
+  '状态：{state} · {message}': 'Status: {state} · {message}',
+  '代码编辑器 · {name}': 'Code editor · {name}',
+  '删除「{name}」？': 'Delete “{name}”?',
+  '对齐 {mode}': 'Align {mode}',
+  '{n} 行': '{n} lines',
+  '图层 {n}': 'Layers {n}',
+  '资源 {n}': 'Assets {n}',
+  '删除 {n} 个图层？': 'Delete {n} layers?',
+  '删除资源「{name}」？引用它的图层会清空资源。':
+    'Delete the asset “{name}”? Layers using it will lose their source.',
+  '跳过不支持的文件：{name}': 'Skipped an unsupported file: {name}',
+  '{name} 超过 48MB，已跳过': '{name} is over 48MB — skipped',
+  '已导入 {name}': 'Imported {name}',
+  '字体「{family}」已注册并持久化': 'Font “{family}” registered and persisted',
+  '读取到 {n} 个本地字体族': 'Found {n} local font families',
+  '提示词已复制（{n} 字符）': 'Prompt copied ({n} characters)',
+  '这些命令不在注册表里，执行会失败：{list}':
+    'These commands are not in the registry and would fail: {list}',
+  '含未知命令：{list}': 'Contains unknown commands: {list}',
+  '其中 {n} 条是危险命令（{list}），确认执行？':
+    '{n} of these are dangerous ({list}) — run them anyway?',
+  '已执行 {n} 条命令（{m} 条修改），可一次撤销':
+    'Ran {n} commands ({m} mutations) — undoable as a single step',
+  '{n} 条命令由注册表自动导出 · 改代码即改提示词':
+    '{n} commands exported from the registry · change the code, change the prompt',
+  '模型说明：{reply}': 'Model note: {reply}',
+  '执行 {n} 条（一个撤销点）': 'Run {n} (one undo step)',
+  '代码层请在主窗口的代码编辑器中修改 · {engine}':
+    'Edit code layers in the host window’s code editor · {engine}',
+  '{ms}ms · 命令由主窗口执行': '{ms}ms · commands run in the host',
+  '已导出 {name}': 'Exported {name}',
+  '已导出 {name}（{n} 帧）': 'Exported {name} ({n} frames)',
+  '{reason}，已降级为应用内浮动窗口': '{reason} — fell back to the in-app floating window',
+
+  // ── 状态与错误 ─────────────────────────────────────────
+  '连接中…': 'Connecting…',
+  '已连接本地桥接': 'Connected to the local bridge',
+  '连接失败：检查 bridge 是否启动、token 是否一致':
+    'Connection failed — check that the bridge is running and the token matches',
+  '弹窗被浏览器拦截': 'The browser blocked the popup',
+  '当前浏览器不支持 Document Picture-in-Picture': 'This browser has no Document Picture-in-Picture support',
+  '与主窗口的连接已断开': 'Lost the connection to the host window',
+  '主窗口 10s 未响应（可能正在导出）': 'The host window did not answer within 10s (it may be exporting)',
+  '当前浏览器不支持 Local Font Access（需 Chrome/Edge 103+，且页面处于安全上下文）':
+    'This browser has no Local Font Access (needs Chrome/Edge 103+ on a secure context)',
+  'IndexedDB 打开失败': 'Could not open IndexedDB',
+  'IndexedDB 操作失败': 'IndexedDB operation failed',
+  'JSON 解析失败': 'Failed to parse the JSON',
+
+  // ── 设置 · 通道说明 ────────────────────────────────────
+  'AI 通道': 'AI channel',
+  'Agent 桥接': 'Agent bridge',
+  '数据与安全': 'Data & safety',
+  '需以 /v1 结尾（例如 https://api.deepseek.com/v1）':
+    'Must end with /v1 (e.g. https://api.deepseek.com/v1)',
+  '使用 WebCrypto AES-GCM 加密后存 localStorage，密钥存在 IndexedDB':
+    'Encrypted with WebCrypto AES-GCM before it reaches localStorage; the key itself lives in IndexedDB',
+  '二进制存 IndexedDB，项目 JSON 里只有元数据，导出时不带 base64。':
+    'Binaries live in IndexedDB; the project JSON holds metadata only, so exports carry no base64.',
+
+  // ── 混合模式 / 动画预设 ─────────────────────────────────
+  '导出 PNG': 'Export PNG',
+  '导出 WebM': 'Export WebM',
+  正常: 'Normal',
+  正片叠底: 'Multiply',
+  滤色: 'Screen',
+  叠加: 'Overlay',
+  变亮: 'Lighten',
+  变暗: 'Darken',
+  差值: 'Difference',
+  强光: 'Hard light',
+  柔光: 'Soft light',
+  无: 'None',
+  淡入: 'Fade in',
+  上滑: 'Slide up',
+  下滑: 'Slide down',
+  左滑: 'Slide left',
+  右滑: 'Slide right',
+  放大进入: 'Zoom in',
+  缩小进入: 'Zoom out',
+  脉冲: 'Pulse',
+  漂浮: 'Float',
+
+  // ── 演示代理的回复 ─────────────────────────────────────
+  '好的，导出当前帧为 PNG（2 倍图）。': 'Sure — exporting the current frame as a 2× PNG.',
+  '开始逐帧导出 WebM，请保持页面在前台。':
+    'Exporting WebM frame by frame — keep this tab in the foreground.',
+  '开始播放时间轴。': 'Playing the timeline.',
+  播放: 'Play',
+  '已暂停。': 'Paused.',
+  暂停: 'Pause',
+  '把背景换成深紫渐变。': 'Switching the background to a deep purple gradient.',
+  背景改为深紫渐变: 'Background → deep purple gradient',
+  '删除当前选中的图层。': 'Deleting the selected layer.',
+  '复制当前图层并向右下偏移。': 'Duplicating the layer, offset down and to the right.',
+  '新建一个居中标题「{text}」，64px 粗体，并带淡入。':
+    'Added a centered title “{text}”, 64px bold, fading in.',
+  在这里输入标题: 'Type your title here',
+  新建标题: 'New title',
+  '把「{name}」字号调整为 {size}px。': 'Set “{name}” to {size}px.',
+  调整字号: 'Adjust font size',
+  '把「{name}」的文字颜色改成 #{color}。': 'Changed the text color of “{name}” to #{color}.',
+  改文字颜色: 'Change text color',
+  '新建一个全画布代码层，用流线做背景纹理（screen 混合）。':
+    'Added a full-canvas code layer using flowing lines as a background texture (screen blend).',
+  新建代码层: 'New code layer',
+  流线: 'Flow lines',
+  '把选中图层水平居中。': 'Centering the selected layer horizontally.',
+  水平居中: 'Center horizontally',
+  '演示模式能识别这些指令：': 'Demo mode understands these:',
+  '· 加一个标题「…」 · 字号大一点 · 把颜色改成 #7c5cff':
+    '· add a title “…” · bigger font · change the color to #7c5cff',
+  '· 背景改成渐变 · 加个代码层 · 居中 · 复制 · 删除':
+    '· gradient background · add a code layer · center · duplicate · delete',
+  '· 播放 / 暂停 · 导出 PNG / 导出 WebM': '· play / pause · export PNG / export WebM',
+  '当前画布 {w}×{h}，共 {n} 个图层（含背景 {kind}）。':
+    'Canvas is {w}×{h} with {n} layers (background: {kind}).',
+  '接入真实模型后可以用任意自然语言描述排版；在设置里填 Base URL / Key 并关闭演示模式即可。':
+    'Connect a real model to describe layouts in plain language — set the Base URL and key in Settings and switch demo mode off.',
+
+  // ── 兜底 ───────────────────────────────────────────────
+  打开失败: 'Failed to open',
+};
+
+export type EnDict = typeof en;
+export type { Locale };

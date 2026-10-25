@@ -29,13 +29,14 @@ import { SYSTEM_FONTS, listLocalFonts } from '@/persist/fonts';
 import type { Layer } from '@/core/types';
 import { Badge, Button, EmptyState, IconButton, TextInput, cx } from './primitives';
 
+import { t } from '@/i18n';
 /* ------------------------------------------------------------------ rail */
 
 const TABS: { id: 'layers' | 'assets' | 'fonts' | 'commands'; icon: typeof Layers; label: string }[] = [
-  { id: 'layers', icon: Layers, label: '图层' },
-  { id: 'assets', icon: ImageIcon, label: '资源' },
-  { id: 'fonts', icon: Type, label: '字体' },
-  { id: 'commands', icon: Terminal, label: '命令' },
+  { id: 'layers', icon: Layers, label: t('图层') },
+  { id: 'assets', icon: ImageIcon, label: t('资源') },
+  { id: 'fonts', icon: Type, label: t('字体') },
+  { id: 'commands', icon: Terminal, label: t('命令') },
 ];
 
 export function LeftRail() {
@@ -149,7 +150,7 @@ function LayerRow({ layer, index }: { layer: Layer; index: number }) {
       {!isBg && (
         <button
           type="button"
-          title="在独立窗口编辑"
+          title={t('在独立窗口编辑')}
           onClick={(e) => {
             e.stopPropagation();
             void exec('window.openLayer', { layerId: layer.id, mode: 'auto' });
@@ -161,7 +162,7 @@ function LayerRow({ layer, index }: { layer: Layer; index: number }) {
       )}
       <button
         type="button"
-        title={layer.visible ? '隐藏' : '显示'}
+        title={layer.visible ? t('隐藏') : t('显示')}
         onClick={(e) => {
           e.stopPropagation();
           void exec('layer.setVisible', { id: layer.id, visible: !layer.visible });
@@ -173,7 +174,7 @@ function LayerRow({ layer, index }: { layer: Layer; index: number }) {
       {!isBg && (
         <button
           type="button"
-          title={layer.locked ? '解锁' : '锁定'}
+          title={layer.locked ? t('解锁') : t('锁定')}
           onClick={(e) => {
             e.stopPropagation();
             void exec('layer.setLocked', { id: layer.id, locked: !layer.locked });
@@ -201,17 +202,17 @@ function LayersPanel() {
   return (
     <div className="flex h-full flex-col">
       <div className="border-ink-700/70 flex h-9 items-center justify-between border-b px-2.5">
-        <span className="text-[11px] font-semibold tracking-[0.1em] text-zinc-400 uppercase">图层 {layers.length}</span>
+        <span className="text-[11px] font-semibold tracking-[0.1em] text-zinc-400 uppercase">{t('图层 {n}', { n: layers.length })}</span>
         <div className="relative">
-          <IconButton title="添加图层" onClick={() => setAddOpen((v) => !v)} size={24}>
+          <IconButton title={t('添加图层')} onClick={() => setAddOpen((v) => !v)} size={24}>
             <Plus size={14} />
           </IconButton>
           {addOpen && (
             <div className="border-ink-600 bg-ink-800 absolute top-7 right-0 z-40 w-32 overflow-hidden rounded-md border shadow-panel">
               {[
-                { k: 'text' as const, label: '文本层', icon: Type },
-                { k: 'code' as const, label: '代码层', icon: Code2 },
-                { k: 'image' as const, label: '图片层', icon: ImageIcon },
+                { k: 'text' as const, label: t('文本层'), icon: Type },
+                { k: 'code' as const, label: t('代码层'), icon: Code2 },
+                { k: 'image' as const, label: t('图片层'), icon: ImageIcon },
               ].map((item) => {
                 const Icon = item.icon;
                 return (
@@ -236,21 +237,21 @@ function LayersPanel() {
       </div>
       <div className="border-ink-700/70 flex items-center gap-1 border-t p-1.5">
         <Button size="sm" variant="ghost" disabled={selected.length === 0} onClick={() => void exec('layer.duplicate', { ids: selected })}>
-          <Copy size={11} /> 复制
+          <Copy size={11} /> {t('复制')}
         </Button>
         <Button
           size="sm"
           variant="ghost"
           disabled={selected.length === 0}
           onClick={() => {
-            if (confirm(`删除 ${selected.length} 个图层？`)) void exec('layer.delete', { ids: selected, force: false });
+            if (confirm(t('删除 {n} 个图层？', { n: selected.length }))) void exec('layer.delete', { ids: selected, force: false });
           }}
         >
-          <Trash2 size={11} /> 删除
+          <Trash2 size={11} /> {t('删除')}
         </Button>
         <div className="flex-1" />
-        <Button size="sm" variant="ghost" onClick={() => void exec('layer.fixAll', {})} title="修复越界与时间区间">
-          <Wand2 size={11} /> 整理
+        <Button size="sm" variant="ghost" onClick={() => void exec('layer.fixAll', {})} title={t('修复越界与时间区间')}>
+          <Wand2 size={11} /> {t('整理')}
         </Button>
       </div>
     </div>
@@ -281,7 +282,7 @@ function AssetCard({ id, name, kind, size }: { id: string; name: string; kind: s
   const url = useAssetUrl(id);
   return (
     <div className="group border-ink-700/70 bg-ink-900/60 relative overflow-hidden rounded-md border">
-      <button type="button" className="block h-20 w-full" onClick={() => void exec('asset.place', { assetId: id })} title="点击放置到画布">
+      <button type="button" className="block h-20 w-full" onClick={() => void exec('asset.place', { assetId: id })} title={t('点击放置到画布')}>
         {url ? (
           kind === 'video' ? (
             <video src={url} className="h-full w-full object-cover" muted />
@@ -301,7 +302,7 @@ function AssetCard({ id, name, kind, size }: { id: string; name: string; kind: s
           type="button"
           className="text-zinc-600 opacity-0 hover:text-rose-400 group-hover:opacity-100"
           onClick={() => {
-            if (confirm(`删除资源「${name}」？引用它的图层会清空资源。`)) void exec('asset.remove', { id, removeLayers: false });
+            if (confirm(t('删除资源「{name}」？引用它的图层会清空资源。', { name }))) void exec('asset.remove', { id, removeLayers: false });
           }}
         >
           <Trash2 size={11} />
@@ -315,7 +316,7 @@ function fileToDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error ?? new Error('读取文件失败'));
+    reader.onerror = () => reject(reader.error ?? new Error(t('读取文件失败')));
     reader.readAsDataURL(file);
   });
 }
@@ -326,11 +327,11 @@ export async function importFiles(files: FileList | File[]): Promise<void> {
     const isVideo = file.type.startsWith('video/');
     const isImage = file.type.startsWith('image/');
     if (!isVideo && !isImage) {
-      pushToast('warn', `跳过不支持的文件：${file.name}`);
+      pushToast('warn', t('跳过不支持的文件：{name}', { name: file.name }));
       continue;
     }
     if (file.size > 48 * 1024 * 1024) {
-      pushToast('error', `${file.name} 超过 48MB，已跳过`);
+      pushToast('error', t('{name} 超过 48MB，已跳过', { name: file.name }));
       continue;
     }
     try {
@@ -343,9 +344,9 @@ export async function importFiles(files: FileList | File[]): Promise<void> {
       });
       if (res.ok && res.data?.id) {
         await exec('asset.place', { assetId: res.data.id });
-        pushToast('success', `已导入 ${file.name}`);
+        pushToast('success', t('已导入 {name}', { name: file.name }));
       } else {
-        pushToast('error', res.error?.message ?? '导入失败');
+        pushToast('error', res.error?.message ?? t('导入失败'));
       }
     } catch (err) {
       pushToast('error', (err as Error).message);
@@ -361,8 +362,8 @@ function AssetsPanel() {
   return (
     <div className="flex h-full flex-col">
       <div className="border-ink-700/70 flex h-9 items-center justify-between border-b px-2.5">
-        <span className="text-[11px] font-semibold tracking-[0.1em] text-zinc-400 uppercase">资源 {assets.length}</span>
-        <IconButton title="导入图片 / 视频" onClick={() => inputRef.current?.click()} size={24}>
+        <span className="text-[11px] font-semibold tracking-[0.1em] text-zinc-400 uppercase">{t('资源 {n}', { n: assets.length })}</span>
+        <IconButton title={t('导入图片 / 视频')} onClick={() => inputRef.current?.click()} size={24}>
           <Upload size={13} />
         </IconButton>
         <input
@@ -393,8 +394,8 @@ function AssetsPanel() {
         {assets.length === 0 ? (
           <EmptyState
             icon={<ImageIcon size={22} />}
-            title="把图片或视频拖进来"
-            hint="二进制存 IndexedDB，项目 JSON 里只有元数据，导出时不带 base64。"
+            title={t('把图片或视频拖进来')}
+            hint={t('二进制存 IndexedDB，项目 JSON 里只有元数据，导出时不带 base64。')}
           />
         ) : (
           <div className="grid grid-cols-2 gap-1.5">
@@ -425,7 +426,7 @@ function FontsPanel() {
 
   const apply = (family: string) => {
     if (!activeId) {
-      pushToast('warn', '先选中一个文本层');
+      pushToast('warn', t('先选中一个文本层'));
       return;
     }
     void exec('text.setStyle', { id: activeId, style: { fontFamily: family } });
@@ -434,9 +435,9 @@ function FontsPanel() {
   return (
     <div className="flex h-full flex-col">
       <div className="border-ink-700/70 flex h-9 items-center justify-between border-b px-2.5">
-        <span className="text-[11px] font-semibold tracking-[0.1em] text-zinc-400 uppercase">字体</span>
+        <span className="text-[11px] font-semibold tracking-[0.1em] text-zinc-400 uppercase">{t('字体')}</span>
         <div className="flex items-center gap-1">
-          <IconButton title="上传字体文件" onClick={() => fileRef.current?.click()} size={24}>
+          <IconButton title={t('上传字体文件')} onClick={() => fileRef.current?.click()} size={24}>
             <Upload size={13} />
           </IconButton>
         </div>
@@ -454,9 +455,9 @@ function FontsPanel() {
               const dataUrl = await fileToDataUrl(file);
               const res = await exec('font.register', { family, weight: 400, style: 'normal', dataUrl });
               if (res.ok) {
-                pushToast('success', `字体「${family}」已注册并持久化`);
+                pushToast('success', t('字体「{family}」已注册并持久化', { family }));
                 apply(family);
-              } else pushToast('error', res.error?.message ?? '字体注册失败');
+              } else pushToast('error', res.error?.message ?? t('字体注册失败'));
             } catch (err) {
               pushToast('error', (err as Error).message);
             }
@@ -466,7 +467,7 @@ function FontsPanel() {
       <div className="border-ink-700/70 space-y-1.5 border-b p-2">
         <div className="relative">
           <Search size={12} className="absolute top-1/2 left-2 -translate-y-1/2 text-zinc-600" />
-          <TextInput value={query} onChange={setQuery} placeholder="搜索字体" className="pl-6" />
+          <TextInput value={query} onChange={setQuery} placeholder={t('搜索字体')} className="pl-6" />
         </div>
         <Button
           size="sm"
@@ -478,7 +479,7 @@ function FontsPanel() {
             try {
               const list = await listLocalFonts();
               setLocalFonts(list);
-              pushToast('success', `读取到 ${list.length} 个本地字体族`);
+              pushToast('success', t('读取到 {n} 个本地字体族', { n: list.length }));
             } catch (err) {
               pushToast('warn', (err as Error).message, 6000);
             } finally {
@@ -486,7 +487,7 @@ function FontsPanel() {
             }
           }}
         >
-          {busy ? '请求授权中…' : '扫描本地字体（需授权）'}
+          {busy ? t('请求授权中…') : t('扫描本地字体（需授权）')}
         </Button>
       </div>
       <div className="ml-scroll flex-1 overflow-y-auto p-1.5">
@@ -503,7 +504,7 @@ function FontsPanel() {
             <span className="truncate" style={{ fontFamily: `"${f}"` }}>
               {f}
             </span>
-            {fonts.some((x) => x.family === f && x.source === 'upload') && <Badge tone="accent">上传</Badge>}
+            {fonts.some((x) => x.family === f && x.source === 'upload') && <Badge tone="accent">{t('上传')}</Badge>}
           </button>
         ))}
       </div>
@@ -549,16 +550,16 @@ function CommandRow({ type, description, example }: { type: string; description:
                 try {
                   payload = JSON.parse(json || '{}');
                 } catch {
-                  setResult('JSON 解析失败');
+                  setResult(t('JSON 解析失败'));
                   return;
                 }
                 const r = await exec(type, payload);
                 setResult(JSON.stringify(r.ok ? r.data : r.error, null, 2).slice(0, 900));
               }}
             >
-              运行
+              {t('运行')}
             </Button>
-            <span className="text-[10px] text-zinc-600">来源 user</span>
+            <span className="text-[10px] text-zinc-600">{t('来源 user')}</span>
           </div>
           {result && (
             <pre className="ml-scroll max-h-40 overflow-auto rounded bg-ink-950 p-1.5 text-[10px] whitespace-pre-wrap text-zinc-500">
@@ -579,16 +580,16 @@ function CommandsPanel() {
   return (
     <div className="flex h-full flex-col">
       <div className="border-ink-700/70 flex h-9 items-center justify-between border-b px-2.5">
-        <span className="text-[11px] font-semibold tracking-[0.1em] text-zinc-400 uppercase">命令注册表</span>
+        <span className="text-[11px] font-semibold tracking-[0.1em] text-zinc-400 uppercase">{t('命令注册表')}</span>
         <Badge tone="accent">{Array.from(grouped.values()).reduce((n, arr) => n + arr.length, 0)}</Badge>
       </div>
       <div className="border-ink-700/70 border-b p-2">
         <div className="relative">
           <Search size={12} className="absolute top-1/2 left-2 -translate-y-1/2 text-zinc-600" />
-          <TextInput value={query} onChange={setQuery} placeholder="搜索命令 / 分类" className="pl-6" />
+          <TextInput value={query} onChange={setQuery} placeholder={t('搜索命令 / 分类')} className="pl-6" />
         </div>
         <p className="mt-1.5 text-[10px] leading-relaxed text-zinc-600">
-          这份列表与 AI 工具、MCP 工具同源。改这里就是改能力。
+          {t('这份列表与 AI 工具、MCP 工具同源。改这里就是改能力。')}
         </p>
       </div>
       <div className="ml-scroll flex-1 overflow-y-auto">

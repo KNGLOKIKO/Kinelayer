@@ -1,4 +1,5 @@
 import { idbGetKV, idbSetKV } from './idb';
+import { t } from '@/i18n';
 
 export interface StoredFont {
   family: string;
@@ -89,7 +90,7 @@ declare global {
 /** Local Font Access API（WICG）：需要用户手势与权限授权 */
 export async function listLocalFonts(): Promise<string[]> {
   if (!window.queryLocalFonts) {
-    throw new Error('当前浏览器不支持 Local Font Access（需 Chrome/Edge 103+，且页面处于安全上下文）');
+    throw new Error(t('当前浏览器不支持 Local Font Access（需 Chrome/Edge 103+，且页面处于安全上下文）'));
   }
   const fonts = await window.queryLocalFonts();
   const families = new Set<string>();

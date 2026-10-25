@@ -1,9 +1,11 @@
 {
-  "_comment": "把 args[0] 换成你机器上 agent-bridge/src/mcp.js 的绝对路径；令牌取自 agent-bridge/.token（bridge 首次启动生成）。改完配置需要完全退出并重启 Claude Desktop。",
+  "_comment": "把 args[0] 换成你机器上 agent-bridge/src/mcp.js 的绝对路径（路径分隔符用 /）；令牌取自 agent-bridge/.token（bridge 首次启动生成）。改完配置需要完全退出并重启 Claude Desktop。",
   "mcpServers": {
     "motionlayer": {
       "command": "node",
-      "args": ["C:/Users/KngLokiko/Desktop/Ai Agent/MotionLayer/agent-bridge/src/mcp.js"],
+      "args": [
+        "C:/path/to/MotionLayer/agent-bridge/src/mcp.js"
+      ],
       "env": {
         "ML_BRIDGE_URL": "ws://127.0.0.1:2718/ws",
         "ML_BRIDGE_TOKEN": "把 agent-bridge/.token 的内容贴在这里"

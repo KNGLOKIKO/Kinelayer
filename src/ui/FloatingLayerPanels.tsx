@@ -5,6 +5,7 @@ import { useEditor } from '@/core/store';
 import { LayerMirror } from '@/windows/LayerMirror';
 import { IconButton } from './primitives';
 
+import { t } from '@/i18n';
 /** 降级链的最后一环：popup / PiP 都不可用时，在主窗口内浮动显示只读镜像 */
 export function FloatingLayerPanels() {
   const floating = useEditor((s) => s.ui.floatingWindows);
@@ -66,7 +67,7 @@ function FloatingCard({
         }}
       >
         <GripHorizontal size={11} />
-        <span className="flex-1">应用内浮动窗口</span>
+        <span className="flex-1">{t('应用内浮动窗口')}</span>
         <IconButton size={18} onClick={() => void exec('window.closeLayer', { layerId })}>
           <X size={11} />
         </IconButton>

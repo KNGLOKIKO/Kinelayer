@@ -1,5 +1,17 @@
 # MotionLayer（层动）
 
+**简体中文** · [English](README.en.md)
+
+![Platform](https://img.shields.io/badge/platform-Web%20%2F%20Browser-blue)
+![Engine](https://img.shields.io/badge/engine-Canvas2D%20%2B%20WebGL-6666cc)
+![React](https://img.shields.io/badge/react-18-61DAFB?logo=react\&logoColor=white)
+![TypeScript](https://img.shields.io/badge/typescript-5.6-3178C6?logo=typescript\&logoColor=white)
+![Node](https://img.shields.io/badge/node-18%2B-339933?logo=node.js\&logoColor=white)
+![Agent](https://img.shields.io/badge/agent-MCP%20%2B%20OpenAI%20tools-7C5CFF)
+![License](https://img.shields.io/badge/license-MIT-green)
+![Deploy](https://img.shields.io/github/actions/workflow/status/KNGLOKIKO/MotionLayer/pages.yml?label=deploy)
+![Demo](https://img.shields.io/badge/demo-online-brightgreen)
+
 **可编程的动态海报工作台** —— 一个纯前端、可离线、命令驱动的动态海报编辑器。
 
 **在线体验**：<https://knglokiko.github.io/MotionLayer/> · **源码**：<https://github.com/KNGLOKIKO/MotionLayer>
@@ -19,13 +31,13 @@ npm run dev          # http://localhost:5273
 
 ## 五条铁律，以及它们落在哪
 
-| # | 铁律 | 代码位置 | 怎么验证 |
-| --- | --- | --- | --- |
-| 1 | 一切修改都是一条 `Command`，走同一条总线 | `src/core/commandBus.ts`、`src/core/registry.ts` | 设置 → 命令面板：任意命令都能手输 payload 执行；审计面板里能看到来源（user / ai / agent / window） |
-| 2 | 主窗口是唯一权威：唯一执行、唯一撤销栈、唯一主时钟 | `EditorApp.tsx`（rAF 主时钟）、`temporal.ts`、`commandBus.ts` | 打开图层窗口后，撤销按钮只存在于主窗口 |
-| 3 | 图层窗口是只读镜像：只发请求，等广播 | `src/windows/client.ts`、`LayerMirror.tsx` | 断网/关闭 Host，镜像立刻显示「已断开」 |
-| 4 | 预览与导出共用同一套几何与渲染 | `renderScene.ts` + `geometry.ts`，被 `exporters.ts` 与镜像我复用 | 同一帧导出 PNG 与屏幕像素一致 |
-| 5 | 工具 schema 由命令注册表自动生成 | `registry.ts#buildToolSchemas` → `ai/client.ts`（OpenAI）、`agent-bridge/src/mcp.js`（MCP） | 加一条命令，重载页面，AI 与 MCP 的工具列表自动多一项 |
+| # | 铁律                        | 代码位置                                                                                   | 怎么验证                                                                 |
+| - | ------------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| 1 | 一切修改都是一条 `Command`，走同一条总线 | `src/core/commandBus.ts`、`src/core/registry.ts`                                        | 设置 → 命令面板：任意命令都能手输 payload 执行；审计面板里能看到来源（user / ai / agent / window） |
+| 2 | 主窗口是唯一权威：唯一执行、唯一撤销栈、唯一主时钟 | `EditorApp.tsx`（rAF 主时钟）、`temporal.ts`、`commandBus.ts`                                 | 打开图层窗口后，撤销按钮只存在于主窗口                                                  |
+| 3 | 图层窗口是只读镜像：只发请求，等广播        | `src/windows/client.ts`、`LayerMirror.tsx`                                              | 断网/关闭 Host，镜像立刻显示「已断开」                                               |
+| 4 | 预览与导出共用同一套几何与渲染           | `renderScene.ts` + `geometry.ts`，被 `exporters.ts` 与镜像我复用                               | 同一帧导出 PNG 与屏幕像素一致                                                    |
+| 5 | 工具 schema 由命令注册表自动生成      | `registry.ts#buildToolSchemas` → `ai/client.ts`（OpenAI）、`agent-bridge/src/mcp.js`（MCP） | 加一条命令，重载页面，AI 与 MCP 的工具列表自动多一项                                       |
 
 ---
 
@@ -77,23 +89,23 @@ MotionLayer/
 
 ## 命令一览（59 条）
 
-| 分类 | 条数 | 代表命令 |
-| --- | --- | --- |
-| 图层 | 13 | `layer.create` `layer.update` `layer.delete` `layer.duplicate` `layer.reorder` `layer.setBlendMode` |
-| 文本 | 3 | `text.set` `text.setStyle` `text.fitToBox` |
-| 代码 | 4 | `code.setSource` `code.setEngine` `code.resetRuntime` `code.template` |
-| 背景 | 2 | `background.set` `background.setGradient` |
-| 画布 | 3 | `canvas.resize` `canvas.setDuration` `canvas.setFps` |
-| 项目 | 3 | `project.load` `project.new` `project.rename` |
-| 资源 | 3 | `asset.import` `asset.remove` `asset.replace` |
-| 字体 | 3 | `font.register` `font.remove` `font.list` |
-| 时间轴 | 5 | `timeline.play` `timeline.pause` `timeline.seek` `timeline.setRange` |
-| 选择 | 4 | `selection.set` `selection.toggle` `selection.clear` `selection.selectAll` |
-| 历史 | 3 | `history.undo` `history.redo` `history.clear` |
-| 窗口 | 4 | `window.open` `window.close` `window.focus` `window.list` |
-| 导出 | 4 | `export.png` `export.webm` `export.json` `export.capture` |
-| 查询 | 4 | `query.project` `query.layer` `query.registry` `query.capture` |
-| 批处理 | 1 | `batch.run`（多条命令合成一个撤销点，失败原子回滚） |
+| 分类  | 条数 | 代表命令                                                                                                                                                                                                                          |
+| --- | -- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 图层  | 13 | `layer.create` `layer.update` `layer.delete` `layer.duplicate` `layer.reorder` `layer.align` `layer.rename` `layer.fixAll` `layer.setVisible` `layer.setLocked` `layer.setBlendMode` `layer.setAnimation` `layer.setBindings` |
+| 文本  | 3  | `text.setContent` `text.setStyle` `text.fitBox`                                                                                                                                                                               |
+| 代码  | 4  | `code.setSource` `code.setEngine` `code.setParams` `code.resetRuntime`                                                                                                                                                        |
+| 背景  | 2  | `background.set` `background.setCode`                                                                                                                                                                                         |
+| 画布  | 3  | `canvas.resize` `canvas.setDuration` `canvas.setFps`                                                                                                                                                                          |
+| 项目  | 3  | `project.load` `project.new` `project.rename`                                                                                                                                                                                 |
+| 资源  | 3  | `asset.import` `asset.place` `asset.remove`                                                                                                                                                                                   |
+| 字体  | 3  | `font.register` `font.load` `font.remove`                                                                                                                                                                                     |
+| 时间轴 | 5  | `timeline.play` `timeline.pause` `timeline.seek` `timeline.setLayerTiming` `timeline.setLoop`                                                                                                                                 |
+| 选择  | 4  | `selection.set` `selection.toggle` `selection.add` `selection.clear`                                                                                                                                                          |
+| 历史  | 3  | `history.undo` `history.redo` `history.clear`                                                                                                                                                                                 |
+| 窗口  | 4  | `window.openLayer` `window.closeLayer` `window.focusLayer` `window.setMode`                                                                                                                                                   |
+| 导出  | 4  | `export.png` `export.webm` `export.json` `export.commands`                                                                                                                                                                    |
+| 查询  | 4  | `query.project` `query.layer` `query.registry` `query.capture`                                                                                                                                                                |
+| 批处理 | 1  | `command.batch`（多条命令合成一个撤销点，失败原子回滚）                                                                                                                                                                                           |
 
 每条命令都自带：zod schema、中文描述、可直接跑的 `example`、
 以及 `mutating / dangerous / undoable / coalesce / asyncHandler / resetsHistory` 等元信息。
@@ -102,19 +114,19 @@ MotionLayer/
 
 ## 快捷键
 
-| 操作 | 快捷键 |
-| --- | --- |
-| 撤销 / 重做 | `Ctrl/Cmd + Z` / `Ctrl/Cmd + Shift + Z` |
-| 复制选中图层 | `Ctrl/Cmd + D` |
-| 导出 JSON | `Ctrl/Cmd + S` |
-| 播放 / 暂停 | `Space` |
-| 删除选中 | `Delete` / `Backspace` |
-| 取消选择 | `Esc` |
-| 适配画布 | `Shift + !` |
-| 微移 1px / 10px | 方向键 / `Shift + 方向键` |
-| 平移画布 | 中键拖拽 或 `Space + 拖拽` |
-| 缩放画布 | `Ctrl/Cmd + 滚轮` |
-| 就地编辑文字 | 双击文本层 |
+| 操作            | 快捷键                                     |
+| ------------- | --------------------------------------- |
+| 撤销 / 重做       | `Ctrl/Cmd + Z` / `Ctrl/Cmd + Shift + Z` |
+| 复制选中图层        | `Ctrl/Cmd + D`                          |
+| 导出 JSON       | `Ctrl/Cmd + S`                          |
+| 播放 / 暂停       | `Space`                                 |
+| 删除选中          | `Delete` / `Backspace`                  |
+| 取消选择          | `Esc`                                   |
+| 适配画布          | `Shift + !`                             |
+| 微移 1px / 10px | 方向键 / `Shift + 方向键`                     |
+| 平移画布          | 中键拖拽 或 `Space + 拖拽`                     |
+| 缩放画布          | `Ctrl/Cmd + 滚轮`                         |
+| 就地编辑文字        | 双击文本层                                   |
 
 ---
 
@@ -127,6 +139,7 @@ MotionLayer/
 完整走一遍「计划 → 审阅 → 执行」的链路，适合先看效果。
 
 安全设计：
+
 - Key 用 WebCrypto AES-GCM 加密后存 IndexedDB，不进 localStorage、不进项目文件；
 - 危险命令（删除、清空、加载项目）执行前弹审批卡，默认不执行；
 - 每条 AI 产生的命令在对话里独立成卡，可以单条撤销。
@@ -168,6 +181,19 @@ VITE_BASE=/MotionLayer/ npm run build   # 项目页需要这个前缀
 - 免费账号的 Pages 需要仓库是 **public**。
 - 想用自定义域名：在 Pages 设置里填域名，再把 workflow 里的 `VITE_BASE` 改回 `/`。
 
+## 站点内置的「AI 接入提示词」
+
+右上角 **接入**（AI 面板头部也有一个插头图标）打开提示词面板，三种形态一键复制 / 下载：
+
+| 形态               | 给谁用                              | 怎么用                                          |
+| ---------------- | -------------------------------- | -------------------------------------------- |
+| 通用大模型            | 任何对话框（ChatGPT / DeepSeek / 本地模型） | 复制提示词 → 模型回一段 JSON → 粘回面板「执行」，应用会合成**一个撤销点** |
+| MCP 客户端          | Claude Desktop / Cursor          | 先跑 `npm run bridge` + `npm run mcp`，模型自己调工具  |
+| Function Calling | 自建 Agent                         | 复制 `tools` 数组塞进请求体                           |
+
+提示词里的命令清单、参数枚举（preset / easing / 文本样式字段）全部由命令注册表与 zod schema 生成，
+**不是手写文档**：加一条命令，三种形态同时多一项。
+
 ## 数据与隐私
 
 - **项目文件**：`export.json` 导出的是纯 JSON，**不含图片/视频的 base64**（资源在 IndexedDB 里）。
@@ -184,4 +210,5 @@ VITE_BASE=/MotionLayer/ npm run build   # 项目页需要这个前缀
 
 ## 许可
 
-仅作学习与自用；参考项目的设计与命名归属其原作者（详见 `docs/00-reference-notes.md`）。
+MIT，见 [LICENSE](LICENSE)。参考项目的设计与命名归属其原作者（详见 `docs/00-reference-notes.md`），
+本项目只借鉴设计、未复制其代码。

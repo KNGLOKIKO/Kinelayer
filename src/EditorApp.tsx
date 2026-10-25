@@ -8,6 +8,7 @@ import { Inspector } from '@/ui/Inspector';
 import { AIPanel } from '@/ui/AIPanel';
 import { AuditPanel, StatusBar, Toasts } from '@/ui/Chrome';
 import { CodeEditorDialog, ExportDialog, SettingsDialog } from '@/ui/Dialogs';
+import { PromptDialog } from '@/ui/PromptDialog';
 import { FloatingLayerPanels } from '@/ui/FloatingLayerPanels';
 import { exec } from '@/core/commandBus';
 import { setBroadcastHandler } from '@/core/commandBus';
@@ -22,10 +23,11 @@ import { getLayerWindowHost } from '@/windows/host';
 import { ensureServices } from '@/app/services';
 import { cx } from '@/ui/primitives';
 
+import { t } from '@/i18n';
 const TABS = [
-  { id: 'inspect' as const, label: '属性', icon: ScanEye },
+  { id: 'inspect' as const, label: t('属性'), icon: ScanEye },
   { id: 'ai' as const, label: 'AI', icon: Sparkles },
-  { id: 'audit' as const, label: '审计', icon: Activity },
+  { id: 'audit' as const, label: t('审计'), icon: Activity },
 ];
 
 function RightPanel() {
@@ -230,6 +232,7 @@ export function EditorApp() {
       </div>
       <StatusBar />
       <SettingsDialog />
+      <PromptDialog />
       <ExportDialog />
       <CodeEditorDialog />
       <FloatingLayerPanels />

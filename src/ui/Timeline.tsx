@@ -5,6 +5,7 @@ import { updateUi, useEditor } from '@/core/store';
 import { clamp } from '@/core/geometry';
 import { IconButton, Toggle, cx } from './primitives';
 
+import { t } from '@/i18n';
 function fmt(ms: number): string {
   const s = Math.max(0, ms) / 1000;
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}.${String(
@@ -48,18 +49,18 @@ export function Timeline() {
   return (
     <section className="border-ink-700/80 bg-ink-900/90 flex h-[188px] shrink-0 flex-col border-t">
       <div className="border-ink-700/70 flex h-8 shrink-0 items-center gap-2 border-b px-2">
-        <IconButton size={22} active={playing} onClick={() => void exec(playing ? 'timeline.pause' : 'timeline.play')} title="播放 / 暂停">
+        <IconButton size={22} active={playing} onClick={() => void exec(playing ? 'timeline.pause' : 'timeline.play')} title={t('播放 / 暂停')}>
           {playing ? <Pause size={12} /> : <Play size={12} />}
         </IconButton>
         <span className="font-mono text-[10.5px] tabular-nums text-zinc-400">{fmt(playhead)}</span>
         <span className="text-[10px] text-zinc-600">/ {fmt(project.duration)}</span>
         <div className="bg-ink-700 mx-1 h-4 w-px" />
-        <Toggle value={project.loop} onChange={(loop) => void exec('timeline.setLoop', { loop })} label="循环" />
+        <Toggle value={project.loop} onChange={(loop) => void exec('timeline.setLoop', { loop })} label={t('循环')} />
         <span className="text-[10px] text-zinc-600">{project.fps}fps</span>
         <div className="flex-1" />
         <IconButton
           size={22}
-          title="收起时间轴"
+          title={t('收起时间轴')}
           onClick={() => updateUi((ui) => { ui.showTimeline = false; })}
         >
           <ChevronDown size={12} />
@@ -175,7 +176,7 @@ export function TimelineToggle() {
       onClick={() => updateUi((ui) => { ui.showTimeline = true; })}
       className="border-ink-700/80 bg-ink-900/90 absolute bottom-0 left-1/2 z-20 flex -translate-x-1/2 items-center gap-1 rounded-t-md border border-b-0 px-2.5 py-1 text-[10px] text-zinc-500 hover:text-zinc-200"
     >
-      <ChevronUp size={11} /> 时间轴 <Repeat size={10} />
+      <ChevronUp size={11} /> {t('时间轴')} <Repeat size={10} />
     </button>
   );
 }
