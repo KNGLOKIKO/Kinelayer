@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
-import { AlertTriangle, Check, Copy, Download, Plug, RefreshCw, ShieldCheck, Terminal } from 'lucide-react';
+import { AlertTriangle, Check, Copy, Download, Plug, RefreshCw, ShieldCheck, Stethoscope, Terminal } from 'lucide-react';
 import { listCommands } from '@/core/registry';
 import { pushToast, useEditor } from '@/core/store';
-import { buildDesktopAgentPrompt } from '@/ai/prompt';
+import { buildDesktopAgentPrompt, buildMcpConfigSnippet } from '@/ai/prompt';
 import { Badge, Button, IconButton, Toggle, cx } from './primitives';
 import { copyText, downloadText } from './clipboard';
 import { t } from '@/i18n';
@@ -17,6 +17,9 @@ const BRIDGE = {
   tokenHeader: 'x-kinelayer-token',
 } as const;
 
+/** 用户此刻打开的是哪个站点。写进提示词，Agent 才不会去请求站点地址做编辑 */
+const SITE = typeof window !== 'undefined' ? window.location.origin : '';
+
 const FLOW = [
   { zh: '读清单', cmd: 'GET /manifest' },
   { zh: '试算', cmd: '{ "dryRun": true }' },
@@ -24,10 +27,18 @@ const FLOW = [
   { zh: '读回', cmd: 'query.project' },
 ];
 
+/** 出问题先打这三条：能立刻分清「桥接没跑 / 令牌不对 / 页面没连」 */
+const CHECKS = [
+  { zh: '桥接活着？', cmd: `curl -s ${BRIDGE.http}/health` },
+  { zh: '令牌对？', cmd: `curl -s -H "${BRIDGE.tokenHeader}: <token>" ${BRIDGE.http}/manifest` },
+  { zh: '页面连上了？', cmd: `curl -s -X POST ${BRIDGE.http}/command -d '{"type":"query.project","payload":{}}'` },
+];
+
 /** 提示词的结构索引：让用户一眼看清这段文本讲了哪几件事 */
 const OUTLINE = [
   '0 定位',
   '1 接入',
+  '1.1 自检',
   '2 能力',
   '3 契约',
   '4 边界',
@@ -53,10 +64,11 @@ export function AgentAccessPanel() {
 
   // nonce 只是让「重新生成」能强制刷新时间戳
   const prompt = useMemo(
-    () => buildDesktopAgentPrompt({ includeProject, project }),
+    () => buildDesktopAgentPrompt({ includeProject, project, site: SITE }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [includeProject, project, nonce],
   );
+  const mcpConfig = useMemo(() => buildMcpConfigSnippet(), []);
 
   const connected = bridge.state === 'connected';
 
@@ -74,6 +86,9 @@ export function AgentAccessPanel() {
           {connected ? t('桥接已连接') : bridge.state === 'error' ? t('桥接出错') : t('桥接未连接')}
         </span>
         <span className="font-mono text-[10px] text-zinc-600">{BRIDGE.ws}</span>
+        <span className="truncate text-[9.5px] text-zinc-600" title={SITE}>
+          · {t('站点')} {SITE.replace(/^https?:\/\//, '')}
+        </span>
         {connected && bridge.agents > 0 && (
           <Badge tone="accent">{t('{n} 个 Agent 在线', { n: bridge.agents })}</Badge>
         )}
@@ -92,6 +107,16 @@ export function AgentAccessPanel() {
             <li>{t('直连：HTTP / WebSocket，令牌放 {header} 头', { header: BRIDGE.tokenHeader })}</li>
             <li>{t('工具名 = 命令类型把 . 换成 __（layer.create → layer__create）')}</li>
           </ul>
+          <button
+            type="button"
+            className="text-accent-soft hover:text-accent mt-1.5 flex items-center gap-1 text-[9.5px]"
+            onClick={async () => {
+              await copyText(mcpConfig);
+              pushToast('success', t('已复制 MCP 配置'));
+            }}
+          >
+            <Copy size={9} /> {t('复制 MCP 配置')}
+          </button>
         </div>
         <div className="border-ink-700 bg-ink-900/50 rounded-lg border p-2.5">
           <div className="mb-1 flex items-center gap-1 text-[11px] font-semibold text-zinc-200">
@@ -140,12 +165,47 @@ export function AgentAccessPanel() {
         </div>
       </div>
 
+      {/* ── 接入前自检 ───────────────────────────────────── */}
+      <div className="border-ink-700 bg-ink-900/40 rounded-lg border p-2.5">
+        <div className="mb-1.5 flex items-center gap-1.5">
+          <Stethoscope size={11} className="shrink-0 text-amber-400" />
+          <span className="shrink-0 text-[10.5px] font-semibold text-zinc-300">{t('接入前自检')}</span>
+          <span className="truncate text-[9.5px] text-zinc-600">
+            {t('三条命令按顺序打，先分清是桥接没跑、令牌不对，还是页面没连')}
+          </span>
+          <div className="flex-1" />
+          <button
+            type="button"
+            className="text-accent-soft hover:text-accent flex shrink-0 items-center gap-1 text-[9.5px]"
+            onClick={async () => {
+              await copyText(CHECKS.map((c) => c.cmd).join('\n'));
+              pushToast('success', t('已复制自检命令'));
+            }}
+          >
+            <Copy size={9} /> {t('复制')}
+          </button>
+        </div>
+        <div className="space-y-1">
+          {CHECKS.map((c, i) => (
+            <div key={c.cmd} className="flex items-baseline gap-1.5">
+              <span className="w-2.5 shrink-0 font-mono text-[9px] text-zinc-600">{i + 1}</span>
+              <span className="w-[92px] shrink-0 text-[9.5px] whitespace-nowrap text-zinc-500">{t(c.zh)}</span>
+              <code className="min-w-0 flex-1 truncate font-mono text-[9px] text-zinc-500" title={c.cmd}>
+                {c.cmd}
+              </code>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {/* ── 提示词正文 ───────────────────────────────────── */}
       <div className="border-ink-700 bg-ink-900/60 rounded-lg border">
         <div className="border-ink-700/70 flex items-center gap-2 border-b px-2.5 py-1.5">
-          <span className="text-[11px] font-semibold text-zinc-200">{t('桌面 Agent 接入提示词')}</span>
-          <Badge tone="neutral">{t('{n} 字符', { n: prompt.length })}</Badge>
-          <span className="text-[9.5px] text-zinc-600">{t('由命令注册表生成，随代码自动更新')}</span>
+          <span className="shrink-0 text-[11px] font-semibold whitespace-nowrap text-zinc-200">{t('桌面 Agent 接入提示词')}</span>
+          <span className="shrink-0 whitespace-nowrap">
+            <Badge tone="neutral">{t('{n} 字符', { n: prompt.length })}</Badge>
+          </span>
+          <span className="truncate text-[9.5px] text-zinc-600">{t('由命令注册表生成，随代码自动更新')}</span>
           <div className="flex-1" />
           <Toggle value={includeProject} onChange={setIncludeProject} label={t('带上当前项目')} />
           <IconButton size={22} title={t('重新生成')} onClick={() => setNonce((n) => n + 1)}>

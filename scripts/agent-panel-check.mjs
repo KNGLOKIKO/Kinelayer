@@ -161,9 +161,52 @@ const main = async () => {
     ['密钥边界', 'API Key'],
     ['文件系统边界', '文件系统'],
     ['dev 口声明', 'window.__kly'],
+    ['接入前自检章节', '### 1.1 接入前自检'],
+    ['健康检查端点', '/health'],
+    ['NO_HOST 处置', 'NO_HOST'],
+    ['站点与命令分离', '无论它部署在线上还是跑在本机'],
   ];
   const missing = must.filter(([, s]) => !body.includes(s)).map(([n]) => n);
   check(`正文含全部 ${must.length} 个要点`, missing.length === 0, missing.join(', '));
+
+  // 在线站点上下文：写清「用户打开的是哪个站点」，同时强调命令永远打本机
+  const siteCtx = await ev(`(() => {
+    const text = document.querySelector('pre').textContent;
+    return { origin: location.origin, hasOrigin: text.includes(location.origin), local: text.includes('127.0.0.1:2718') };
+  })()`);
+  check('提示词写明当前站点地址', siteCtx.hasOrigin && siteCtx.local, JSON.stringify(siteCtx));
+
+  // 自检区 + MCP 配置复制
+  const extra = await ev(`(async () => {
+    const text = document.body.innerText;
+    const pre = document.querySelector('pre').textContent;
+    const btn = [...document.querySelectorAll('button')].find((b) => b.textContent.includes('复制 MCP 配置'));
+    if (!btn) return { hasBtn: false };
+    window.__copied = '';
+    btn.click();
+    await new Promise((r) => setTimeout(r, 400));
+    const cfg = window.__copied || '';
+    return {
+      hasBtn: true,
+      hasCheckBlock: text.includes('接入前自检'),
+      hasCurl: pre.includes('/health') && pre.includes('NO_HOST'),
+      cfgOk: cfg.includes('"kinelayer"') && cfg.includes('KINELAYER_BRIDGE_TOKEN'),
+      cfgLen: cfg.length,
+    };
+  })()`);
+  check('面板含接入前自检块，正文含 curl 自检', extra.hasCheckBlock && extra.hasCurl, JSON.stringify(extra));
+  check('可一键复制 MCP 配置', extra.hasBtn && extra.cfgOk, JSON.stringify({ btn: extra.hasBtn, ok: extra.cfgOk }));
+
+  // 结构完整性：代码块围栏成对、章节数与结构索引一致
+  const shape = await ev(`(() => {
+    const text = document.querySelector('pre').textContent;
+    const fences = (text.match(/^\`\`\`/gm) || []).length;
+    const sections = (text.match(/^## /gm) || []).length;
+    const sub = (text.match(/^### /gm) || []).length;
+    const chips = document.body.innerText;
+    return { fences, sections, sub, odd: fences % 2, chips: /1\\.1 自检|1\\.1 Pre-flight/.test(chips) };
+  })()`);
+  check('正文代码块围栏成对且章节齐全', shape.odd === 0 && shape.sections === 8 && shape.sub === 3 && shape.chips, JSON.stringify(shape));
 
   // 命令清单来自注册表：抽两条本次新增的命令
   const hasAnim = body.includes('animation.setKeyframe') && body.includes('animation.applyPreset');

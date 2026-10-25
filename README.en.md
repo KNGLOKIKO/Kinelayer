@@ -189,6 +189,11 @@ hit connect. The status bar shows "Agent connected" when it is up.
 
 A Claude Desktop config sample lives in `agent-bridge/claude-desktop-config.json`.
 
+**Rather not hand-write config?** Open **Settings → Desktop agent**. It carries an integration prompt generated live
+from the command registry — site address, both ways in, the capability scope of all 67 commands, seven contract rules,
+seven permission boundaries, error-code handling, plus three `curl` pre-flight checks. One click copies it for any
+local agent tool, and a “Copy MCP config” button sits right next to it.
+
 Self-check (no browser needed):
 
 ```bash

@@ -75,7 +75,7 @@ export function SettingsDialog() {
   const close = () => updateUi((ui) => { ui.showSettings = false; });
 
   return (
-    <Modal title={t('设置')} onClose={close} width={tab === 'agent' ? 880 : 680}>
+    <Modal title={t('设置')} onClose={close} width={tab === 'agent' ? 960 : 680}>
       <div className="mb-4 flex gap-1">
         {TABS.map((item) => (
           <button

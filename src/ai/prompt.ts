@@ -29,6 +29,8 @@ export interface PromptOptions {
   /** 把当前画布尺寸与图层清单一起写进提示词，模型就能直接引用真实 id */
   includeProject?: boolean;
   project?: Project;
+  /** 当前站点地址（在线部署或本机 dev）。写进提示词，让 Agent 知道它操作的是哪个页面 */
+  site?: string;
 }
 
 /* ------------------------------------------------------------ schema 摘要 */
@@ -260,8 +262,9 @@ export function buildDesktopAgentPrompt(opts: PromptOptions = {}): string {
 
   const context = opts.includeProject ? projectContext(opts.project, zh) : '';
   const stamp = new Date().toISOString().slice(0, 19).replace('T', ' ');
+  const site = (opts.site ?? '').trim();
 
-  if (!zh) return buildDesktopAgentPromptEn({ catalog, dangerous, count: rows.length, stamp, context });
+  if (!zh) return buildDesktopAgentPromptEn({ catalog, dangerous, count: rows.length, stamp, context, site });
 
   return `# Kinelayer · 桌面 Agent 接入说明
 
@@ -274,6 +277,10 @@ Kinelayer 是一个跑在用户浏览器里的动态海报编辑器。**编辑�
 你唯一的写入口是**命令总线**：把结构化命令发给本机桥接（127.0.0.1:2718），由编辑器执行并广播结果。
 
 先记住这条：**任何绕过总线直接改界面/存储的尝试，都是错的。**
+
+- **用户此刻操作的页面**：${site || '本机 dev 服务（地址未记录）'}
+- 页面只是编辑器的外壳。**无论它部署在线上还是跑在本机，命令始终打 \`127.0.0.1:2718\`**；
+  不要试图请求站点的 HTTP 地址来做编辑——那边没有写入口，只有静态资源。
 
 ## 1. 两种接入方式（选一种）
 
@@ -308,6 +315,31 @@ WebSocket 消息（JSON，一问一答）：
 → {"kind":"manifest.get","id":"2"}
 ← {"kind":"manifest","id":"2",tools:[…],summary:{…},projectVersion,playhead}
 \`\`\`
+
+### 1.1 接入前自检（按顺序打三条，30 秒定位问题）
+
+\`\`\`bash
+# ① 桥接进程活着吗（免令牌）
+curl -s http://127.0.0.1:2718/health
+
+# ② 令牌对不对（能读到 tools 就说明对了）
+curl -s -H "x-kinelayer-token: <token>" http://127.0.0.1:2718/manifest | head -c 200
+
+# ③ 页面连上桥接了吗（返回图层数就说明通了）
+curl -s -X POST http://127.0.0.1:2718/command \\
+  -H "content-type: application/json" -H "x-kinelayer-token: <token>" \\
+  -d '{"type":"query.project","payload":{}}'
+\`\`\`
+
+| 现象 | 含义 | 处置 |
+| --- | --- | --- |
+| 连接被拒绝 / ECONNREFUSED | 桥接没跑 | 在仓库根目录跑 \`npm run bridge\` |
+| \`401 UNAUTHORIZED\` | 令牌不匹配 | 用 bridge 启动时打印的令牌，或读 \`agent-bridge/.token\` |
+| \`503 NO_HOST\` | 桥接在，但页面没连 | 打开 ${site || '本站'} → 设置 → Agent 桥接 → 填地址与令牌 → 连接 |
+| ② 返回 \`tools\` 数组 | 令牌与桥接都正常 | 继续第三条 |
+| ③ 返回 \`layerCount\` | 全链路通 | 可以开始干活 |
+
+> 页面刷新不会断开桥接；但**关掉标签页就会 NO_HOST**，此时任何写命令都会失败，不要反复重试。
 
 ## 2. 你可以做什么（${rows.length} 条命令，按分类）
 
@@ -372,6 +404,7 @@ function buildDesktopAgentPromptEn(a: {
   count: number;
   stamp: string;
   context: string;
+  site: string;
 }): string {
   return `# Kinelayer · Desktop agent integration
 
@@ -385,6 +418,11 @@ write access — your only write path is the **command bus**: send structured co
 (127.0.0.1:2718) and the editor executes and broadcasts the result.
 
 Remember this one line: **any attempt to bypass the bus and touch the UI or storage directly is wrong.**
+
+- **The page the user is looking at**: ${a.site || 'local dev server (address not recorded)'}
+- The page is only the shell of the editor. **Whether it is deployed online or running locally, commands always go to
+  \`127.0.0.1:2718\`**. Do not try to edit by calling the site's own HTTP address — there is no write endpoint there,
+  only static assets.
 
 ## 1. Two ways in (pick one)
 
@@ -419,6 +457,32 @@ WebSocket messages (JSON, request/response):
 → {"kind":"manifest.get","id":"2"}
 ← {"kind":"manifest","id":"2",tools:[…],summary:{…},projectVersion,playhead}
 \`\`\`
+
+### 1.1 Pre-flight check (three calls, 30 seconds to isolate the problem)
+
+\`\`\`bash
+# (1) is the bridge process alive? (no token needed)
+curl -s http://127.0.0.1:2718/health
+
+# (2) is the token right? (a tools array means yes)
+curl -s -H "x-kinelayer-token: <token>" http://127.0.0.1:2718/manifest | head -c 200
+
+# (3) has the page connected? (a layer count means yes)
+curl -s -X POST http://127.0.0.1:2718/command \\
+  -H "content-type: application/json" -H "x-kinelayer-token: <token>" \\
+  -d '{"type":"query.project","payload":{}}'
+\`\`\`
+
+| Symptom | Meaning | What to do |
+| --- | --- | --- |
+| Connection refused / ECONNREFUSED | the bridge is not running | run \`npm run bridge\` in the repo root |
+| \`401 UNAUTHORIZED\` | token mismatch | use the token the bridge printed, or read \`agent-bridge/.token\` |
+| \`503 NO_HOST\` | bridge is up but the page is not connected | open ${a.site || 'the site'} → Settings → Agent bridge → enter address + token → connect |
+| (2) returns a \`tools\` array | token and bridge are fine | continue with (3) |
+| (3) returns \`layerCount\` | the whole path works | start working |
+
+> Reloading the page does not drop the bridge, but **closing the tab means NO_HOST** — every write will fail then.
+> Do not retry in a loop.
 
 ## 2. What you can do (${a.count} commands, by category)
 
@@ -480,6 +544,30 @@ how the user continues**. Do not fire off extra writes the user did not ask for,
 /** 桌面 Agent 说明的下载版：正文 + 清单摘要 */
 export function buildDesktopAgentBundle(opts: PromptOptions = {}): string {
   return buildDesktopAgentPrompt(opts);
+}
+
+/**
+ * 可直接粘进 Claude Desktop / Cursor 的 MCP 配置片段。
+ * 令牌位置留占位符 —— 页面里没有任何接口能读到真实令牌，也不该把它写进可分享的文本。
+ */
+export function buildMcpConfigSnippet(): string {
+  const zh = (getLocale() ?? 'zh-CN') === 'zh-CN';
+  return JSON.stringify(
+    {
+      mcpServers: {
+        kinelayer: {
+          command: 'node',
+          args: [zh ? '<本仓库绝对路径>/agent-bridge/src/mcp.js' : '<absolute path to repo>/agent-bridge/src/mcp.js'],
+          env: {
+            KINELAYER_BRIDGE_URL: 'ws://127.0.0.1:2718/ws',
+            KINELAYER_BRIDGE_TOKEN: zh ? '<bridge 启动时打印的令牌>' : '<token printed by npm run bridge>',
+          },
+        },
+      },
+    },
+    null,
+    2,
+  );
 }
 
 /** 供「下载 .md」用：三种形态打包，附接入步骤 */
