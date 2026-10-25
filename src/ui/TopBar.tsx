@@ -46,8 +46,8 @@ export function TopBar() {
           <Layers size={15} className="text-white" strokeWidth={2.4} />
         </div>
         <div className="leading-none">
-          <div className="text-[12.5px] font-semibold tracking-tight text-zinc-100">MotionLayer</div>
-          <div className="mt-0.5 text-[9.5px] tracking-[0.18em] text-zinc-600">{t('层动')}</div>
+          <div className="text-[12.5px] font-semibold tracking-tight text-zinc-100">Kinelayer</div>
+          <div className="mt-0.5 text-[9.5px] tracking-[0.18em] text-zinc-600">{t('动态海报工作台')}</div>
         </div>
       </div>
 

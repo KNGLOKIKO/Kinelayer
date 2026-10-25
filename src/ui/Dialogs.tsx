@@ -11,6 +11,8 @@ import { applyLocale } from '@/i18n/apply';
 import { LOCALES } from '@/i18n';
 import { connectBridge, disconnectBridge } from '@/ai/bridgeClient';
 import { idbDeleteKV } from '@/persist/idb';
+import { KINELAYER_FILE_ACCEPT } from '@/core/projectFile';
+import { lsGet, lsSet } from '@/persist/storage';
 
 import { AgentAccessPanel } from './AgentAccessPanel';
 import { t } from '@/i18n';
@@ -66,8 +68,8 @@ export function SettingsDialog() {
   const ai = useAIConfig();
   const bridge = useEditor((s) => s.runtime.bridge);
   const locale = useEditor((s) => s.ui.locale);
-  const [token, setToken] = useState(() => localStorage.getItem('ml.bridge.token') ?? '');
-  const [url, setUrl] = useState(() => localStorage.getItem('ml.bridge.url') ?? 'ws://127.0.0.1:2718');
+  const [token, setToken] = useState(() => lsGet('bridge.token') ?? '');
+  const [url, setUrl] = useState(() => lsGet('bridge.url') ?? 'ws://127.0.0.1:2718');
 
   if (!open) return null;
   const close = () => updateUi((ui) => { ui.showSettings = false; });
@@ -151,10 +153,10 @@ export function SettingsDialog() {
             {t('通道 B：先在本机运行')} <code className="text-cyan">npm run bridge</code>{t('（WS 127.0.0.1:2718）， 再把终端打印的 token 粘到这里。MCP Server 由')} <code className="text-cyan">npm run mcp</code> {t('启动， 工具清单从当前页面的命令注册表实时同步。')}
           </div>
           <Field label={t('WebSocket 地址')}>
-            <TextInput value={url} onCommit={(v) => { setUrl(v); localStorage.setItem('ml.bridge.url', v); }} />
+            <TextInput value={url} onCommit={(v) => { setUrl(v); lsSet('bridge.url', v); }} />
           </Field>
           <Field label="Token">
-            <TextInput value={token} onCommit={(v) => { setToken(v); localStorage.setItem('ml.bridge.token', v.trim()); }} placeholder={t('bridge 启动时打印的 token')} />
+            <TextInput value={token} onCommit={(v) => { setToken(v); lsSet('bridge.token', v.trim()); }} placeholder={t('bridge 启动时打印的 token')} />
           </Field>
           <div className="flex items-center gap-2">
             <Button
@@ -184,7 +186,7 @@ export function SettingsDialog() {
             <br />
             &nbsp;&nbsp;&quot;mcpServers&quot;: {'{'}
             <br />
-            &nbsp;&nbsp;&nbsp;&nbsp;&quot;motionlayer&quot;: {'{'} &quot;command&quot;: &quot;node&quot;, &quot;args&quot;: [&quot;&lt;绝对路径&gt;/agent-bridge/src/mcp.js&quot;] {'}'}
+            &nbsp;&nbsp;&nbsp;&nbsp;&quot;kinelayer&quot;: {'{'} &quot;command&quot;: &quot;node&quot;, &quot;args&quot;: [&quot;&lt;绝对路径&gt;/agent-bridge/src/mcp.js&quot;] {'}'}
             <br />
             &nbsp;&nbsp;{'}'}
             <br />
@@ -198,18 +200,18 @@ export function SettingsDialog() {
       {tab === 'data' && (
         <div className="space-y-3 text-[11.5px] leading-relaxed text-zinc-400">
           <p>
-            {t('项目 JSON 不含任何 base64；图片/视频/字体二进制存在 IndexedDB 的 motionlayer 库。自动保存每 1.6 秒写入一次，刷新页面会恢复上次的项目。')}
+            {t('工程包不含任何 base64；图片/视频/字体二进制存在 IndexedDB 的 kinelayer 库。自动保存每 1.6 秒写入一次，刷新页面会恢复上次的项目。')}
           </p>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => void exec('export.json', {})}>
-              {t('导出项目 JSON')}
+              {t('导出工程包 .kly')}
             </Button>
             <Button
               variant="outline"
               onClick={() => {
                 const input = document.createElement('input');
                 input.type = 'file';
-                input.accept = '.json,application/json';
+                input.accept = KINELAYER_FILE_ACCEPT;
                 input.onchange = async () => {
                   const file = input.files?.[0];
                   if (!file) return;
@@ -219,7 +221,7 @@ export function SettingsDialog() {
                 input.click();
               }}
             >
-              {t('导入项目 JSON')}
+              {t('导入工程包 .kly')}
             </Button>
             <Button
               variant="danger"

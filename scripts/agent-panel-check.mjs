@@ -6,7 +6,8 @@ import { createRequire } from 'node:module';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 
-const require = createRequire('C:/Users/KngLokiko/Desktop/Ai Agent/MotionLayer/agent-bridge/');
+/* 依赖从 agent-bridge 的 node_modules 解析；用 URL 相对定位，换目录/改品牌都不用改脚本 */
+const require = createRequire(new URL('../agent-bridge/package.json', import.meta.url));
 const WebSocket = require('ws');
 
 const EDGE = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
@@ -91,7 +92,7 @@ const main = async () => {
   await cdp.call('Runtime.enable');
 
   for (let i = 0; i < 60; i += 1) {
-    if (await ev('typeof window.__ml !== "undefined"')) break;
+    if (await ev('typeof window.__kly !== "undefined"')) break;
     await sleep(500);
   }
 
@@ -152,14 +153,14 @@ const main = async () => {
     ['错误码章节', '## 6. 错误码'],
     ['MCP 工具命名', 'layer__create'],
     ['HTTP 命令端点', 'POST /command'],
-    ['令牌头', 'x-ml-token'],
+    ['令牌头', 'x-kinelayer-token'],
     ['乐观锁字段', 'expectedVersion'],
     ['冲突错误码', 'CONFLICT'],
     ['试算字段', 'dryRun'],
     ['监听地址约束', '127.0.0.1'],
     ['密钥边界', 'API Key'],
     ['文件系统边界', '文件系统'],
-    ['dev 口声明', 'window.__ml'],
+    ['dev 口声明', 'window.__kly'],
   ];
   const missing = must.filter(([, s]) => !body.includes(s)).map(([n]) => n);
   check(`正文含全部 ${must.length} 个要点`, missing.length === 0, missing.join(', '));
@@ -170,7 +171,7 @@ const main = async () => {
 
   // 统计与真实注册表一致
   const counts = await ev(`(() => {
-    const total = window.__ml.commands().length;
+    const total = window.__kly.commands().length;
     const text = document.body.innerText;
     return { total, shown: text.includes(total + ' 条命令') || text.includes(total + ' commands') };
   })()`);
@@ -187,11 +188,11 @@ const main = async () => {
   check('复制按钮写入完整文本', copied.ok && copied.len > 3000 && Math.abs(copied.len - panel.pre) <= 2, JSON.stringify(copied));
 
   // 英文切换后不应残留中文（排除命令清单里的中文摘要——英文版已不带摘要）
-  await ev(`localStorage.setItem('ml.locale','en-US')`);
+  await ev(`localStorage.setItem('kinelayer.locale','en-US')`);
   await cdp.call('Page.reload');
   await sleep(3500);
   for (let i = 0; i < 40; i += 1) {
-    if (await ev('typeof window.__ml !== "undefined"')) break;
+    if (await ev('typeof window.__kly !== "undefined"')) break;
     await sleep(400);
   }
   await ev(`(() => {
@@ -222,12 +223,12 @@ const main = async () => {
   check('英文界面下有对应英文版提示词', enBody?.hasSection === true, JSON.stringify({ head: enBody?.head, len: enBody?.len }));
   check('英文版正文不含中文', enBody?.hasZh === false);
 
-  await shot('C:/Users/KngLokiko/Desktop/Ai Agent/MotionLayer/docs/v2-agent-panel-en.png');
-  await ev(`localStorage.setItem('ml.locale','zh-CN')`);
+  await shot(new URL('../docs/v2-agent-panel-en.png', import.meta.url));
+  await ev(`localStorage.setItem('kinelayer.locale','zh-CN')`);
   await cdp.call('Page.reload');
   await sleep(3000);
   for (let i = 0; i < 40; i += 1) {
-    if (await ev('typeof window.__ml !== "undefined"')) break;
+    if (await ev('typeof window.__kly !== "undefined"')) break;
     await sleep(400);
   }
   await ev(`(() => {
@@ -242,7 +243,7 @@ const main = async () => {
     return true;
   })()`);
   await sleep(800);
-  await shot('C:/Users/KngLokiko/Desktop/Ai Agent/MotionLayer/docs/v2-agent-panel.png');
+  await shot(new URL('../docs/v2-agent-panel.png', import.meta.url));
 
   const pass = results.filter((r) => r.ok).length;
   console.log(`\n结果：${pass}/${results.length} 通过`);

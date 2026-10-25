@@ -14,7 +14,7 @@ export { AGENT_TAB_ID };
 const BRIDGE = {
   ws: 'ws://127.0.0.1:2718',
   http: 'http://127.0.0.1:2718',
-  tokenHeader: 'x-ml-token',
+  tokenHeader: 'x-kinelayer-token',
 } as const;
 
 const FLOW = [
@@ -155,8 +155,8 @@ export function AgentAccessPanel() {
             size={22}
             title={t('下载 .md')}
             onClick={() => {
-              downloadText('motionlayer-desktop-agent.md', prompt);
-              pushToast('success', t('已下载 motionlayer-desktop-agent.md'));
+              downloadText('kinelayer-desktop-agent.md', prompt);
+              pushToast('success', t('已下载 kinelayer-desktop-agent.md'));
             }}
           >
             <Download size={11} />

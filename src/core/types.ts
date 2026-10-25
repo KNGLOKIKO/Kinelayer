@@ -1,5 +1,5 @@
 /**
- * MotionLayer · 核心数据模型
+ * Kinelayer · 核心数据模型
  * 铁律：Project 是唯一权威文档；layers 数组顺序即 z 序；background 永远在 index 0 且不可删除。
  * 序列化时不含任何 base64 资源：二进制只存在 IndexedDB，Project 里只有 AssetMeta。
  */

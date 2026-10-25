@@ -91,10 +91,10 @@ export function PromptDialog() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'motionlayer-ai-prompt.md';
+    a.download = 'kinelayer-ai-prompt.md';
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 2000);
-    pushToast('success', t('已下载 motionlayer-ai-prompt.md'));
+    pushToast('success', t('已下载 kinelayer-ai-prompt.md'));
   };
 
   const doParse = () => {

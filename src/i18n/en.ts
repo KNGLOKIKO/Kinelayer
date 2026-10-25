@@ -18,7 +18,7 @@ export const en: Record<string, string> = {
     '· With a layer selected, arrow keys nudge by 1px (Shift for 10px)',
 
   // ── 顶栏 / 全局 ─────────────────────────────────────────
-  层动: 'MotionLayer',
+  动态海报工作台: 'Motion poster studio',
   撤销: 'Undo',
   重做: 'Redo',
   '撤销 (Ctrl+Z)': 'Undo (Ctrl+Z)',
@@ -194,23 +194,23 @@ export const en: Record<string, string> = {
     'Export runs the exact same renderScene() as the preview, just against an offscreen canvas — and it awaits every font, video frame and HTML rasterization first.',
   '逐帧手动推帧（captureStream(0) + requestFrame）。导出耗时约等于视频时长，导出期间命令总线仍会串行等待。':
     'Frames are pushed one at a time (captureStream(0) + requestFrame). Export takes roughly as long as the video itself, and the command bus keeps queueing serially meanwhile.',
-  '导出项目 JSON': 'Export project JSON',
-  '导入项目 JSON': 'Import project JSON',
+  '导出工程包 .kly': 'Export .kly package',
+  '导入工程包 .kly': 'Import .kly package',
   未命名海报: 'Untitled poster',
   已保存: 'Saved',
   '已保存，输入新值可覆盖': 'Saved — type a new value to replace it',
   清空自动保存: 'Clear autosave',
   '清空自动保存并新建空白项目？IndexedDB 中的资源不会删除。':
     'Clear the autosave and start a blank project? Assets in IndexedDB are kept.',
-  '项目 JSON 不含任何 base64；图片/视频/字体二进制存在 IndexedDB 的 motionlayer 库。自动保存每 1.6 秒写入一次，刷新页面会恢复上次的项目。':
-    'The project JSON holds no base64 — image, video and font binaries live in the IndexedDB “motionlayer” database. Autosave writes every 1.6s, and reloading restores your last project.',
+  '工程包不含任何 base64；图片/视频/字体二进制存在 IndexedDB 的 kinelayer 库。自动保存每 1.6 秒写入一次，刷新页面会恢复上次的项目。':
+    'The package holds no base64 — image, video and font binaries live in the IndexedDB “kinelayer” database. Autosave writes every 1.6s, and reloading restores your last project.',
   '应用（一条命令）': 'Apply (one command)',
 
   // ── 设置 · AI ──────────────────────────────────────────
   '通道 A：浏览器内直连任意 OpenAI 兼容接口（OpenAI / DeepSeek / Moonshot / 本地 vLLM 均可）。 工具定义由命令注册表自动生成，上下文只传项目摘要，不传任何 base64。':
     'Channel A: hit any OpenAI-compatible endpoint straight from the browser (OpenAI, DeepSeek, Moonshot, a local vLLM — all fine). Tool definitions are generated from the command registry, and only a project summary goes into the context — never any base64.',
-  '通道 B：先在本机运行 ': 'Channel B: run ',
-  '（WS 127.0.0.1:2718）， 再把终端打印的 token 粘到这里。MCP Server 由 ':
+  '通道 B：先在本机运行': 'Channel B: run ',
+  '（WS 127.0.0.1:2718）， 再把终端打印的 token 粘到这里。MCP Server 由':
     ' (WS 127.0.0.1:2718) on your machine, then paste the token it prints into the field below. The MCP server is started by ',
   '启动， 工具清单从当前页面的命令注册表实时同步。':
     ' — its tool list syncs live from the command registry of this page.',
@@ -275,7 +275,7 @@ export const en: Record<string, string> = {
   重新生成: 'Regenerate',
   用法: 'How to use',
   '下载 .md': 'Download .md',
-  '已下载 motionlayer-ai-prompt.md': 'Downloaded motionlayer-ai-prompt.md',
+  '已下载 kinelayer-ai-prompt.md': 'Downloaded kinelayer-ai-prompt.md',
   '支持代码围栏 / 裸 JSON / 单条命令': 'Accepts code fences, bare JSON, or a single command',
   '全部通过校验才会生效；任一条失败会整体回滚':
     'Nothing applies unless every command validates — one failure rolls back the whole batch',
@@ -514,7 +514,7 @@ export const en: Record<string, string> = {
   带上当前项目: 'Include current project',
   复制全部: 'Copy all',
   已复制: 'Copied',
-  '已下载 motionlayer-desktop-agent.md': 'Downloaded motionlayer-desktop-agent.md',
+  '已下载 kinelayer-desktop-agent.md': 'Downloaded kinelayer-desktop-agent.md',
   '把这段提示词交给本机 Agent 工具时，先确认它只连 127.0.0.1、只走命令总线。提示词里已写明：不能读密钥、不能碰文件系统、危险操作必须由你确认。':
     'Before handing this prompt to a desktop agent, make sure it only connects to 127.0.0.1 and only goes through the command bus. The prompt already spells out the boundaries: no key access, no filesystem, and dangerous actions need your approval.',
 

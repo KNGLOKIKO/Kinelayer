@@ -172,7 +172,7 @@
 | CanvasRecorder 类库 | `captureStream(0)` + `track.requestFrame()` 手动推帧，才能保证导出帧率与时间轴严格对应 | `exportWebm()`：`captureStream(0)` → 每帧 `requestFrame()` → `await sleep(1000/fps)`，按时间轴整段推进 | 没有用它的 API 封装，因为我们需要「按项目时间轴推进」而不是「按真实时钟录屏」 |
 | WICG local-font-access | `navigator.fonts.query()` 能枚举本机字体 | `listLocalFonts()`：能力探测 + 权限失败降级到内置字体表 | 仅 Chrome/Edge 支持，Safari/Firefox 走 `SYSTEM_FONTS` 静态清单 |
 | bkay-stack/open-product-designer | store 按「文档 / UI / 运行时」切片，UI 状态不写进文档 | `useEditor` 三段式：`project`（可序列化）/ `ui`（缩放、选中）/ `runtime`（播放、桥接、导出进度） | 我们的 `ui/runtime` 完全不进撤销栈，也不进自动保存 |
-| 多窗口同步 | —（没有找到成熟先例） | 自研：`BroadcastChannel('poster-editor')` + Host 快照节流 50ms + 时间广播 100ms + Client `TimeSmoother` 外推 + `hostId` 校验 | 见 `src/windows/*`，降级链 popup → documentPictureInPicture → 应用内浮动面板 |
+| 多窗口同步 | —（没有找到成熟先例） | 自研：`BroadcastChannel('kinelayer-bus')` + Host 快照节流 50ms + 时间广播 100ms + Client `TimeSmoother` 外推 + `hostId` 校验 | 见 `src/windows/*`，降级链 popup → documentPictureInPicture → 应用内浮动面板 |
 
 ---
 

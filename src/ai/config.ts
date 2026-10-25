@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { decryptString, encryptString } from './crypto';
+import { lsGet, lsRemove, lsSet } from '@/persist/storage';
 
 export interface AIConfig {
   baseUrl: string;
@@ -9,8 +10,8 @@ export interface AIConfig {
   temperature: number;
 }
 
-const CONFIG_KEY = 'ml.ai.config';
-const SECRET_KEY = 'ml.ai.key';
+const CONFIG_KEY = 'ai.config';
+const SECRET_KEY = 'ai.key';
 
 const DEFAULT_CONFIG: AIConfig = {
   baseUrl: 'https://api.openai.com/v1',
@@ -41,12 +42,12 @@ export const useAIStore = create<AIStoreState>(() => ({
 export async function initAI(): Promise<void> {
   let config = DEFAULT_CONFIG;
   try {
-    const raw = localStorage.getItem(CONFIG_KEY);
+    const raw = lsGet(CONFIG_KEY);
     if (raw) config = { ...DEFAULT_CONFIG, ...(JSON.parse(raw) as Partial<AIConfig>) };
   } catch {
     /* 用默认值 */
   }
-  const cipher = localStorage.getItem(SECRET_KEY) ?? '';
+  const cipher = lsGet(SECRET_KEY) ?? '';
   const apiKey = cipher ? await decryptString(cipher) : '';
   useAIStore.setState({ config, apiKey, hasKey: !!apiKey, loaded: true });
 }
@@ -55,12 +56,12 @@ export async function saveAI(patch: Partial<AIConfig> & { apiKey?: string }): Pr
   const state = useAIStore.getState();
   const { apiKey, ...rest } = patch;
   const config: AIConfig = { ...state.config, ...rest };
-  localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+  lsSet(CONFIG_KEY, JSON.stringify(config));
   let nextKey = state.apiKey;
   if (apiKey !== undefined) {
     nextKey = apiKey;
-    if (apiKey) localStorage.setItem(SECRET_KEY, await encryptString(apiKey));
-    else localStorage.removeItem(SECRET_KEY);
+    if (apiKey) lsSet(SECRET_KEY, await encryptString(apiKey));
+    else lsRemove(SECRET_KEY);
   }
   useAIStore.setState({ config, apiKey: nextKey, hasKey: !!nextKey, testState: 'idle', testMessage: '' });
 }

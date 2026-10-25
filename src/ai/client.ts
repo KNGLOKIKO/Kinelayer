@@ -20,7 +20,7 @@ export function systemPrompt(): string {
   const state = useEditor.getState();
   const summary = summarizeProject(state.project);
   return [
-    '你是 MotionLayer（层动）动态海报编辑器的操作代理。你只能通过提供的工具函数修改项目，不能直接改文件或 DOM。',
+    '你是 Kinelayer 动态海报编辑器的操作代理。你只能通过提供的工具函数修改项目，不能直接改文件或 DOM。',
     '',
     '规则：',
     '1. 动手前先调用 query_project 读取当前状态；不确定 payload 形状时调用 query_registry。',

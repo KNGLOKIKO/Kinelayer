@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { defineCommand, CommandFailure } from '../registry';
 import { createEmptyProject, normalizeProject } from '../defaults';
+import { unpackProject } from '../projectFile';
 import { LIMITS } from '../types';
 import { clamp } from '../geometry';
 
@@ -46,15 +47,15 @@ export const projectCommands = [
     mutating: true,
     dangerous: true,
     resetsHistory: true,
-    description: '从项目 JSON 字符串载入（export.json 的产物，或手工构造的合法 JSON）。载入会做修复与不变式校验。',
+    description: '从工程包（.kly）文本载入，也接受旧版裸项目 JSON。载入会做修复与不变式校验。',
     schema: z.object({ data: z.string().min(2).max(50_000_000) }),
     example: { data: '{"name":"海报","width":1080,...}' },
     handler: (draft, payload, ctx) => {
       let parsed: unknown;
       try {
-        parsed = JSON.parse(payload.data);
+        parsed = unpackProject(JSON.parse(payload.data));
       } catch (err) {
-        throw new CommandFailure('VALIDATION', `JSON 解析失败：${(err as Error).message}`);
+        throw new CommandFailure('VALIDATION', `工程包解析失败：${(err as Error).message}`);
       }
       const next = normalizeProject(parsed);
       Object.assign(draft, next);
@@ -76,7 +77,7 @@ export const projectCommands = [
     mutating: true,
     description: '重命名项目。',
     schema: z.object({ name: z.string().min(1).max(80) }),
-    example: { name: '层动 · 版本 B' },
+    example: { name: 'Kinelayer · 版本 B' },
     handler: (draft, payload) => {
       draft.name = payload.name;
       return { name: draft.name };

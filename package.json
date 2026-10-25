@@ -1,9 +1,9 @@
 {
-  "name": "motionlayer",
+  "name": "kinelayer",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "MotionLayer 层动 · 可编程的动态海报工作台",
+  "description": "Kinelayer · 可编程的动态海报工作台",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

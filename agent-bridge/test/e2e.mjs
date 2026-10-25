@@ -133,7 +133,7 @@ let mcp = null;
 let mcpClient = null;
 
 try {
-  console.log('\nMotionLayer Bridge E2E\n');
+  console.log('\nKinelayer Bridge E2E\n');
 
   const up = await waitFor(async () => {
     const res = await fetch(`${HTTP}/health`);
@@ -142,12 +142,12 @@ try {
   check('bridge 启动并在 127.0.0.1 监听', up, `${HTTP}/health`);
 
   // 1. 鉴权
-  const badToken = await fetch(`${HTTP}/manifest`, { headers: { 'x-ml-token': 'wrong' } });
+  const badToken = await fetch(`${HTTP}/manifest`, { headers: { 'x-kinelayer-token': 'wrong' } });
   check('错误令牌被拒绝（401）', badToken.status === 401);
 
   const noHost = await fetch(`${HTTP}/command`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-ml-token': TOKEN },
+    headers: { 'content-type': 'application/json', 'x-kinelayer-token': TOKEN },
     body: JSON.stringify({ type: 'query.project', payload: {} }),
   });
   const noHostBody = await noHost.json();
@@ -174,7 +174,7 @@ try {
   host.ws.send(JSON.stringify({ kind: 'manifest', tools, summary: { width: 1080, height: 1440, layers: [] }, projectVersion: 7, playhead: 400, ts: Date.now() }));
   await sleep(200);
 
-  const manifestRes = await fetch(`${HTTP}/manifest`, { headers: { 'x-ml-token': TOKEN } });
+  const manifestRes = await fetch(`${HTTP}/manifest`, { headers: { 'x-kinelayer-token': TOKEN } });
   const manifestBody = await manifestRes.json();
   check('manifest 被缓存并可读取', manifestBody?.data?.tools?.length === 2, `tools=${manifestBody?.data?.tools?.length}`);
   check('manifest 里的项目摘要可用于 Agent 上下文', manifestBody?.data?.summary?.width === 1080);
@@ -182,7 +182,7 @@ try {
   // 3. HTTP 命令转发
   const call = await fetch(`${HTTP}/command`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-ml-token': TOKEN },
+    headers: { 'content-type': 'application/json', 'x-kinelayer-token': TOKEN },
     body: JSON.stringify({ type: 'layer.create', payload: { type: 'text' } }),
   });
   const callBody = await call.json();
@@ -192,7 +192,7 @@ try {
   // 4. MCP stdio
   mcp = spawn(process.execPath, [path.join(ROOT, 'src/mcp.js')], {
     stdio: ['pipe', 'pipe', 'pipe'],
-    env: { ...process.env, ML_BRIDGE_URL: WS_URL, ML_BRIDGE_TOKEN: TOKEN },
+    env: { ...process.env, KINELAYER_BRIDGE_URL: WS_URL, KINELAYER_BRIDGE_TOKEN: TOKEN },
   });
   mcp.stderr.on('data', (d) => process.stderr.write(`[mcp] ${d}`));
   mcpClient = new McpClient(mcp);
@@ -220,7 +220,7 @@ try {
   const failCall = await mcpClient.request('tools/call', { name: 'project__delete', arguments: {} });
   check('未知工具返回可读错误（列出可用命令）', failCall.result?.isError === true && String(failCall.result?.content?.[0]?.text).includes('没有名为'));
 
-  const resource = await mcpClient.request('resources/read', { uri: 'motionlayer://project' });
+  const resource = await mcpClient.request('resources/read', { uri: 'kinelayer://project' });
   check('MCP resource 暴露项目摘要', String(resource.result?.contents?.[0]?.text).includes('1080'));
 
   // 5. Host 掉线快速失败
@@ -228,7 +228,7 @@ try {
   await sleep(300);
   const afterClose = await fetch(`${HTTP}/command`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-ml-token': TOKEN },
+    headers: { 'content-type': 'application/json', 'x-kinelayer-token': TOKEN },
     body: JSON.stringify({ type: 'query.project', payload: {} }),
   });
   const afterBody = await afterClose.json();

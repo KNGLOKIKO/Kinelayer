@@ -15,6 +15,7 @@ import { setBroadcastHandler } from '@/core/commandBus';
 import { updateUi, useEditor } from '@/core/store';
 import { normalizeProject } from '@/core/defaults';
 import { idbGetKV, idbSetKV } from '@/persist/idb';
+import { lsGet } from '@/persist/storage';
 import { restoreFonts } from '@/persist/fonts';
 import { preloadAssets } from '@/render/assets';
 import { initAI } from '@/ai/config';
@@ -82,8 +83,8 @@ export function EditorApp() {
         await exec('project.load', { data: JSON.stringify(project) });
         await preloadAssets(project.assets);
       }
-      const token = localStorage.getItem('ml.bridge.token');
-      const url = localStorage.getItem('ml.bridge.url');
+      const token = lsGet('bridge.token');
+      const url = lsGet('bridge.url');
       if (token && url && !disposed) connectBridge(url, token);
     };
     void boot();

@@ -65,7 +65,7 @@ export const exportCommands = [
     category: '导出',
     mutating: false,
     undoable: false,
-    description: '导出项目 JSON（不含任何 base64 资源），用于备份、版本管理与跨设备迁移。',
+    description: '导出工程包（.kly，不含任何 base64 资源），用于备份、版本管理与跨设备迁移。',
     schema: z.object({}),
     example: {},
     handler: async (_draft, _payload, ctx) => ctx.services.exportJson(),
@@ -80,7 +80,7 @@ export const exportCommands = [
     schema: z.object({}),
     example: {},
     handler: () => {
-      const lines = ['# MotionLayer 命令清单', ''];
+      const lines = ['# Kinelayer 命令清单', ''];
       for (const def of listCommands()) {
         lines.push(`## ${def.type}`);
         lines.push('');

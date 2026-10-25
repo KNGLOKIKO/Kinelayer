@@ -1,4 +1,4 @@
-# MotionLayer（层动）
+# Kinelayer
 
 **简体中文** · [English](README.en.md)
 
@@ -9,12 +9,12 @@
 ![Node](https://img.shields.io/badge/node-18%2B-339933?logo=node.js\&logoColor=white)
 ![Agent](https://img.shields.io/badge/agent-MCP%20%2B%20OpenAI%20tools-7C5CFF)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Deploy](https://img.shields.io/github/actions/workflow/status/KNGLOKIKO/MotionLayer/pages.yml?label=deploy)
+![Deploy](https://img.shields.io/github/actions/workflow/status/KNGLOKIKO/Kinelayer/pages.yml?label=deploy)
 ![Demo](https://img.shields.io/badge/demo-online-brightgreen)
 
 **可编程的动态海报工作台** —— 一个纯前端、可离线、命令驱动的动态海报编辑器。
 
-**在线体验**：<https://knglokiko.github.io/MotionLayer/> · **源码**：<https://github.com/KNGLOKIKO/MotionLayer>
+**在线体验**：<https://knglokiko.github.io/Kinelayer/> · **源码**：<https://github.com/KNGLOKIKO/Kinelayer>
 
 不做「拖拽拼图」，做的是「用一条命令总线把人类操作、网页内 AI、外部 Agent、独立图层窗口
 统一成同一件事」。所有能力都注册在一张表里：人点按钮、AI 调工具、Agent 走 MCP，
@@ -25,7 +25,7 @@ npm install
 npm run dev          # http://localhost:5273
 ```
 
-![MotionLayer 界面](docs/preview.png)
+![Kinelayer 界面](docs/preview.png)
 
 ---
 
@@ -44,7 +44,7 @@ npm run dev          # http://localhost:5273
 ## 目录结构与模块职责
 
 ```
-MotionLayer/
+Kinelayer/
 ├─ index.html                  启动期致命错误兜底（模块崩了也能看到人话）
 ├─ src/
 │  ├─ core/                    ★ 唯一的真相层：数据、命令、历史
@@ -199,7 +199,7 @@ cd agent-bridge && npm test
 ```bash
 # 一次性设置：仓库 Settings → Pages → Source 选 "GitHub Actions"
 # 构建时的资源前缀由 workflow 注入
-VITE_BASE=/MotionLayer/ npm run build   # 项目页需要这个前缀
+VITE_BASE=/Kinelayer/ npm run build   # 项目页需要这个前缀
 ```
 
 - 页面地址：`https://<user>.github.io/<repo>/`，改仓库名就要同步改 workflow 里的 `VITE_BASE`。
@@ -221,10 +221,13 @@ VITE_BASE=/MotionLayer/ npm run build   # 项目页需要这个前缀
 
 ## 数据与隐私
 
-- **项目文件**：`export.json` 导出的是纯 JSON，**不含图片/视频的 base64**（资源在 IndexedDB 里）。
+- **项目文件**：`export.json` 产出 `.kly` 工程包（JSON 外壳 + `format: "kinelayer-bundle"`），**不含图片/视频的 base64**（资源在 IndexedDB 里）。
+  导入时既认 `.kly`，也认旧版裸项目 JSON，老备份不会因为改格式而打不开。
   换机器要带上素材重新导入，这是为了不让项目文件变成几十 MB 的怪物。
-- **自动保存**：每 1.6s 把项目写进 IndexedDB（`motionlayer` 库），刷新页面自动恢复。
+- **自动保存**：每 1.6s 把项目写进 IndexedDB（`kinelayer` 库），刷新页面自动恢复。
 - **不出网**：除你主动配置的 AI 接口外，应用不发起任何网络请求；没有 CDN、没有埋点、没有远程字体。
+- **升级不丢数据**：品牌更名时数据库与存储键都换了名字，首次启动会把旧库数据**整份复制**到新库，
+  旧库原样保留（不删）；旧命名空间的 localStorage 键在读取时自动迁移；旧版裸项目 JSON 备份照样能导入。
 
 ---
 

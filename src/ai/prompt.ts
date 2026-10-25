@@ -158,7 +158,7 @@ function projectContext(project?: Project, zh = true): string {
 export function buildChatPrompt(opts: PromptOptions = {}): string {
   const { text, count } = catalogText();
   const context = opts.includeProject ? projectContext(opts.project) : '';
-  return `你是 MotionLayer（层动）的动态海报编辑助手。用户用一句话描述想要的效果，你把它翻译成一组可执行命令。
+  return `你是 Kinelayer 的动态海报编辑助手。用户用一句话描述想要的效果，你把它翻译成一组可执行命令。
 
 ## 硬性规则
 1. 只能用下面清单里的命令（共 ${count} 条），不要发明命令，不要臆造参数名。
@@ -197,10 +197,10 @@ commands 有 1~50 条，应用会按顺序执行并合成一个撤销点。参�
 /** MCP 客户端：模型能直接调工具，提示词只讲策略 */
 export function buildMcpPrompt(opts: PromptOptions = {}): string {
   const context = opts.includeProject ? projectContext(opts.project) : '';
-  return `你现在接入了 MotionLayer（层动）的 MCP 服务，可以直接修改用户正在编辑的动态海报。
+  return `你现在接入了 Kinelayer 的 MCP 服务，可以直接修改用户正在编辑的动态海报。
 
 ## 工作方式
-1. 先读资源 motionlayer://project，拿到画布尺寸、时长与图层 id；不要凭空编 id。
+1. 先读资源 kinelayer://project，拿到画布尺寸、时长与图层 id；不要凭空编 id。
 2. 工具名是命令类型的双下划线写法：layer__create 就是命令 layer.create。
 3. 工具入参就是命令 payload，schema 已由编辑器命令注册表自动生成，照它填即可。
 4. 多步改动优先用 command__batch（atomic=true），一次调用只产生一个撤销点。
@@ -263,13 +263,13 @@ export function buildDesktopAgentPrompt(opts: PromptOptions = {}): string {
 
   if (!zh) return buildDesktopAgentPromptEn({ catalog, dangerous, count: rows.length, stamp, context });
 
-  return `# MotionLayer（层动）· 桌面 Agent 接入说明
+  return `# Kinelayer · 桌面 Agent 接入说明
 
 > 生成时间 ${stamp} · 命令 ${rows.length} 条 · schemaVersion 2 · 由命令注册表与协议常量自动生成
 
 ## 0. 你在操作什么
 
-MotionLayer 是一个跑在用户浏览器里的动态海报编辑器。**编辑器（Host）是唯一权威**：
+Kinelayer 是一个跑在用户浏览器里的动态海报编辑器。**编辑器（Host）是唯一权威**：
 唯一执行、唯一撤销栈、唯一主时钟。你不是第二个编辑器，也没有 DOM 写权限——
 你唯一的写入口是**命令总线**：把结构化命令发给本机桥接（127.0.0.1:2718），由编辑器执行并广播结果。
 
@@ -284,7 +284,7 @@ MotionLayer 是一个跑在用户浏览器里的动态海报编辑器。**编辑
 3. 打开编辑器 →「设置 → Agent 桥接」→ 填 \`ws://127.0.0.1:2718\` + 同一令牌 → 点连接
 
 - 工具名 = 命令类型把 \`.\` 换成 \`__\`：\`layer.create\` → \`layer__create\`
-- 资源：\`motionlayer://project\`（项目摘要）、\`motionlayer://registry\`（命令清单）
+- 资源：\`kinelayer://project\`（项目摘要）、\`kinelayer://registry\`（命令清单）
 - 工具入参就是命令的 \`payload\`，schema 由注册表自动生成，照它填
 
 ### B. 直连（自建脚本：HTTP 或 WebSocket）
@@ -296,7 +296,7 @@ curl http://127.0.0.1:2718/health
 
 | 用途 | 请求 |
 | --- | --- |
-| 读清单 | \`GET /manifest\`，头 \`x-ml-token: <token>\` |
+| 读清单 | \`GET /manifest\`，头 \`x-kinelayer-token: <token>\` |
 | 执行命令 | \`POST /command\`，体 \`{"type":"layer.update","payload":{…},"dryRun":false,"expectedVersion":12}\` |
 | WS 连接 | \`ws://127.0.0.1:2718/?role=agent&token=<token>\` |
 
@@ -341,7 +341,7 @@ ${catalog}
 - **文件系统**：没有任何读写本地文件的命令；导出走浏览器下载，你不能指定落盘路径
 - **越权批准**：标了危险的命令必须由用户在界面上点确认。你不能代替用户批准，也不能声称已获批准
 - **绕过校验**：不要用 \`project.load\` 整包覆盖来跳过单条命令的 schema 校验
-- **改宿主**：不要尝试改 DOM、localStorage、IndexedDB；\`window.__ml\` 只是 dev 构建的调试口，生产里不存在
+- **改宿主**：不要尝试改 DOM、localStorage、IndexedDB；\`window.__kly\` 只是 dev 构建的调试口，生产里不存在
 
 ## 5. 危险命令（执行前必须先说明后果）
 
@@ -373,13 +373,13 @@ function buildDesktopAgentPromptEn(a: {
   stamp: string;
   context: string;
 }): string {
-  return `# MotionLayer · Desktop agent integration
+  return `# Kinelayer · Desktop agent integration
 
 > Generated ${a.stamp} · ${a.count} commands · schemaVersion 2 · derived from the command registry and the bridge protocol
 
 ## 0. What you are operating
 
-MotionLayer is a motion-poster editor running inside the user's browser. **The editor (Host) is the only
+Kinelayer is a motion-poster editor running inside the user's browser. **The editor (Host) is the only
 authority**: one executor, one undo stack, one master clock. You are not a second editor, and you have no DOM
 write access — your only write path is the **command bus**: send structured commands to the local bridge
 (127.0.0.1:2718) and the editor executes and broadcasts the result.
@@ -395,7 +395,7 @@ Remember this one line: **any attempt to bypass the bus and touch the UI or stor
 3. In the editor open **Settings → Agent bridge**, enter \`ws://127.0.0.1:2718\` plus the same token, connect
 
 - Tool name = command type with \`.\` replaced by \`__\`: \`layer.create\` → \`layer__create\`
-- Resources: \`motionlayer://project\` (project summary), \`motionlayer://registry\` (command list)
+- Resources: \`kinelayer://project\` (project summary), \`kinelayer://registry\` (command list)
 - Tool arguments are the command \`payload\`; the schema is generated from the registry — just follow it
 
 ### B. Direct (your own script: HTTP or WebSocket)
@@ -407,7 +407,7 @@ curl http://127.0.0.1:2718/health
 
 | Purpose | Request |
 | --- | --- |
-| Read manifest | \`GET /manifest\` with header \`x-ml-token: <token>\` |
+| Read manifest | \`GET /manifest\` with header \`x-kinelayer-token: <token>\` |
 | Run a command | \`POST /command\`, body \`{"type":"layer.update","payload":{…},"dryRun":false,"expectedVersion":12}\` |
 | WebSocket | \`ws://127.0.0.1:2718/?role=agent&token=<token>\` |
 
@@ -452,7 +452,7 @@ ${a.catalog}
 - **Filesystem**: no command reads or writes local files; exports go through the browser download flow and you cannot choose a path
 - **Approvals**: commands marked dangerous require the user to confirm in the UI. You may not approve on their behalf, nor claim approval was given
 - **Bypassing validation**: do not use \`project.load\` to overwrite everything just to skip per-command schema checks
-- **Touching the host**: do not modify DOM, localStorage or IndexedDB. \`window.__ml\` exists only in dev builds and is absent in production
+- **Touching the host**: do not modify DOM, localStorage or IndexedDB. \`window.__kly\` exists only in dev builds and is absent in production
 
 ## 5. Dangerous commands (state the consequences first)
 
@@ -485,7 +485,7 @@ export function buildDesktopAgentBundle(opts: PromptOptions = {}): string {
 /** 供「下载 .md」用：三种形态打包，附接入步骤 */
 export function buildMarkdownBundle(opts: PromptOptions = {}): string {
   const stamp = new Date().toISOString().slice(0, 19).replace('T', ' ');
-  return `# MotionLayer AI 接入提示词
+  return `# Kinelayer AI 接入提示词
 
 > 生成时间：${stamp} · 命令数：${listCommands().length} · 由命令注册表自动生成
 

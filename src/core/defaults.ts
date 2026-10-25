@@ -329,7 +329,7 @@ export function createDemoProject(): Project {
     y: 150,
     width: 700,
     height: 44,
-    text: 'MOTIONLAYER / 层 动',
+    text: 'KINELAYER',
     style: {
       ...defaultTextStyle(),
       fontFamily: 'Segoe UI',
@@ -446,7 +446,7 @@ ctx.fill();`,
   return {
     schemaVersion: PROJECT_SCHEMA_VERSION,
     id: uid('prj'),
-    name: '层动 · 示例海报',
+    name: 'Kinelayer · 示例海报',
     width: W,
     height: H,
     duration: 4000,

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * MotionLayer MCP Server —— stdio 传输
+ * Kinelayer MCP Server —— stdio 传输
  * ---------------------------------------------------------------------------
  * 这个文件里**没有一个工具是手写的**。
  * 启动后它会向 bridge 要一份 manifest（编辑器命令注册表实时导出的 JSON Schema），
@@ -15,8 +15,8 @@
  * bridge.js 面向本机进程与浏览器；两者都只是搬运 Command，不实现任何编辑逻辑。
  *
  * 环境变量：
- *   ML_BRIDGE_URL   默认 ws://127.0.0.1:2718/ws
- *   ML_BRIDGE_TOKEN 默认读 agent-bridge/.token（即 bridge 首次启动生成的那份）
+ *   KINELAYER_BRIDGE_URL   默认 ws://127.0.0.1:2718/ws
+ *   KINELAYER_BRIDGE_TOKEN 默认读 agent-bridge/.token（即 bridge 首次启动生成的那份）
  */
 
 import fs from 'node:fs';
@@ -38,7 +38,7 @@ const RECONNECT_MS = 2_000;
 /* ------------------------------------------------------------------ 配置 */
 
 function readToken() {
-  if (process.env.ML_BRIDGE_TOKEN) return process.env.ML_BRIDGE_TOKEN.trim();
+  if (process.env.KINELAYER_BRIDGE_TOKEN) return process.env.KINELAYER_BRIDGE_TOKEN.trim();
   try {
     return fs.readFileSync(path.join(BRIDGE_DIR, '.token'), 'utf8').trim();
   } catch {
@@ -47,14 +47,14 @@ function readToken() {
 }
 
 const TOKEN = readToken();
-const BRIDGE_URL = (process.env.ML_BRIDGE_URL || 'ws://127.0.0.1:2718/ws').trim();
+const BRIDGE_URL = (process.env.KINELAYER_BRIDGE_URL || 'ws://127.0.0.1:2718/ws').trim();
 
 /**
  * stdio 模式下 stdout 是协议通道，任何 console.log 都会污染 JSON-RPC 流。
  * 所以本文件里只允许 console.error（stderr 归客户端日志）。
  */
 function note(...args) {
-  console.error('[motionlayer-mcp]', ...args);
+  console.error('[kinelayer-mcp]', ...args);
 }
 
 /* -------------------------------------------------------------- 状态缓存 */
@@ -214,17 +214,17 @@ function callHost(type, payload) {
 /* --------------------------------------------------------------- MCP 层 */
 
 const server = new Server(
-  { name: 'motionlayer', version: VERSION },
+  { name: 'kinelayer', version: VERSION },
   {
     capabilities: {
       tools: { listChanged: true },
       resources: { listChanged: true },
     },
     instructions: [
-      'MotionLayer（层动）是一个可编程的动态海报编辑器。你能通过工具直接编辑用户当前打开的海报。',
+      'Kinelayer 是一个可编程的动态海报编辑器。你能通过工具直接编辑用户当前打开的海报。',
       '',
       '工作方式：',
-      '1. 先读资源 motionlayer://project，了解画布尺寸、时长、图层列表（含 id / 类型 / 文本内容）。',
+      '1. 先读资源 kinelayer://project，了解画布尺寸、时长、图层列表（含 id / 类型 / 文本内容）。',
       '2. 所有工具名形如 layer__create，对应命令类型 layer.create（双下划线是点号的转义）。',
       '3. 修改前尽量用 query__layers / query__project 拿到真实 id，不要凭空编造。',
       '4. 用户的撤销栈是共享的：一次有意义的改动 = 一条命令；批量创建请优先用 batch__run 合成一个撤销点。',
@@ -254,7 +254,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       content: [
         {
           type: 'text',
-          text: `没有名为 ${name} 的命令。当前可用命令（前 30 个）：\n${manifest.tools.slice(0, 30).map((t) => t.name).join('\n')}\n\n命令清单会随编辑器版本变化，可用 resources/read motionlayer://registry 拉全量。`,
+          text: `没有名为 ${name} 的命令。当前可用命令（前 30 个）：\n${manifest.tools.slice(0, 30).map((t) => t.name).join('\n')}\n\n命令清单会随编辑器版本变化，可用 resources/read kinelayer://registry 拉全量。`,
         },
       ],
     };
@@ -289,13 +289,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 server.setRequestHandler(ListResourcesRequestSchema, async () => ({
   resources: [
     {
-      uri: 'motionlayer://project',
+      uri: 'kinelayer://project',
       name: '当前项目摘要',
       description: '画布尺寸、时长、帧率、图层列表（不含二进制资源），每次修改后自动更新',
       mimeType: 'application/json',
     },
     {
-      uri: 'motionlayer://registry',
+      uri: 'kinelayer://registry',
       name: '命令注册表',
       description: '全部命令的类型、分类、说明与示例 payload（工具 schema 的单一数据源）',
       mimeType: 'application/json',
@@ -305,7 +305,7 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => ({
 
 server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
   const uri = request.params.uri;
-  if (uri === 'motionlayer://project') {
+  if (uri === 'kinelayer://project') {
     return {
       contents: [
         {
@@ -320,7 +320,7 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
       ],
     };
   }
-  if (uri === 'motionlayer://registry') {
+  if (uri === 'kinelayer://registry') {
     return {
       contents: [
         {
@@ -342,7 +342,7 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
 
 async function main() {
   if (!TOKEN) {
-    note('警告：没找到 bridge 令牌（agent-bridge/.token）。请先跑一次 `npm run bridge`，再用 ML_BRIDGE_TOKEN 手动指定。');
+    note('警告：没找到 bridge 令牌（agent-bridge/.token）。请先跑一次 `npm run bridge`，再用 KINELAYER_BRIDGE_TOKEN 手动指定。');
   }
   connect();
   const transport = new StdioServerTransport();

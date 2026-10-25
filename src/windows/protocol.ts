@@ -1,7 +1,7 @@
 import type { CommandResult } from '@/core/registry';
 import type { Project } from '@/core/types';
 
-export const CHANNEL_NAME = 'poster-editor';
+export const CHANNEL_NAME = 'kinelayer-bus';
 
 export interface SnapshotMessage {
   kind: 'snapshot';

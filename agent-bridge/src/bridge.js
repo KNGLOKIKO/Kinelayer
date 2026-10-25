@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * MotionLayer Bridge —— 本地命令中继
+ * Kinelayer Bridge —— 本地命令中继
  * ---------------------------------------------------------------------------
  * 职责边界（刻意做得很薄，不含任何业务逻辑）：
  *   · 编辑器（Host）作为 WS 客户端连进来，declare 自己是 role=host；
@@ -17,7 +17,7 @@
  *   node agent-bridge/src/bridge.js                 # 默认 127.0.0.1:2718
  *   node agent-bridge/src/bridge.js --port 2718     # 指定端口
  *   node agent-bridge/src/bridge.js --token abc123  # 指定令牌（多人协作/固定配置时用）
- *   ML_BRIDGE_TOKEN=abc123 npm run bridge           # 用环境变量给令牌
+ *   KINELAYER_BRIDGE_TOKEN=abc123 npm run bridge           # 用环境变量给令牌
  */
 
 import http from 'node:http';
@@ -59,7 +59,7 @@ function log(tag, msg, color = c.dim) {
 /* -------------------------------------------------------------------- 参数 */
 
 function parseArgs(argv) {
-  const out = { port: Number(process.env.ML_BRIDGE_PORT || DEFAULT_PORT), token: '', quiet: false };
+  const out = { port: Number(process.env.KINELAYER_BRIDGE_PORT || DEFAULT_PORT), token: '', quiet: false };
   for (let i = 0; i < argv.length; i += 1) {
     const a = argv[i];
     if (a === '--port' || a === '-p') out.port = Number(argv[++i]);
@@ -82,7 +82,7 @@ const args = parseArgs(process.argv.slice(2));
  */
 function resolveToken() {
   if (args.token) return args.token.trim();
-  if (process.env.ML_BRIDGE_TOKEN) return process.env.ML_BRIDGE_TOKEN.trim();
+  if (process.env.KINELAYER_BRIDGE_TOKEN) return process.env.KINELAYER_BRIDGE_TOKEN.trim();
   try {
     const saved = fs.readFileSync(TOKEN_FILE, 'utf8').trim();
     if (saved.length >= 8) return saved;
@@ -124,14 +124,15 @@ function json(res, code, body) {
     'cache-control': 'no-store',
     // 本地工具，允许任意来源（仍有 token 门禁）
     'access-control-allow-origin': '*',
-    'access-control-allow-headers': 'content-type, x-ml-token',
+    'access-control-allow-headers': 'content-type, x-kinelayer-token, x-ml-token',
     'access-control-allow-methods': 'GET, POST, OPTIONS',
   });
   res.end(payload);
 }
 
 function checkHttpToken(req, url) {
-  const header = req.headers['x-ml-token'];
+  /* 旧版头名保留了兼容：老脚本不用改就能继续连 */
+  const header = req.headers['x-kinelayer-token'] ?? req.headers['x-ml-token'];
   const fromHeader = Array.isArray(header) ? header[0] : header;
   const fromQuery = url.searchParams.get('token') ?? '';
   return (fromHeader ?? '') === TOKEN || fromQuery === TOKEN;
@@ -166,7 +167,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/health') {
     json(res, 200, {
       ok: true,
-      service: 'motionlayer-bridge',
+      service: 'kinelayer-bridge',
       version: VERSION,
       host: !!hostSocket,
       agents: agentSockets.size,
@@ -177,13 +178,13 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (!checkHttpToken(req, url)) {
-    json(res, 401, { ok: false, error: { code: 'UNAUTHORIZED', message: '令牌不正确（HTTP 需要 x-ml-token 头或 ?token= 参数）' } });
+    json(res, 401, { ok: false, error: { code: 'UNAUTHORIZED', message: '令牌不正确（HTTP 需要 x-kinelayer-token 头或 ?token= 参数）' } });
     return;
   }
 
   if (url.pathname === '/manifest' && req.method === 'GET') {
     if (!manifest) {
-      json(res, 503, { ok: false, error: { code: 'NO_HOST', message: '编辑器还没连上 bridge：请打开 MotionLayer 并在「设置 → Agent 桥接」点连接' } });
+      json(res, 503, { ok: false, error: { code: 'NO_HOST', message: '编辑器还没连上 bridge：请打开 Kinelayer 并在「设置 → Agent 桥接」点连接' } });
       return;
     }
     json(res, 200, { ok: true, data: manifest });
@@ -219,7 +220,7 @@ function callHost(type, payload, extra = {}) {
   if (!hostSocket || hostSocket.readyState !== hostSocket.OPEN) {
     return Promise.resolve({
       ok: false,
-      error: { code: 'NO_HOST', message: '编辑器未连接：请先打开 MotionLayer 并连上 bridge' },
+      error: { code: 'NO_HOST', message: '编辑器未连接：请先打开 Kinelayer 并连上 bridge' },
       projectVersion: manifest?.projectVersion ?? 0,
     });
   }
@@ -423,7 +424,7 @@ server.listen(args.port, BIND_HOST, () => {
   const line = '─'.repeat(64);
   console.log('');
   console.log(c.cyan(line));
-  console.log(`${c.bold('MotionLayer Bridge')} ${c.dim('v' + VERSION)}  ${c.dim('· 命令中继 · 只做转发，不做判断')}`);
+  console.log(`${c.bold('Kinelayer Bridge')} ${c.dim('v' + VERSION)}  ${c.dim('· 命令中继 · 只做转发，不做判断')}`);
   console.log(c.cyan(line));
   console.log(`  ${c.dim('WS 地址')}  ${c.bold(`ws://${BIND_HOST}:${args.port}`)}  ${c.dim('（编辑器填这个；MCP 可用 /ws，两者等价）')}`);
   console.log(`  ${c.dim('HTTP   ')}  ${`http://${BIND_HOST}:${args.port}/health  ·  /manifest  ·  POST /command`}`);

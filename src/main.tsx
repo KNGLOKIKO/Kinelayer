@@ -20,10 +20,10 @@ if (!readLayerParams().layerId) {
 
 /**
  * 开发态调试口：给 e2e / 手工排障用。
- * 只在 dev 构建里挂，生产 bundle 里 __ml 是 undefined——不进包、不暴露给线上用户。
+ * 只在 dev 构建里挂，生产 bundle 里 __kly 是 undefined——不进包、不暴露给线上用户。
  */
 if (import.meta.env.DEV) {
-  (window as unknown as Record<string, unknown>).__ml = {
+  (window as unknown as Record<string, unknown>).__kly = {
     dispatch: (type: string, payload?: unknown) => dispatch(type, payload ?? {}, { source: 'user' }),
     state: () => useEditor.getState(),
     commands: () => listCommands().map((c) => c.type),

@@ -1,4 +1,4 @@
-# MotionLayer
+# Kinelayer
 
 [简体中文](README.md) · **English**
 
@@ -9,12 +9,12 @@
 ![Node](https://img.shields.io/badge/node-18%2B-339933?logo=node.js\&logoColor=white)
 ![Agent](https://img.shields.io/badge/agent-MCP%20%2B%20OpenAI%20tools-7C5CFF)
 ![License](https://img.shields.io/badge/license-MIT-green)
-![Deploy](https://img.shields.io/github/actions/workflow/status/KNGLOKIKO/MotionLayer/pages.yml?label=deploy)
+![Deploy](https://img.shields.io/github/actions/workflow/status/KNGLOKIKO/Kinelayer/pages.yml?label=deploy)
 ![Demo](https://img.shields.io/badge/demo-online-brightgreen)
 
 **A programmable motion-poster workbench** — a pure front-end, offline-capable, command-driven editor for animated posters.
 
-**Live demo**: <https://knglokiko.github.io/MotionLayer/> · **Source**: <https://github.com/KNGLOKIKO/MotionLayer>
+**Live demo**: <https://knglokiko.github.io/Kinelayer/> · **Source**: <https://github.com/KNGLOKIKO/Kinelayer>
 
 This is not "drag boxes around and hope". It is one command bus that folds four very different
 actors into the same act: the human clicking buttons, the AI embedded in the page, an external
@@ -26,7 +26,7 @@ npm install
 npm run dev          # http://localhost:5273
 ```
 
-![MotionLayer UI](docs/preview.png)
+![Kinelayer UI](docs/preview.png)
 
 ---
 
@@ -45,7 +45,7 @@ npm run dev          # http://localhost:5273
 ## Layout and module responsibilities
 
 ```
-MotionLayer/
+Kinelayer/
 ├─ index.html                  Boot-time fatal-error fallback (plain words even if the bundle dies)
 ├─ src/
 │  ├─ core/                    ★ The single source of truth: data, commands, history
@@ -204,7 +204,7 @@ cd agent-bridge && npm test
 ```bash
 # One-time: repo Settings → Pages → Source = "GitHub Actions"
 # The workflow injects the asset prefix at build time
-VITE_BASE=/MotionLayer/ npm run build   # project pages need this prefix
+VITE_BASE=/Kinelayer/ npm run build   # project pages need this prefix
 ```
 
 - The site lives at `https://<user>.github.io/<repo>/`; rename the repo and you must update `VITE_BASE` in the workflow.
@@ -228,10 +228,12 @@ all three flavours grow at once.
 
 ## Data and privacy
 
-- **Project files**: `export.json` writes plain JSON with **no image/video base64** (assets stay in IndexedDB).
+- **Project files**: `export.json` produces a `.kly` package (a JSON envelope with `format: "kinelayer-bundle"`) and **no image/video base64** (assets stay in IndexedDB).
+  Both `.kly` and the old bare project JSON are accepted on import, so older backups keep opening.
   Moving machines means re-importing media — that is deliberate, so a project file never balloons into tens of megabytes.
-- **Autosave**: the project is written to IndexedDB (database `motionlayer`) every 1.6s and restored on reload.
+- **Autosave**: the project is written to IndexedDB (database `kinelayer`) every 1.6s and restored on reload.
 - **No outbound traffic**: apart from the AI endpoint you configure yourself, the app makes no network requests. No CDN, no telemetry, no remote fonts.
+- **Renames keep your data**: the rebrand renamed the database and storage keys, so on first launch the old database is **copied wholesale** into the new one and left untouched (never deleted). Old-namespace localStorage keys migrate on read, and bare project JSON backups still import.
 
 ---
 

@@ -1,4 +1,5 @@
 import { en } from './en';
+import { lsGet, lsSet } from '@/persist/storage';
 
 /**
  * 极简 i18n
@@ -25,17 +26,13 @@ const DICTS: Record<Locale, Record<string, string>> = {
   'en-US': en,
 };
 
-const STORAGE_KEY = 'ml.locale';
+const STORAGE_KEY = 'locale';
 
 let active: Locale = 'zh-CN';
 
 export function detectLocale(): Locale {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved === 'zh-CN' || saved === 'en-US') return saved;
-  } catch {
-    /* 隐私模式可能禁用 localStorage */
-  }
+  const saved = lsGet(STORAGE_KEY);
+  if (saved === 'zh-CN' || saved === 'en-US') return saved;
   const nav = (typeof navigator !== 'undefined' ? navigator.language : 'zh-CN').toLowerCase();
   return nav.startsWith('zh') ? 'zh-CN' : 'en-US';
 }
@@ -46,11 +43,7 @@ export function getLocale(): Locale {
 
 export function setActiveLocale(locale: Locale): void {
   active = locale;
-  try {
-    localStorage.setItem(STORAGE_KEY, locale);
-  } catch {
-    /* ignore */
-  }
+  lsSet(STORAGE_KEY, locale);
   if (typeof document !== 'undefined') document.documentElement.lang = locale;
 }
 

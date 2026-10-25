@@ -1,9 +1,9 @@
 {
-  "name": "motionlayer-agent-bridge",
+  "name": "kinelayer-agent-bridge",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "MotionLayer 本地桥接：WebSocket 命令中继 + MCP stdio 服务端",
+  "description": "Kinelayer 本地桥接：WebSocket 命令中继 + MCP stdio 服务端",
   "main": "src/bridge.js",
   "scripts": {
     "start": "node src/bridge.js",

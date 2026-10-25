@@ -39,7 +39,7 @@ export const layerCommands = [
       code: zCodeSpec.partial().optional().describe('代码层的引擎与源码'),
       atIndex: z.number().int().min(1).optional().describe('插入到第几层（0 是背景，不可占用）'),
     }),
-    example: { type: 'text', text: 'Hello MotionLayer', x: 96, y: 120, width: 720, height: 160 },
+    example: { type: 'text', text: 'Hello Kinelayer', x: 96, y: 120, width: 720, height: 160 },
     handler: (draft, payload) => {
       const width = payload.width ?? (payload.type === 'text' ? Math.min(900, draft.width - 120) : 520);
       const height = payload.height ?? (payload.type === 'text' ? 180 : 520);

@@ -29,7 +29,7 @@ interface Approval {
 }
 
 const QUICK = [
-  '加一个标题「层动 · 可编程海报」',
+  '加一个标题「Kinelayer · 可编程海报」',
   '把背景换成深紫渐变',
   '字号大一点',
   '加个代码层',

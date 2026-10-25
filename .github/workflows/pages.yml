@@ -31,8 +31,8 @@ jobs:
       - name: Build
         run: npm run build
         env:
-          # 项目页地址是 https://<user>.github.io/MotionLayer/，资源必须带这个前缀
-          VITE_BASE: /MotionLayer/
+          # 项目页地址是 https://<user>.github.io/Kinelayer/，资源必须带这个前缀
+          VITE_BASE: /Kinelayer/
 
       - uses: actions/configure-pages@v5
 
