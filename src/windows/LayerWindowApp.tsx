@@ -14,6 +14,12 @@ export default function LayerWindowApp() {
   const [status, setStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
   const [time, setTime] = useState(0);
 
+  /* 弹窗沿用主文档标题，要等快照到了才知道图层名；这里以「图层名 — 品牌」重设 */
+  const layerName = snapshot?.project.layers.find((l) => l.id === layerId)?.name ?? '';
+  useEffect(() => {
+    document.title = layerName ? `${layerName} — Kinelayer` : 'Kinelayer';
+  }, [layerName]);
+
   useEffect(() => {
     if (!layerId) return;
     const client = new LayerWindowClient(layerId, hostId);
