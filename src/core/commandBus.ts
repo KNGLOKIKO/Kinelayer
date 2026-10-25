@@ -427,6 +427,7 @@ function makeContext(
     commandId: command.id,
     before: project,
     playhead,
+    dryRun: !!command.dryRun,
     ui: (fn) => uiOps.push(fn),
     runtime: (fn) => rtOps.push(fn),
     services: getServices(),

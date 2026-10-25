@@ -1,5 +1,5 @@
 import { setServices } from '@/core/services';
-import { pushToast, resetProjectState, useEditor } from '@/core/store';
+import { pushToast, updateUi, useEditor } from '@/core/store';
 import { uid } from '@/core/ids';
 import { captureFrame, exportPng, exportProjectJson, exportWebm } from '@/render/exporters';
 import { preloadAssets, ensureAsset } from '@/render/assets';
@@ -123,8 +123,15 @@ export function ensureServices(): void {
     focusLayerWindow(layerId) {
       host.focus(layerId);
     },
-    async loadProject(project) {
-      resetProjectState(project);
+    closeAllLayerWindows() {
+      /* 浮动面板只活在 ui 里，popup / 画中画在 host 里；两边都要收 */
+      const ids = new Set<string>([...useEditor.getState().ui.floatingWindows, ...host.listOpen()]);
+      for (const id of ids) host.close(id);
+      updateUi((ui) => {
+        ui.floatingWindows = [];
+      });
+    },
+    async preloadProjectAssets(project) {
       await preloadAssets(project.assets);
     },
     notify(kind, text) {

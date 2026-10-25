@@ -55,7 +55,7 @@ Kinelayer/
 │  │  ├─ temporal.ts           自研撤销栈：immer patches / inverse patches / 700ms 合并
 │  │  ├─ store.ts              Zustand 三段式：project（存盘）/ ui / runtime（都不存盘）
 │  │  ├─ defaults.ts           工厂 + normalizeProject（读宽容、写严格）+ 演示项目
-│  │  ├─ commands/*.ts         67 条命令，按领域分文件（图层/文本/代码/背景/项目/资源/字体/时间轴/动画/选择/历史/窗口/导出/查询/批处理）
+│  │  ├─ commands/*.ts         72 条命令，按领域分文件（图层/文本/代码/背景/项目/资源/字体/时间轴/动画/选择/历史/窗口/导出/查询/批处理）
 │  │  └─ summary.ts            给 AI 的项目摘要（不含 base64，代码截断）
 │  ├─ render/                  ★ 渲染层：纯函数，不知道 React 的存在
 │  │  ├─ renderScene.ts        渲染单入口：预览 / PNG / WebM / 镜像 全走这里
@@ -66,8 +66,9 @@ Kinelayer/
 │  │  ├─ codeEngine.ts         canvas2d / glsl / html 三引擎 + 沙箱 + 熔断 + 信号总线
 │  │  ├─ assets.ts             图片/视频资源池（IndexedDB → ImageBitmap/VideoElement）
 │  │  ├─ htmlRaster.ts         HTML 层导出：SVG foreignObject 栅格化
-│  │  └─ exporters.ts          PNG / WebM（手动推帧）/ JSON
-│  ├─ persist/                 IndexedDB 资源与 KV、本地字体注册
+│  │  ├─ exporters.ts          PNG / WebM（手动推帧）/ JSON
+│  │  └─ thumbnail.ts          工程缩略图（长边 480；首帧全单色时退到 0.5s 重拍）
+│  ├─ persist/                 ★ 持久化：工程本体 + 索引 + 资源 + 偏好、两代旧库迁移、本地字体
 │  ├─ windows/                 ★ 多窗口：协议、Host、Client、镜像 UI、独立页入口
 │  ├─ ai/                      ★ AI：OpenAI 兼容客户端、加密配置、演示 Agent、桥接客户端
 │  ├─ ui/                      舞台、时间轴、属性面板、图层面板、AI 面板、对话框
@@ -80,10 +81,12 @@ Kinelayer/
 │  └─ test/e2e.mjs             16 项端到端自检（假 Host + 真 MCP 客户端）
 └─ docs/
    ├─ 00-reference-notes.md    参考项目提取报告（第十四章）
-   └─ 01-known-limitations.md  已知限制与扩展点
+   ├─ 01-known-limitations.md  已知限制与扩展点
+   └─ 03-agent-integration.md  Agent 接入说明（中英双份，.en.md 为英文版）
 ```
 
 **分层规矩**：`ui/` 不能直接改 `project`；`render/` 不能 import `store`；
+`persist/` 是最底层（不 import `store` / `ui`），命令层可以直接用它；
 `core/commands/` 不能 import `ui/`。副作用（导出、开窗、读文件）统一走 `services.ts` 注入。
 
 ---
@@ -97,10 +100,11 @@ Kinelayer/
 | 代码  | 4  | `code.setSource` `code.setEngine` `code.setParams` `code.resetRuntime`                                                                                                                                                        |
 | 背景  | 2  | `background.set` `background.setCode`                                                                                                                                                                                         |
 | 画布  | 3  | `canvas.resize` `canvas.setDuration` `canvas.setFps`                                                                                                                                                                          |
-| 项目  | 3  | `project.load` `project.new` `project.rename`                                                                                                                                                                                 |
+| 项目  | 8  | `project.new` `project.load` `project.create` `project.open` `project.rename` `project.duplicate` `project.deleteLocal` `project.listRecent`                                                                                 |
 | 资源  | 3  | `asset.import` `asset.place` `asset.remove`                                                                                                                                                                                   |
 | 字体  | 3  | `font.register` `font.load` `font.remove`                                                                                                                                                                                     |
 | 时间轴 | 5  | `timeline.play` `timeline.pause` `timeline.seek` `timeline.setLayerTiming` `timeline.setLoop`                                                                                                                                 |
+| 动画  | 8  | `animation.setKeyframe` `animation.removeKeyframe` `animation.moveKeyframes` `animation.setEasing` `animation.setKeyframeValue` `animation.clearTrack` `animation.setAutoKeyframe` `animation.applyPreset`                     |
 | 选择  | 4  | `selection.set` `selection.toggle` `selection.add` `selection.clear`                                                                                                                                                          |
 | 历史  | 3  | `history.undo` `history.redo` `history.clear`                                                                                                                                                                                 |
 | 窗口  | 4  | `window.openLayer` `window.closeLayer` `window.focusLayer` `window.setMode`                                                                                                                                                   |
@@ -183,7 +187,7 @@ npm run mcp
 状态栏出现「Agent 已连接」就通了。
 
 **不想手写配置**：打开「设置 → 桌面 Agent」，那里有一份由命令注册表实时生成的接入提示词——
-站点地址、两种接入方式、67 条命令的能力范围、七条调用契约、七条权限边界、错误码处置、
+站点地址、两种接入方式、72 条命令的能力范围、七条调用契约、七条权限边界、错误码处置、
 外加三条 `curl` 自检命令，一键复制就能交给本机 Agent 工具；旁边还有「复制 MCP 配置」。
 
 Claude Desktop 配置示例见 `agent-bridge/claude-desktop-config.json`。

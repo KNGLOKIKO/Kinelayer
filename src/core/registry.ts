@@ -46,6 +46,12 @@ export interface CommandContext {
   before: Project;
   /** 执行瞬间的播放头（毫秒） */
   playhead: number;
+  /**
+   * 试算模式。为 true 时 handler **不许**产生任何持久化副作用（写 IndexedDB、
+   * 删记录、开窗）。总线对 mutating 命令的 dryRun 仍会跑 handler，只是不提交，
+   * 所以 IO 必须由 handler 自己让路。
+   */
+  dryRun: boolean;
 }
 
 export type CommandHandler<P> = (

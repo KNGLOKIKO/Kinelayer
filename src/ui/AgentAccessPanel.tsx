@@ -54,9 +54,15 @@ const OUTLINE = [
   '7 话术',
 ];
 
+/** 项目文档（仓库里的原始 Markdown，站点侧只做跳转） */
+const DOCS = 'https://github.com/KNGLOKIKO/Kinelayer/blob/main/docs';
+
 export function AgentAccessPanel() {
   const bridge = useEditor((s) => s.runtime.bridge);
   const project = useEditor((s) => s.project);
+  /* 切语言时整棵树会重建，但这里仍然显式订阅：memo 依赖里必须有 locale，
+     否则将来拆分/挪动组件时容易出现「文案切了、提示词没切」。 */
+  const locale = useEditor((s) => s.ui.locale);
   const [includeProject, setIncludeProject] = useState(false);
   const [nonce, setNonce] = useState(0);
   const [copied, setCopied] = useState(false);
@@ -73,9 +79,9 @@ export function AgentAccessPanel() {
   const prompt = useMemo(
     () => buildDesktopAgentPrompt({ includeProject, project, site: SITE }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [includeProject, project, nonce],
+    [includeProject, project, nonce, locale],
   );
-  const mcpConfig = useMemo(() => buildMcpConfigSnippet(), []);
+  const mcpConfig = useMemo(() => buildMcpConfigSnippet(), [locale]);
 
   const connected = bridge.state === 'connected';
 
@@ -257,6 +263,37 @@ export function AgentAccessPanel() {
         <pre className="ml-scroll max-h-[220px] overflow-auto px-3 py-2 font-mono text-[10px] leading-relaxed whitespace-pre-wrap text-zinc-400">
           {prompt}
         </pre>
+      </div>
+
+      {/* ── 文档链接 ─────────────────────────────────────── */}
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-0.5 text-[9.5px] text-zinc-600">
+        <span>{t('完整接入文档')}</span>
+        <a
+          href={`${DOCS}/03-agent-integration.md`}
+          target="_blank"
+          rel="noreferrer"
+          className="text-accent-soft hover:text-accent underline decoration-dotted underline-offset-2"
+        >
+          {t('中文')}
+        </a>
+        <span className="text-zinc-700">/</span>
+        <a
+          href={`${DOCS}/03-agent-integration.en.md`}
+          target="_blank"
+          rel="noreferrer"
+          className="text-accent-soft hover:text-accent underline decoration-dotted underline-offset-2"
+        >
+          English
+        </a>
+        <span className="text-zinc-700">·</span>
+        <a
+          href={`${DOCS}/01-known-limitations.md`}
+          target="_blank"
+          rel="noreferrer"
+          className="text-zinc-500 hover:text-zinc-300 underline decoration-dotted underline-offset-2"
+        >
+          {t('已知限制')}
+        </a>
       </div>
 
       <div className="flex items-start gap-1.5 rounded-lg border border-amber-500/25 bg-amber-500/5 px-2.5 py-2 text-[10px] leading-relaxed text-amber-200/80">

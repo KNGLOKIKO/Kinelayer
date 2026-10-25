@@ -8,10 +8,18 @@ import { t } from '@/i18n';
 const DB_NAME = 'kinelayer';
 /** 旧品牌库名。只在迁移函数里读取，旧库原样保留、不删除。 */
 const LEGACY_DB_NAME = 'motionlayer';
-const LEGACY_FLAG = 'legacy.migrated';
-const DB_VERSION = 1;
+const LEGACY_FLAG = 'migration:motionlayer-to-kinelayer';
+const MULTI_FLAG = 'migration:v1-to-multi';
+const DB_VERSION = 2;
 const STORE_ASSETS = 'assets';
 const STORE_KV = 'kv';
+const STORE_META = 'meta';
+const STORE_PROJECTS = 'projects';
+const STORE_FONTS = 'fonts';
+const STORE_PREFS = 'prefs';
+
+/** 单工程时代的 key：迁移时读一次，之后不再写、也不删 */
+const LEGACY_PROJECT_KEYS = ['project.autosave', 'currentProject', 'project'];
 
 export interface AssetRecord {
   id: string;
@@ -31,18 +39,25 @@ function openDb(): Promise<IDBDatabase> {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = () => {
       const db = req.result;
-      if (!db.objectStoreNames.contains(STORE_ASSETS)) {
-        db.createObjectStore(STORE_ASSETS, { keyPath: 'id' });
-      }
-      if (!db.objectStoreNames.contains(STORE_KV)) {
-        db.createObjectStore(STORE_KV, { keyPath: 'key' });
+      const stores: [string, IDBObjectStoreParameters][] = [
+        [STORE_ASSETS, { keyPath: 'id' }],
+        [STORE_KV, { keyPath: 'key' }],
+        [STORE_META, { keyPath: 'key' }],
+        [STORE_PROJECTS, { keyPath: 'id' }],
+        [STORE_FONTS, { keyPath: 'id' }],
+        [STORE_PREFS, { keyPath: 'key' }],
+      ];
+      for (const [name, params] of stores) {
+        if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, params);
       }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error ?? new Error(t('IndexedDB 打开失败')));
   }).then(async (db) => {
-    /* 迁移必须在任何读写之前完成，否则旧项目会被当成「首次打开」直接覆盖 */
+    /* 迁移必须在任何读写之前完成，否则旧项目会被当成「首次打开」直接覆盖。
+       顺序不能反：先把旧品牌库整份搬过来，再把单工程拆成多工程索引。 */
     await migrateLegacyDatabase(db);
+    await migrateSingleProject(db);
     return db;
   });
   return dbPromise;
@@ -142,6 +157,94 @@ async function migrateLegacyDatabase(db: IDBDatabase): Promise<void> {
   }
 }
 
+/** 启动页要的信息：不加载图层，只读这一份 */
+export interface ProjectMeta {
+  id: string;
+  name: string;
+  width: number;
+  height: number;
+  duration: number;
+  fps: number;
+  updatedAt: number;
+  createdAt: number;
+  /** dataURL，长边 480，jpeg 0.75；首帧空白时延后生成 */
+  thumbnail?: string;
+  schemaVersion: number;
+  layerCount: number;
+  /** 删除项目时做级联清理用 */
+  assetIds: string[];
+}
+
+export interface AppPrefs {
+  locale?: string;
+  /** null = 明确没有「上次打开的工程」，与「还没写过」区分开 */
+  lastProjectId?: string | null;
+  theme?: string;
+}
+
+/** 从裸 Project 抽元信息。idb 层不做 normalize，字段缺失就给保守默认值 */
+export function metaFromRaw(raw: Record<string, unknown>, now = Date.now()): ProjectMeta {
+  const assets = Array.isArray(raw.assets) ? (raw.assets as { id?: string }[]) : [];
+  return {
+    id: String(raw.id ?? ''),
+    name: typeof raw.name === 'string' && raw.name ? raw.name : '未命名织层项目',
+    width: Number(raw.width) || 1080,
+    height: Number(raw.height) || 1440,
+    duration: Number(raw.duration) || 5000,
+    fps: Number(raw.fps) || 30,
+    updatedAt: Number(raw.updatedAt) || now,
+    createdAt: Number(raw.createdAt) || now,
+    schemaVersion: Number(raw.schemaVersion) || 2,
+    layerCount: Array.isArray(raw.layers) ? raw.layers.length : 0,
+    assetIds: assets.map((a) => a.id).filter((v): v is string => typeof v === 'string'),
+  };
+}
+
+/**
+ * 单工程 → 多工程。
+ * 老版本只有 kv['project.autosave'] 一个工程；这里把它落成 project:<id> + 一条索引，
+ * 旧 key 原样保留（不删），并写 migration:v1-to-multi 免得重复搬。
+ * 没有任何旧数据时也写一条空索引，让启动页逻辑只有一条分支。
+ */
+async function migrateSingleProject(db: IDBDatabase): Promise<void> {
+  try {
+    const meta = await readAll<{ key: string }>(db, STORE_META);
+    if (meta.some((r) => r.key === 'projectIndex')) return;
+
+    const kv = await readAll<{ key: string; value: unknown }>(db, STORE_KV);
+    let legacy: Record<string, unknown> | null = null;
+    for (const key of LEGACY_PROJECT_KEYS) {
+      const value = kv.find((r) => r.key === key)?.value;
+      if (value && typeof value === 'object' && Array.isArray((value as Record<string, unknown>).layers)) {
+        legacy = value as Record<string, unknown>;
+        break;
+      }
+    }
+
+    const now = Date.now();
+    if (!legacy) {
+      await putMany(db, STORE_META, [
+        { key: 'projectIndex', value: [] },
+        { key: MULTI_FLAG, value: { at: now, migrated: false } },
+      ]);
+      return;
+    }
+
+    const id = typeof legacy.id === 'string' && legacy.id ? legacy.id : `prj_${now.toString(36)}`;
+    const record = { ...legacy, id };
+    await putMany(db, STORE_PROJECTS, [record]);
+    await putMany(db, STORE_META, [
+      { key: 'projectIndex', value: [metaFromRaw(record, now)] },
+      { key: MULTI_FLAG, value: { at: now, migrated: true, from: 'single', id } },
+    ]);
+    await putMany(db, STORE_PREFS, [{ key: 'app', value: { lastProjectId: id } }]);
+    console.info(`[Kinelayer] 旧单工程已拆成多工程索引：${id}（旧 key 保留）`);
+  } catch (err) {
+    /* 迁移失败不能拦住启动，降级为「没有历史项目」 */
+    console.warn('[Kinelayer] 单工程迁移跳过：', err);
+  }
+}
+
 function tx<T>(store: string, mode: IDBTransactionMode, fn: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
   return openDb().then(
     (db) =>
@@ -181,4 +284,104 @@ export async function idbGetKV<T>(key: string): Promise<T | undefined> {
 
 export async function idbDeleteKV(key: string): Promise<void> {
   await tx(STORE_KV, 'readwrite', (s) => s.delete(key));
+}
+
+/* ── 多工程 ─────────────────────────────────────────────── */
+
+function txMulti(stores: string[], mode: IDBTransactionMode, fn: (txn: IDBTransaction) => void): Promise<void> {
+  return openDb().then(
+    (db) =>
+      new Promise<void>((resolve, reject) => {
+        const txn = db.transaction(stores, mode);
+        fn(txn);
+        txn.oncomplete = () => resolve();
+        txn.onerror = () => reject(txn.error ?? new Error(t('IndexedDB 操作失败')));
+        txn.onabort = () => reject(txn.error ?? new Error(t('IndexedDB 事务被中断')));
+      }),
+  );
+}
+
+export async function idbGetIndex(): Promise<ProjectMeta[]> {
+  const row = await tx<{ key: string; value: ProjectMeta[] } | undefined>(STORE_META, 'readonly', (s) =>
+    s.get('projectIndex') as IDBRequest<{ key: string; value: ProjectMeta[] } | undefined>,
+  );
+  return Array.isArray(row?.value) ? row.value : [];
+}
+
+export async function idbPutIndex(list: ProjectMeta[]): Promise<void> {
+  await tx(STORE_META, 'readwrite', (s) => s.put({ key: 'projectIndex', value: list }));
+}
+
+/** 项目本体与索引必须在同一事务里更新，否则会出现「索引有、项目没了」的幽灵条目 */
+export async function idbSaveProjectWithMeta(project: unknown, index: ProjectMeta[]): Promise<void> {
+  await txMulti([STORE_PROJECTS, STORE_META], 'readwrite', (txn) => {
+    txn.objectStore(STORE_PROJECTS).put(project);
+    txn.objectStore(STORE_META).put({ key: 'projectIndex', value: index });
+  });
+}
+
+export async function idbGetProject<T>(id: string): Promise<T | undefined> {
+  return tx<T | undefined>(STORE_PROJECTS, 'readonly', (s) => s.get(id) as IDBRequest<T | undefined>);
+}
+
+export async function idbAllProjects<T>(): Promise<T[]> {
+  return tx<T[]>(STORE_PROJECTS, 'readonly', (s) => s.getAll() as IDBRequest<T[]>);
+}
+
+export async function idbDeleteProjectRecord(id: string, index: ProjectMeta[]): Promise<void> {
+  await txMulti([STORE_PROJECTS, STORE_META], 'readwrite', (txn) => {
+    txn.objectStore(STORE_PROJECTS).delete(id);
+    txn.objectStore(STORE_META).put({ key: 'projectIndex', value: index });
+  });
+}
+
+/**
+ * 改工程名：索引与本体一起改。
+ * 只改索引不改编目本体的话，下次打开这个工程会被本体里的旧名字覆盖回去。
+ */
+export async function idbRenameProject(id: string, name: string, index: ProjectMeta[]): Promise<void> {
+  await txMulti([STORE_PROJECTS, STORE_META], 'readwrite', (txn) => {
+    const store = txn.objectStore(STORE_PROJECTS);
+    const req = store.get(id);
+    req.onsuccess = () => {
+      const rec = req.result as Record<string, unknown> | undefined;
+      if (rec) store.put({ ...rec, name, updatedAt: Date.now() });
+    };
+    txn.objectStore(STORE_META).put({ key: 'projectIndex', value: index });
+  });
+}
+
+export async function idbGetPrefs(): Promise<AppPrefs> {
+  const row = await tx<{ key: string; value: AppPrefs } | undefined>(STORE_PREFS, 'readonly', (s) =>
+    s.get('app') as IDBRequest<{ key: string; value: AppPrefs } | undefined>,
+  );
+  return row?.value ?? {};
+}
+
+export async function idbSetPrefs(patch: AppPrefs): Promise<void> {
+  const current = await idbGetPrefs();
+  await tx(STORE_PREFS, 'readwrite', (s) => s.put({ key: 'app', value: { ...current, ...patch } }));
+}
+
+/** 设置面板的「手动恢复旧数据」用：把单工程 key 再搬一次（幂等） */
+export async function idbRecoverLegacyProject(): Promise<ProjectMeta | null> {
+  const db = await openDb();
+  const kv = await readAll<{ key: string; value: unknown }>(db, STORE_KV);
+  let legacy: Record<string, unknown> | null = null;
+  for (const key of LEGACY_PROJECT_KEYS) {
+    const value = kv.find((r) => r.key === key)?.value;
+    if (value && typeof value === 'object' && Array.isArray((value as Record<string, unknown>).layers)) {
+      legacy = value as Record<string, unknown>;
+      break;
+    }
+  }
+  if (!legacy) return null;
+  const now = Date.now();
+  const id = typeof legacy.id === 'string' && legacy.id ? legacy.id : `prj_${now.toString(36)}`;
+  const record = { ...legacy, id, updatedAt: now };
+  const index = await idbGetIndex();
+  const meta = metaFromRaw(record, now);
+  const next = [meta, ...index.filter((m) => m.id !== id)].sort((a, b) => b.updatedAt - a.updatedAt);
+  await idbSaveProjectWithMeta(record, next);
+  return meta;
 }

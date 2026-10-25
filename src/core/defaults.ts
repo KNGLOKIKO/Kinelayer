@@ -241,7 +241,7 @@ export function createLayer(type: LayerType, overrides: Partial<Layer> = {}): La
 
 /* ------------------------------------------------------------------ project */
 
-export function createEmptyProject(name = '未命名海报'): Project {
+export function createEmptyProject(name = '未命名织层项目'): Project {
   const now = Date.now();
   const project: Project = {
     schemaVersion: PROJECT_SCHEMA_VERSION,

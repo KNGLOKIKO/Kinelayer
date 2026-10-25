@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Check, Loader2, Play, X } from 'lucide-react';
 import { exec } from '@/core/commandBus';
-import { updateUi, useEditor } from '@/core/store';
+import { pushToast, updateUi, useEditor } from '@/core/store';
 import { getRuntimeInfo } from '@/render/codeEngine';
 import type { BackgroundLayer, CodeLayer } from '@/core/types';
 import { Badge, Button, Field, IconButton, NumberInput, Select, TextInput, Toggle, cx } from './primitives';
@@ -10,7 +10,7 @@ import { useAIConfig } from '@/ai/config';
 import { applyLocale } from '@/i18n/apply';
 import { LOCALES } from '@/i18n';
 import { connectBridge, disconnectBridge } from '@/ai/bridgeClient';
-import { idbDeleteKV } from '@/persist/idb';
+import { recoverLegacyProject } from '@/persist/projects';
 import { KINELAYER_FILE_ACCEPT } from '@/core/projectFile';
 import { lsGet, lsSet } from '@/persist/storage';
 
@@ -64,12 +64,30 @@ type SettingsTab = (typeof TABS)[number]['id'];
 
 export function SettingsDialog() {
   const open = useEditor((s) => s.ui.showSettings);
-  const [tab, setTab] = useState<SettingsTab>('ai');
+  const tab = useEditor((s) => s.ui.settingsTab) as SettingsTab;
+  const setTab = (next: SettingsTab) => updateUi((ui) => { ui.settingsTab = next; });
   const ai = useAIConfig();
   const bridge = useEditor((s) => s.runtime.bridge);
   const locale = useEditor((s) => s.ui.locale);
   const [token, setToken] = useState(() => lsGet('bridge.token') ?? '');
   const [url, setUrl] = useState(() => lsGet('bridge.url') ?? 'ws://127.0.0.1:2718');
+
+  /* 数据页要显示「本机有几个工程」，只读索引，不加载工程本体 */
+  const projectId = useEditor((s) => s.project.id);
+  const [lib, setLib] = useState<{ count: number; current: string } | null>(null);
+  useEffect(() => {
+    if (!open || tab !== 'data') return;
+    void (async () => {
+      const res = await exec<{
+        projects: { id: string; name: string }[];
+        count: number;
+        currentId: string;
+      }>('project.listRecent', { limit: 50 });
+      if (!res.ok || !res.data) return;
+      const cur = res.data.projects.find((p) => p.id === res.data?.currentId);
+      setLib({ count: res.data.count, current: cur?.name ?? '' });
+    })();
+  }, [open, tab, projectId]);
 
   if (!open) return null;
   const close = () => updateUi((ui) => { ui.showSettings = false; });
@@ -200,8 +218,13 @@ export function SettingsDialog() {
       {tab === 'data' && (
         <div className="space-y-3 text-[11.5px] leading-relaxed text-zinc-400">
           <p>
-            {t('工程包不含任何 base64；图片/视频/字体二进制存在 IndexedDB 的 kinelayer 库。自动保存每 1.6 秒写入一次，刷新页面会恢复上次的项目。')}
+            {t('每个工程单独存一条本地记录（工程本体在 projects，列表信息在 meta 索引里），自动保存每 1.6 秒写一次。工程包里不含任何 base64：图片/视频/字体二进制只存在本机库里。')}
           </p>
+          <div className="border-ink-700 bg-ink-900/60 rounded-lg border px-3 py-2 font-mono text-[10.5px] text-zinc-500">
+            {lib
+              ? t('本机工程 {n} 个 · 当前：{name}', { n: lib.count, name: lib.current || '—' })
+              : t('正在读取本机工程…')}
+          </div>
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" onClick={() => void exec('export.json', {})}>
               {t('导出工程包 .kly')}
@@ -224,16 +247,20 @@ export function SettingsDialog() {
               {t('导入工程包 .kly')}
             </Button>
             <Button
-              variant="danger"
+              variant="outline"
               onClick={() => {
-                if (!confirm(t('清空自动保存并新建空白项目？IndexedDB 中的资源不会删除。'))) return;
                 void (async () => {
-                  await idbDeleteKV('project.autosave');
-                  await exec('project.new', { name: t('未命名海报'), width: 1080, height: 1440 });
+                  const meta = await recoverLegacyProject();
+                  if (!meta) {
+                    pushToast('info', t('没有找到旧版本数据'));
+                    return;
+                  }
+                  await exec('project.open', { projectId: meta.id });
+                  pushToast('success', t('已恢复旧版工程：{name}', { name: meta.name }));
                 })();
               }}
             >
-              {t('清空自动保存')}
+              {t('恢复旧版数据')}
             </Button>
           </div>
           <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-[11px] text-amber-200/90">

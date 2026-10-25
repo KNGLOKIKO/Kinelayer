@@ -218,6 +218,14 @@ export class LayerWindowHost {
     return !!popup && !popup.closed;
   }
 
+  /** 当前开着独立窗口（popup / 画中画）的 layerId，切换工程时用来收摊 */
+  listOpen(): string[] {
+    const ids = new Set<string>();
+    for (const [layerId, win] of this.popups) if (!win.closed) ids.add(layerId);
+    for (const layerId of this.pip.keys()) ids.add(layerId);
+    return [...ids];
+  }
+
   dispose(): void {
     this.channel?.postMessage({ kind: 'host.bye', hostId: this.hostId } satisfies HostToClient);
     this.channel?.close();

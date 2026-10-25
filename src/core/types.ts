@@ -376,6 +376,8 @@ export interface UiState {
   /** v2 · 时间轴水平缩放，1 = 铺满可视宽度 */
   timelineZoom: number;
   showSettings: boolean;
+  /** 设置对话框当前分页。放在 store 里，切语言整树重建后不会跳回第一页 */
+  settingsTab: 'ai' | 'bridge' | 'agent' | 'data';
   showExport: boolean;
   /** AI 接入提示词面板 */
   showPrompt: boolean;

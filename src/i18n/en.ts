@@ -196,14 +196,16 @@ export const en: Record<string, string> = {
     'Frames are pushed one at a time (captureStream(0) + requestFrame). Export takes roughly as long as the video itself, and the command bus keeps queueing serially meanwhile.',
   '导出工程包 .kly': 'Export .kly package',
   '导入工程包 .kly': 'Import .kly package',
-  未命名海报: 'Untitled poster',
+  未命名织层项目: 'Untitled project',
   已保存: 'Saved',
   '已保存，输入新值可覆盖': 'Saved — type a new value to replace it',
-  清空自动保存: 'Clear autosave',
-  '清空自动保存并新建空白项目？IndexedDB 中的资源不会删除。':
-    'Clear the autosave and start a blank project? Assets in IndexedDB are kept.',
-  '工程包不含任何 base64；图片/视频/字体二进制存在 IndexedDB 的 kinelayer 库。自动保存每 1.6 秒写入一次，刷新页面会恢复上次的项目。':
-    'The package holds no base64 — image, video and font binaries live in the IndexedDB “kinelayer” database. Autosave writes every 1.6s, and reloading restores your last project.',
+  恢复旧版数据: 'Recover legacy data',
+  没有找到旧版本数据: 'No legacy data found',
+  '已恢复旧版工程：{name}': 'Recovered legacy project: {name}',
+  '本机工程 {n} 个 · 当前：{name}': '{n} project(s) on this device · current: {name}',
+  '正在读取本机工程…': 'Reading local projects…',
+  '每个工程单独存一条本地记录（工程本体在 projects，列表信息在 meta 索引里），自动保存每 1.6 秒写一次。工程包里不含任何 base64：图片/视频/字体二进制只存在本机库里。':
+    'Each project is its own local record (the project itself in `projects`, list metadata in the `meta` index), and autosave writes every 1.6s. The package holds no base64 — image, video and font binaries stay in the local database.',
   '应用（一条命令）': 'Apply (one command)',
 
   // ── 设置 · AI ──────────────────────────────────────────
@@ -502,6 +504,9 @@ export const en: Record<string, string> = {
   '页面连上了？': 'Page connected?',
   '已复制自检命令': 'Pre-flight commands copied',
   站点: 'Site',
+  完整接入文档: 'Full integration guide',
+  中文: '中文',
+  已知限制: 'Known limitations',
   '复制 MCP 配置': 'Copy MCP config',
   '已复制 MCP 配置': 'MCP config copied',
   结构: 'Structure',

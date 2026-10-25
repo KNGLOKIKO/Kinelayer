@@ -13,11 +13,16 @@ import { FloatingLayerPanels } from '@/ui/FloatingLayerPanels';
 import { exec } from '@/core/commandBus';
 import { setBroadcastHandler } from '@/core/commandBus';
 import { updateUi, useEditor } from '@/core/store';
-import { normalizeProject } from '@/core/defaults';
-import { idbGetKV, idbSetKV } from '@/persist/idb';
+import {
+  ensureProjectRecorded,
+  getLastProjectId,
+  isDetached,
+  maybeThumbnail,
+  saveProject,
+  setLastProjectId,
+} from '@/persist/projects';
 import { lsGet } from '@/persist/storage';
 import { restoreFonts } from '@/persist/fonts';
-import { preloadAssets } from '@/render/assets';
 import { initAI } from '@/ai/config';
 import { connectBridge, subscribeBridgeSync } from '@/ai/bridgeClient';
 import { getLayerWindowHost } from '@/windows/host';
@@ -77,11 +82,16 @@ export function EditorApp() {
     const boot = async () => {
       await initAI();
       await restoreFonts().catch(() => []);
-      const saved = await idbGetKV<unknown>('project.autosave');
-      if (saved && !disposed) {
-        const project = normalizeProject(saved);
-        await exec('project.load', { data: JSON.stringify(project) });
-        await preloadAssets(project.assets);
+      /* 打开哪一份：URL 上的 projectId 优先（分享链接/多标签），其次是上次打开的工程。
+         两者都没有 = 首次使用，把内存里的示例工程直接建档，启动页才有东西可列。 */
+      const wanted = new URLSearchParams(window.location.search).get('projectId') || (await getLastProjectId());
+      if (disposed) return;
+      const opened = wanted ? await exec('project.open', { projectId: wanted }) : null;
+      if (!opened || !opened.ok) {
+        /* 记录被删了/索引被清过：不要卡在「正在打开」，就地建档继续用 */
+        const current = useEditor.getState().project;
+        await ensureProjectRecorded(current);
+        await setLastProjectId(current.id);
       }
       const token = lsGet('bridge.token');
       const url = lsGet('bridge.url');
@@ -129,15 +139,27 @@ export function EditorApp() {
     let timer: number | null = null;
     let lastVersion = useEditor.getState().project.version;
     let lastProject = useEditor.getState().project;
+
+    const persist = async () => {
+      const project = useEditor.getState().project;
+      /* 当前这份刚被删掉：自动保存不许把它复活，否则「删除」等于没删 */
+      if (isDetached(project.id)) return;
+      try {
+        const thumb = await maybeThumbnail(project);
+        await saveProject(project, thumb);
+        if ((await getLastProjectId()) !== project.id) await setLastProjectId(project.id);
+      } catch (err) {
+        console.warn('[Kinelayer] 自动保存失败：', err);
+      }
+    };
+
     const unsub = useEditor.subscribe((s) => {
       if (s.project === lastProject) return;
       lastProject = s.project;
       if (s.project.version === lastVersion) return;
       lastVersion = s.project.version;
       if (timer) window.clearTimeout(timer);
-      timer = window.setTimeout(() => {
-        void idbSetKV('project.autosave', useEditor.getState().project);
-      }, 1600);
+      timer = window.setTimeout(() => void persist(), 1600);
     });
     return () => {
       unsub();

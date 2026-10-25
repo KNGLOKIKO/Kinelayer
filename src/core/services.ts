@@ -57,7 +57,13 @@ export interface Services {
   openLayerWindow(layerId: string, mode: 'popup' | 'pip' | 'panel'): Promise<OpenWindowResult>;
   closeLayerWindow(layerId: string): void;
   focusLayerWindow(layerId: string): void;
-  loadProject(project: Project): Promise<void>;
+  /** 切换工程时调用：旧工程的 layerId 在新工程里没有意义，窗口全部关掉 */
+  closeAllLayerWindows(): void;
+  /**
+   * 把工程用到的图片/视频从 IndexedDB 预加载进渲染缓存。
+   * 只做预加载，**不改 store**：切换文档是命令总线的事，副作用不许抢跑。
+   */
+  preloadProjectAssets(project: Project): Promise<void>;
   notify(kind: 'info' | 'success' | 'error' | 'warn', text: string): void;
 }
 

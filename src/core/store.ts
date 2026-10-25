@@ -41,6 +41,7 @@ const initialUi: UiState = {
   selectedKeyframes: [],
   timelineZoom: 1,
   showSettings: false,
+  settingsTab: 'ai',
   showExport: false,
   showPrompt: false,
   locale: detectLocale(),
