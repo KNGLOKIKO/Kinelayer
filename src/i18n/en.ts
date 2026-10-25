@@ -470,6 +470,62 @@ export const en: Record<string, string> = {
   弹入: 'Pop',
   旋转进入: 'Spin in',
 
+  // ── 设置 · 桌面 Agent 接入 ──────────────────────────────
+  '桌面 Agent': 'Desktop agent',
+  桥接已连接: 'Bridge connected',
+  桥接未连接: 'Bridge not connected',
+  桥接出错: 'Bridge error',
+  '{n} 个 Agent 在线': '{n} agent(s) online',
+  '{n} 条命令': '{n} commands',
+  '{n} 字符': '{n} characters',
+  怎么接进来: 'How to connect',
+  'MCP：npm run bridge + npm run mcp，客户端读 Claude Desktop 配置':
+    'MCP: run npm run bridge + npm run mcp, then point the client at the Claude Desktop config',
+  '直连：HTTP / WebSocket，令牌放 {header} 头':
+    'Direct: HTTP / WebSocket, token in the {header} header',
+  '工具名 = 命令类型把 . 换成 __（layer.create → layer__create）':
+    'Tool name = command type with . replaced by __ (layer.create → layer__create)',
+  能操作什么: 'What it can touch',
+  '共 {n} 条，含 {d} 条危险命令': '{n} total, {d} of them dangerous',
+  不能做什么: 'What it cannot touch',
+  '读不到 API Key 与素材二进制，也碰不到本地文件系统':
+    'Cannot read the API key or raw assets, and has no filesystem access',
+  '桥接只监听 127.0.0.1，不对外网开放': 'The bridge binds to 127.0.0.1 only — nothing faces the internet',
+  '危险命令必须由你在界面上确认，Agent 不能代点':
+    'Dangerous commands must be approved by you in the UI — the agent cannot click for you',
+  推荐调用顺序: 'Recommended call order',
+  结构: 'Structure',
+  '第 {i} 节': 'section {i}',
+  '0 定位': '0 Role',
+  '1 接入': '1 Connect',
+  '2 能力': '2 Capabilities',
+  '3 契约': '3 Contract',
+  '4 边界': '4 Boundaries',
+  '5 危险': '5 Dangerous',
+  '6 错误': '6 Errors',
+  '7 话术': '7 Reporting',
+  读清单: 'Manifest',
+  试算: 'Dry-run',
+  提交: 'Commit',
+  读回: 'Read back',
+  '桌面 Agent 接入提示词': 'Desktop agent integration prompt',
+  '由命令注册表生成，随代码自动更新':
+    'Generated from the command registry, so it tracks the code',
+  带上当前项目: 'Include current project',
+  复制全部: 'Copy all',
+  已复制: 'Copied',
+  '已下载 motionlayer-desktop-agent.md': 'Downloaded motionlayer-desktop-agent.md',
+  '把这段提示词交给本机 Agent 工具时，先确认它只连 127.0.0.1、只走命令总线。提示词里已写明：不能读密钥、不能碰文件系统、危险操作必须由你确认。':
+    'Before handing this prompt to a desktop agent, make sure it only connects to 127.0.0.1 and only goes through the command bus. The prompt already spells out the boundaries: no key access, no filesystem, and dangerous actions need your approval.',
+
+  // ── 命令分类（设置面板统计用） ───────────────────────────
+  项目: 'Project',
+  选择: 'Selection',
+  历史: 'History',
+  窗口: 'Window',
+  查询: 'Query',
+  系统: 'System',
+
   // ── 兜底 ───────────────────────────────────────────────
   打开失败: 'Failed to open',
 };

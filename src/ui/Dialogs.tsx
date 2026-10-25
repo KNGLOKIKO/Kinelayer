@@ -12,6 +12,7 @@ import { LOCALES } from '@/i18n';
 import { connectBridge, disconnectBridge } from '@/ai/bridgeClient';
 import { idbDeleteKV } from '@/persist/idb';
 
+import { AgentAccessPanel } from './AgentAccessPanel';
 import { t } from '@/i18n';
 /* ------------------------------------------------------------------ modal */
 
@@ -53,12 +54,15 @@ export function Modal({
 const TABS = [
   { id: 'ai', label: 'AI 通道' },
   { id: 'bridge', label: 'Agent 桥接' },
+  { id: 'agent', label: '桌面 Agent' },
   { id: 'data', label: '数据与安全' }, // label 存中文，渲染时 t()
 ] as const;
 
+type SettingsTab = (typeof TABS)[number]['id'];
+
 export function SettingsDialog() {
   const open = useEditor((s) => s.ui.showSettings);
-  const [tab, setTab] = useState<'ai' | 'bridge' | 'data'>('ai');
+  const [tab, setTab] = useState<SettingsTab>('ai');
   const ai = useAIConfig();
   const bridge = useEditor((s) => s.runtime.bridge);
   const locale = useEditor((s) => s.ui.locale);
@@ -69,7 +73,7 @@ export function SettingsDialog() {
   const close = () => updateUi((ui) => { ui.showSettings = false; });
 
   return (
-    <Modal title={t('设置')} onClose={close} width={680}>
+    <Modal title={t('设置')} onClose={close} width={tab === 'agent' ? 880 : 680}>
       <div className="mb-4 flex gap-1">
         {TABS.map((item) => (
           <button
@@ -188,6 +192,8 @@ export function SettingsDialog() {
           </div>
         </div>
       )}
+
+      {tab === 'agent' && <AgentAccessPanel />}
 
       {tab === 'data' && (
         <div className="space-y-3 text-[11.5px] leading-relaxed text-zinc-400">

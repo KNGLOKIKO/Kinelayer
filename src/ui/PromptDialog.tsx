@@ -8,10 +8,11 @@ import { Badge, Button, IconButton, Toggle, cx } from './primitives';
 import { Modal } from './Dialogs';
 
 import { clauseSep, listSep, t } from '@/i18n';
+// 模块级不能取词：这里存中文原文，渲染时再 t()
 const TABS: { id: PromptVariant; label: string; hint: string }[] = [
-  { id: 'chat', label: t('通用大模型'), hint: t('复制提示词 → 粘到任意对话框 → 把回复粘回下面的执行区') },
-  { id: 'mcp', label: t('MCP 客户端'), hint: t('Claude Desktop / Cursor 直连本机 bridge，模型可自己调工具') },
-  { id: 'tools', label: 'Function Calling', hint: t('给自建 Agent 用的 tools 数组（与 MCP 同源，来自命令注册表）') },
+  { id: 'chat', label: '通用大模型', hint: '复制提示词 → 粘到任意对话框 → 把回复粘回下面的执行区' },
+  { id: 'mcp', label: 'MCP 客户端', hint: 'Claude Desktop / Cursor 直连本机 bridge，模型可自己调工具' },
+  { id: 'tools', label: 'Function Calling', hint: '给自建 Agent 用的 tools 数组（与 MCP 同源，来自命令注册表）' },
 ];
 
 const SAMPLE = JSON.stringify(
@@ -159,18 +160,18 @@ export function PromptDialog() {
     >
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="flex gap-1">
-          {TABS.map((t) => (
+          {TABS.map((item) => (
             <button
-              key={t.id}
+              key={item.id}
               type="button"
-              onClick={() => setTab(t.id)}
+              onClick={() => setTab(item.id)}
               className={cx(
                 'flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11.5px] transition',
-                tab === t.id ? 'bg-accent/20 text-accent-soft' : 'text-zinc-500 hover:bg-ink-800 hover:text-zinc-200',
+                tab === item.id ? 'bg-accent/20 text-accent-soft' : 'text-zinc-500 hover:bg-ink-800 hover:text-zinc-200',
               )}
             >
               <Plug size={11} />
-              {t.label}
+              {t(item.label)}
             </button>
           ))}
         </div>
@@ -183,7 +184,7 @@ export function PromptDialog() {
 
       <div className="mb-2 flex items-center gap-1.5 text-[10.5px] text-zinc-500">
         <Badge tone="cyan">{t('用法')}</Badge>
-        {current.hint}
+        {t(current.hint)}
       </div>
 
       <pre className="ml-scroll border-ink-700 bg-ink-950/80 max-h-[38vh] overflow-auto rounded-lg border p-3 font-mono text-[10.5px] leading-[1.65] whitespace-pre-wrap text-zinc-300 select-text">
