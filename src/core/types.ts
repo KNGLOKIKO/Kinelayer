@@ -140,7 +140,88 @@ export interface LayerAnimation {
   enter?: LayerAnim;
   exit?: LayerAnim;
   emphasis?: LayerAnim;
+  /**
+   * v2 · 属性轨道（关键帧）。求值优先级高于上面三个预设槽位：
+   * 预设负责「整段入场/退场」，轨道负责「精确定点」，同属性冲突时轨道赢。
+   */
+  tracks: PropertyTrack[];
+  /** v2 · 拖动属性时，若该属性已有轨道就自动打点（Figma / AE 的行为） */
+  autoKeyframe: boolean;
 }
+
+/* ---------------------------------------------------------------- v2 关键帧 */
+
+/**
+ * 可动画属性。
+ *
+ * 准入标准只有一条：**值必须能由 (keyframes, localTime) 唯一算出**，
+ * 且渲染、导出、图层镜像共用同一个 computeLayerFrame 就能拿到同一个数。
+ * 任何依赖「上一帧状态」或「UI 状态」的属性都不许进来。
+ */
+export type AnimatableProperty =
+  | 'x'
+  | 'y'
+  | 'width'
+  | 'height'
+  | 'rotation'
+  | 'opacity'
+  | 'fontSize'
+  | 'letterSpacing';
+
+export const ANIMATABLE_PROPERTIES: AnimatableProperty[] = [
+  'x',
+  'y',
+  'width',
+  'height',
+  'rotation',
+  'opacity',
+  'fontSize',
+  'letterSpacing',
+];
+
+/** 属性的展示名（中文原文，UI 渲染时走 t()） */
+export const PROPERTY_LABELS: Record<AnimatableProperty, string> = {
+  x: 'X',
+  y: 'Y',
+  width: '宽',
+  height: '高',
+  rotation: '旋转',
+  opacity: '不透明度',
+  fontSize: '字号',
+  letterSpacing: '字距',
+};
+
+/** 哪些属性属于文本层专有（其余图层不该出现这些轨道） */
+export const TEXT_ONLY_PROPERTIES: AnimatableProperty[] = ['fontSize', 'letterSpacing'];
+
+/**
+ * v2 · 缓动规格。
+ * `kind` 直接用既有 EasingName，或者 'cubic-bezier' 走 `bezier`（与 CSS 同义），
+ * 这样时间轴上的曲线编辑器和 CSS 心智模型对得上，也不用再造一套名字。
+ */
+export interface EasingSpec {
+  kind: EasingName | 'cubic-bezier';
+  /** kind === 'cubic-bezier' 时生效，[x1, y1, x2, y2] */
+  bezier?: [number, number, number, number];
+}
+
+export interface Keyframe {
+  id: string;
+  /**
+   * **相对图层 startTime（= inPoint）的毫秒数**。
+   * 绝不存绝对时间：图层整体挪位时关键帧必须跟着走，存绝对时间会全部错位。
+   */
+  time: number;
+  value: number;
+  /** 从本关键帧到**下一个**关键帧之间使用的缓动 */
+  easing: EasingSpec;
+}
+
+export interface PropertyTrack {
+  property: AnimatableProperty;
+  keyframes: Keyframe[];
+}
+
 
 /** 属性表达式绑定：值为 JS 表达式字符串，按帧求值（沙箱内，只读上下文） */
 export type BindingTarget = 'x' | 'y' | 'width' | 'height' | 'rotation' | 'opacity' | 'scale';
@@ -247,7 +328,16 @@ export interface FontMeta {
   createdAt: number;
 }
 
+/**
+ * 工程文件格式版本。
+ * v1 → v2：动画从「三个预设槽位」升级为「预设槽位 + 属性轨道」。
+ * 读入时必须按 schemaVersion 迁移，写出一律写当前版本（写严格、读宽容）。
+ */
+export const PROJECT_SCHEMA_VERSION = 2;
+
 export interface Project {
+  /** 缺省视为 1（v1 的工程文件没有这个字段） */
+  schemaVersion: number;
   id: string;
   name: string;
   width: number;
@@ -279,6 +369,12 @@ export interface UiState {
   leftTab: LeftTab;
   rightTab: RightTab;
   showTimeline: boolean;
+  /** v2 · 时间轴里展开的图层（值为图层 id） */
+  expandedTracks: string[];
+  /** v2 · 选中的关键帧 id（可跨图层多选） */
+  selectedKeyframes: string[];
+  /** v2 · 时间轴水平缩放，1 = 铺满可视宽度 */
+  timelineZoom: number;
   showSettings: boolean;
   showExport: boolean;
   /** AI 接入提示词面板 */

@@ -16,6 +16,7 @@ import {
 import { createCodeLayer, createImageLayer, createTextLayer, createVideoLayer, defaultCodeSpec } from '../defaults';
 import type { Layer } from '../types';
 import { applyAnimationPatch, enforceInvariants, findLayer, findLayerIndex, nextLayerName } from './_helpers';
+import { autoKeyframePatch } from './animation';
 
 const zCreateType = z.enum(['text', 'image', 'video', 'code']);
 
@@ -85,7 +86,7 @@ export const layerCommands = [
       '修改图层的基础属性（位置、尺寸、旋转、透明度、可见、锁定、混合模式、表达式绑定、动画、时间区间）。只传需要改的字段。',
     schema: z.object({ id: zId, patch: zLayerPatch }),
     example: { id: 'ly_abc', patch: { x: 120, y: 240, opacity: 0.8, rotation: 4 } },
-    handler: (draft, payload) => {
+    handler: (draft, payload, ctx) => {
       const layer = findLayer(draft, payload.id);
       const p = payload.patch;
       const keys = [
@@ -120,6 +121,10 @@ export const layerCommands = [
         layer.x = 0;
         layer.y = 0;
       }
+      // v2 自动关键帧：属性已有轨道时，改动在当前播放头落成一个关键帧。
+      // 放在命令层而不是 UI 层，是为了让 AI / Agent / 图层窗口的改动行为完全一致。
+      const keyed = autoKeyframePatch(layer, p as Record<string, unknown>, ctx.playhead);
+      if (keyed.length) changed.push(`keyframes(${keyed.join(',')})`);
       return { id: layer.id, changed };
     },
   }),

@@ -450,6 +450,26 @@ export const en: Record<string, string> = {
   '接入真实模型后可以用任意自然语言描述排版；在设置里填 Base URL / Key 并关闭演示模式即可。':
     'Connect a real model to describe layouts in plain language — set the Base URL and key in Settings and switch demo mode off.',
 
+  // ── v2 时间轴 / 关键帧 ──────────────────────────────────
+  缩放: 'Zoom',
+  时间轴缩放: 'Timeline zoom',
+  把越界的图层收回时长内: 'Pull out-of-range layers back inside the duration',
+  '{n} 个图层越界 · 修复': '{n} layers out of range · fix',
+  '{property} @ {time}ms': '{property} @ {time}ms',
+  缓动: 'Easing',
+  删除关键帧: 'Delete keyframe',
+  '已选 {n} 个关键帧': '{n} keyframes selected',
+  展开轨道: 'Expand tracks',
+  自动关键帧: 'Auto-keyframe',
+  用预设生成关键帧: 'Generate keyframes from a preset',
+  在播放头打一个关键帧: 'Add a keyframe at the playhead',
+  清空该轨道: 'Clear this track',
+  没有可显示的图层: 'No layers to show',
+  预设: 'Presets',
+  上浮: 'Rise',
+  弹入: 'Pop',
+  旋转进入: 'Spin in',
+
   // ── 兜底 ───────────────────────────────────────────────
   打开失败: 'Failed to open',
 };

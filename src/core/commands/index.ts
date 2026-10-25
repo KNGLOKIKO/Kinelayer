@@ -7,6 +7,7 @@ import { projectCommands } from './project';
 import { assetCommands } from './assets';
 import { fontCommands } from './fonts';
 import { timelineCommands } from './timeline';
+import { animationCommands } from './animation';
 import { selectionCommands } from './selection';
 import { historyCommands } from './history';
 import { windowCommands } from './windows';
@@ -30,6 +31,7 @@ export function registerAllCommands(): void {
   registerCommands(assetCommands);
   registerCommands(fontCommands);
   registerCommands(timelineCommands);
+  registerCommands(animationCommands);
   registerCommands(selectionCommands);
   registerCommands(historyCommands);
   registerCommands(windowCommands);

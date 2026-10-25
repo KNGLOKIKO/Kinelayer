@@ -58,10 +58,56 @@ export const zAnim = z.object({
   intensity: z.number().min(0).max(1).default(0.6),
 });
 
+export const zAnimatableProperty = z.enum([
+  'x',
+  'y',
+  'width',
+  'height',
+  'rotation',
+  'opacity',
+  'fontSize',
+  'letterSpacing',
+]);
+
+export const zEasingSpec = z.object({
+  kind: z
+    .enum([
+      'linear',
+      'ease-in',
+      'ease-out',
+      'ease-in-out',
+      'ease-in-quad',
+      'ease-out-quad',
+      'ease-in-cubic',
+      'ease-out-cubic',
+      'ease-out-back',
+      'ease-out-elastic',
+      'cubic-bezier',
+    ])
+    .default('ease-out'),
+  /** kind = cubic-bezier 时生效，与 CSS cubic-bezier 同义 */
+  bezier: z.tuple([z.number(), z.number(), z.number(), z.number()]).optional(),
+});
+
+export const zKeyframe = z.object({
+  id: z.string().max(64).optional(),
+  /** 相对图层 inPoint 的毫秒数（不是绝对时间） */
+  time: z.number().min(-600_000).max(600_000),
+  value: z.number(),
+  easing: zEasingSpec.optional(),
+});
+
+export const zTrack = z.object({
+  property: zAnimatableProperty,
+  keyframes: z.array(zKeyframe).max(500),
+});
+
 export const zAnimation = z.object({
   enter: zAnim.nullable().optional(),
   exit: zAnim.nullable().optional(),
   emphasis: zAnim.nullable().optional(),
+  tracks: z.array(zTrack).max(16).optional(),
+  autoKeyframe: z.boolean().optional(),
 });
 
 export const zTextStyle = z.object({

@@ -1,6 +1,7 @@
 import { clamp, round } from '@/core/geometry';
 import type { Layer, LayerAnim } from '@/core/types';
 import { ease } from './easing';
+import { applyTracks } from './keyframes';
 
 export interface FrameTransform {
   x: number;
@@ -10,6 +11,9 @@ export interface FrameTransform {
   rotation: number;
   opacity: number;
   scale: number;
+  /** v2：轨道覆盖后的字号/字距；undefined 表示该图层没打这两个属性的关键帧 */
+  fontSize?: number;
+  letterSpacing?: number;
   /** 该帧是否应被绘制 */
   alive: boolean;
 }
@@ -241,14 +245,20 @@ export function computeLayerFrame(layer: Layer, index: number, time: number, pro
     mod = mergeMod(mod, samplePreset(emphasis, ease(emphasis.easing, p), base.width, base.height));
   }
 
+  // v2：属性轨道是「绝对定点」，压过预设槽位（预设是整段修饰，轨道是精确控制）
+  const tracks = applyTracks(layer, time);
+  const has = (k: keyof typeof tracks) => tracks[k] !== undefined;
+
   return {
-    x: round(base.x + mod.dx, 3),
-    y: round(base.y + mod.dy, 3),
-    width: base.width,
-    height: base.height,
-    rotation: round(base.rotation + mod.spin, 3),
-    opacity: clamp(alphaBase * mod.alpha, 0, 1),
+    x: round(has('x') ? (tracks.x as number) : base.x + mod.dx, 3),
+    y: round(has('y') ? (tracks.y as number) : base.y + mod.dy, 3),
+    width: Math.max(1, has('width') ? (tracks.width as number) : base.width),
+    height: Math.max(1, has('height') ? (tracks.height as number) : base.height),
+    rotation: round(has('rotation') ? (tracks.rotation as number) : base.rotation + mod.spin, 3),
+    opacity: clamp(has('opacity') ? (tracks.opacity as number) : alphaBase * mod.alpha, 0, 1),
     scale: Math.max(0.01, base.scale * mod.scale),
+    fontSize: has('fontSize') ? Math.max(1, tracks.fontSize as number) : undefined,
+    letterSpacing: has('letterSpacing') ? (tracks.letterSpacing as number) : undefined,
     alive: true,
   };
 }

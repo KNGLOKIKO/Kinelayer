@@ -40,7 +40,13 @@ export function requireVideo(draft: Project, id: string): VideoLayer {
 
 export function applyAnimationPatch(
   target: LayerAnimation,
-  patch: { enter?: unknown; exit?: unknown; emphasis?: unknown },
+  patch: {
+    enter?: unknown;
+    exit?: unknown;
+    emphasis?: unknown;
+    tracks?: unknown;
+    autoKeyframe?: unknown;
+  },
 ): void {
   for (const slot of ['enter', 'exit', 'emphasis'] as const) {
     const value = patch[slot];
@@ -48,6 +54,11 @@ export function applyAnimationPatch(
     if (value === null) delete target[slot];
     else target[slot] = value as LayerAnimation[typeof slot];
   }
+  // v2：整体替换轨道（数组的增删改都有专门命令，这里是「整段导入」的入口）
+  if (Array.isArray(patch.tracks)) {
+    target.tracks = patch.tracks as LayerAnimation['tracks'];
+  }
+  if (typeof patch.autoKeyframe === 'boolean') target.autoKeyframe = patch.autoKeyframe;
 }
 
 /**

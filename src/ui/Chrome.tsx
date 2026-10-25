@@ -24,7 +24,7 @@ export function StatusBar() {
             bridge.state === 'connected' ? 'bg-emerald-400' : bridge.state === 'error' ? 'bg-rose-500' : 'bg-zinc-600',
           )}
         />
-        {bridge.state === 'connected' ? t('Agent 已连接 · {n} 个客户端', { n: bridge.agents }) : bridge.message}
+        {bridge.state === 'connected' ? t('Agent 已连接 · {n} 个客户端', { n: bridge.agents }) : bridge.message || t('未连接')}
       </span>
       <span className="text-ink-700">|</span>
       <span>{t('{n} 图层', { n: project.layers.length })}</span>

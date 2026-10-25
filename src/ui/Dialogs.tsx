@@ -170,7 +170,7 @@ export function SettingsDialog() {
               {t('断开')}
             </Button>
             <span className="text-[11px] text-zinc-500">
-              {t('状态：{state} · {message}', { state: bridge.state, message: bridge.message })}
+              {t('状态：{state} · {message}', { state: bridge.state, message: bridge.message || t('未连接') })}
             </span>
           </div>
           <div className="rounded-lg border border-ink-700 bg-ink-900/60 p-3 font-mono text-[10.5px] leading-relaxed text-zinc-500">

@@ -24,10 +24,11 @@ import { ensureServices } from '@/app/services';
 import { cx } from '@/ui/primitives';
 
 import { t } from '@/i18n';
+// 同上：label 存中文原文，渲染时再 t()
 const TABS = [
-  { id: 'inspect' as const, label: t('属性'), icon: ScanEye },
+  { id: 'inspect' as const, label: '属性', icon: ScanEye },
   { id: 'ai' as const, label: 'AI', icon: Sparkles },
-  { id: 'audit' as const, label: t('审计'), icon: Activity },
+  { id: 'audit' as const, label: '审计', icon: Activity },
 ];
 
 function RightPanel() {
@@ -35,20 +36,20 @@ function RightPanel() {
   return (
     <aside className="border-ink-700/80 bg-ink-850/60 flex w-[318px] shrink-0 flex-col border-l">
       <div className="border-ink-700/70 flex h-8 shrink-0 items-center gap-0.5 border-b px-1.5">
-        {TABS.map((t) => {
-          const Icon = t.icon;
+        {TABS.map((item) => {
+          const Icon = item.icon;
           return (
             <button
-              key={t.id}
+              key={item.id}
               type="button"
-              onClick={() => updateUi((ui) => { ui.rightTab = t.id; })}
+              onClick={() => updateUi((ui) => { ui.rightTab = item.id; })}
               className={cx(
                 'flex h-6 items-center gap-1 rounded px-2 text-[11px] transition',
-                tab === t.id ? 'bg-accent/20 text-accent-soft' : 'text-zinc-500 hover:bg-ink-800 hover:text-zinc-200',
+                tab === item.id ? 'bg-accent/20 text-accent-soft' : 'text-zinc-500 hover:bg-ink-800 hover:text-zinc-200',
               )}
             >
               <Icon size={11} />
-              {t.label}
+              {t(item.label)}
             </button>
           );
         })}

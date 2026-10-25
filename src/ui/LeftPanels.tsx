@@ -32,32 +32,34 @@ import { Badge, Button, EmptyState, IconButton, TextInput, cx } from './primitiv
 import { t } from '@/i18n';
 /* ------------------------------------------------------------------ rail */
 
+// label 一律存中文原文：模块级拿不到「用户当前语言」，翻译必须留到渲染时做
 const TABS: { id: 'layers' | 'assets' | 'fonts' | 'commands'; icon: typeof Layers; label: string }[] = [
-  { id: 'layers', icon: Layers, label: t('图层') },
-  { id: 'assets', icon: ImageIcon, label: t('资源') },
-  { id: 'fonts', icon: Type, label: t('字体') },
-  { id: 'commands', icon: Terminal, label: t('命令') },
+  { id: 'layers', icon: Layers, label: '图层' },
+  { id: 'assets', icon: ImageIcon, label: '资源' },
+  { id: 'fonts', icon: Type, label: '字体' },
+  { id: 'commands', icon: Terminal, label: '命令' },
 ];
 
 export function LeftRail() {
   const tab = useEditor((s) => s.ui.leftTab);
   return (
     <nav className="border-ink-700/80 bg-ink-900/80 flex w-12 shrink-0 flex-col items-center gap-1 border-r py-2">
-      {TABS.map((t) => {
-        const Icon = t.icon;
+      {TABS.map((item) => {
+        const Icon = item.icon;
+        const label = t(item.label);
         return (
           <button
-            key={t.id}
+            key={item.id}
             type="button"
-            title={t.label}
-            onClick={() => updateUi((u) => { u.leftTab = t.id; })}
+            title={label}
+            onClick={() => updateUi((u) => { u.leftTab = item.id; })}
             className={cx(
               'flex h-10 w-10 flex-col items-center justify-center gap-0.5 rounded-lg transition',
-              tab === t.id ? 'bg-accent/20 text-accent-soft' : 'text-zinc-500 hover:bg-ink-800 hover:text-zinc-200',
+              tab === item.id ? 'bg-accent/20 text-accent-soft' : 'text-zinc-500 hover:bg-ink-800 hover:text-zinc-200',
             )}
           >
             <Icon size={16} />
-            <span className="text-[9px]">{t.label}</span>
+            <span className="text-[9px]">{label}</span>
           </button>
         );
       })}

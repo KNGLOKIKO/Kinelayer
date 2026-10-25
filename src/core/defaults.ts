@@ -1,8 +1,10 @@
 import { uid } from './ids';
 import { clamp } from './geometry';
 import {
+  ANIMATABLE_PROPERTIES,
   BLEND_MODES,
   LIMITS,
+  PROJECT_SCHEMA_VERSION,
   type AssetMeta,
   type BackgroundLayer,
   type CodeLayer,
@@ -12,6 +14,7 @@ import {
   type Layer,
   type LayerAnimation,
   type Project,
+  type PropertyTrack,
   type TextLayer,
   type TextStyle,
   type VideoLayer,
@@ -49,7 +52,39 @@ export function defaultTextStyle(): TextStyle {
 }
 
 export function emptyAnimation(): LayerAnimation {
-  return {};
+  return { tracks: [], autoKeyframe: true };
+}
+
+/**
+ * v2 迁移：把任意来源的 animation 补成当前形状。
+ * 读宽容——v1 的文件没有 tracks / autoKeyframe，缺了就用默认值补上；
+ * 写严格——serializeProject 出去的永远是带这两个字段的当前版本。
+ */
+export function normalizeAnimation(raw: unknown): LayerAnimation {
+  const r = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  const anim = emptyAnimation();
+  if (r.enter && typeof r.enter === 'object') anim.enter = r.enter as LayerAnimation['enter'];
+  if (r.exit && typeof r.exit === 'object') anim.exit = r.exit as LayerAnimation['exit'];
+  if (r.emphasis && typeof r.emphasis === 'object') anim.emphasis = r.emphasis as LayerAnimation['emphasis'];
+  if (typeof r.autoKeyframe === 'boolean') anim.autoKeyframe = r.autoKeyframe;
+  if (Array.isArray(r.tracks)) {
+    anim.tracks = (r.tracks as PropertyTrack[])
+      .filter((t) => t && typeof t === 'object' && ANIMATABLE_PROPERTIES.includes(t.property))
+      .map((t) => ({
+        property: t.property,
+        keyframes: (Array.isArray(t.keyframes) ? t.keyframes : [])
+          .filter((k) => k && Number.isFinite(k.time) && Number.isFinite(k.value))
+          .map((k) => ({
+            id: typeof k.id === 'string' && k.id ? k.id : uid('kf'),
+            time: Math.round(k.time),
+            value: k.value,
+            easing: k.easing && typeof k.easing === 'object' ? k.easing : { kind: 'ease-out' as const },
+          }))
+          .sort((a, b) => a.time - b.time),
+      }))
+      .filter((t) => t.keyframes.length > 0);
+  }
+  return anim;
 }
 
 export function baseLayer(type: LayerType, overrides: Partial<Layer> = {}): Omit<Layer, 'type'> & { type: LayerType } {
@@ -72,7 +107,9 @@ export function baseLayer(type: LayerType, overrides: Partial<Layer> = {}): Omit
     bindings: {},
     meta: {},
   };
-  return { ...base, ...(overrides as object) } as Omit<Layer, 'type'> & { type: LayerType };
+  const merged = { ...base, ...(overrides as object) } as Omit<Layer, 'type'> & { type: LayerType };
+  // overrides 里的 animation 会整体替换掉 base 的那份，这里补齐 v2 字段，避免半截对象流进数据层
+  return { ...merged, animation: normalizeAnimation(merged.animation) };
 }
 
 export function createBackground(overrides: Partial<BackgroundLayer> = {}): BackgroundLayer {
@@ -207,6 +244,7 @@ export function createLayer(type: LayerType, overrides: Partial<Layer> = {}): La
 export function createEmptyProject(name = '未命名海报'): Project {
   const now = Date.now();
   const project: Project = {
+    schemaVersion: PROJECT_SCHEMA_VERSION,
     id: uid('prj'),
     name,
     width: 1080,
@@ -302,6 +340,7 @@ export function createDemoProject(): Project {
       wrap: false,
     },
     animation: {
+      ...emptyAnimation(),
       enter: { preset: 'fade', duration: 700, delay: 0, easing: 'ease-out', intensity: 0.6 },
     },
   });
@@ -325,6 +364,7 @@ export function createDemoProject(): Project {
       wrap: false,
     },
     animation: {
+      ...emptyAnimation(),
       enter: { preset: 'slide-up', duration: 900, delay: 180, easing: 'ease-out-cubic', intensity: 0.7 },
     },
   });
@@ -346,6 +386,7 @@ export function createDemoProject(): Project {
       color: '#c3cde0',
     },
     animation: {
+      ...emptyAnimation(),
       enter: { preset: 'fade', duration: 800, delay: 520, easing: 'ease-out', intensity: 0.8 },
     },
   });
@@ -367,6 +408,7 @@ export function createDemoProject(): Project {
       wrap: false,
     },
     animation: {
+      ...emptyAnimation(),
       enter: { preset: 'fade', duration: 900, delay: 760, easing: 'ease-out', intensity: 0.5 },
     },
   });
@@ -396,11 +438,13 @@ ctx.arc(cx, cy, r * 2.1, 0, Math.PI * 2);
 ctx.fill();`,
     }),
     animation: {
+      ...emptyAnimation(),
       emphasis: { preset: 'float', duration: 2600, delay: 0, easing: 'ease-in-out', intensity: 0.5 },
     },
   });
 
   return {
+    schemaVersion: PROJECT_SCHEMA_VERSION,
     id: uid('prj'),
     name: '层动 · 示例海报',
     width: W,
@@ -464,7 +508,12 @@ export function normalizeProject(raw: unknown): Project {
   const assets = Array.isArray(r.assets) ? (r.assets as AssetMeta[]).filter((a) => a && a.id) : [];
   const fonts = Array.isArray(r.fonts) ? (r.fonts as FontMeta[]).filter((f) => f && f.family) : [];
 
+  // v1 → v2：schemaVersion 缺省视为 1，逐图层把 animation 迁移到当前形状
+  for (const layer of layers) layer.animation = normalizeAnimation(layer.animation);
+  background.animation = normalizeAnimation(background.animation);
+
   return {
+    schemaVersion: PROJECT_SCHEMA_VERSION,
     id: str(r.id, base.id),
     name: str(r.name, base.name),
     width,

@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronUp, Pause, Play, Repeat } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { ChevronDown, ChevronRight, ChevronUp, Diamond, Pause, Play, Repeat, Trash2 } from 'lucide-react';
 import { exec } from '@/core/commandBus';
 import { updateUi, useEditor } from '@/core/store';
 import { clamp } from '@/core/geometry';
+import { ANIMATABLE_PROPERTIES, PROPERTY_LABELS, type AnimatableProperty, type Keyframe, type Layer } from '@/core/types';
+import { currentValue, trackOf, ANIM_PRESET_TRACKS, type AnimPresetTrack } from '@/core/commands/animation';
 import { IconButton, Toggle, cx } from './primitives';
-
 import { t } from '@/i18n';
+
 function fmt(ms: number): string {
   const s = Math.max(0, ms) / 1000;
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}.${String(
@@ -13,14 +15,36 @@ function fmt(ms: number): string {
   )}`;
 }
 
+type Row =
+  | { kind: 'layer'; layer: Layer }
+  | { kind: 'track'; layer: Layer; property: AnimatableProperty };
+
+const PRESET_LABEL: Record<AnimPresetTrack, string> = {
+  'fade-in': '淡入',
+  rise: '上浮',
+  'zoom-in': '放大进入',
+  pop: '弹入',
+  spin: '旋转进入',
+  pulse: '脉冲',
+};
+
 export function Timeline() {
   const show = useEditor((s) => s.ui.showTimeline);
   const project = useEditor((s) => s.project);
   const playhead = useEditor((s) => s.runtime.playhead);
   const playing = useEditor((s) => s.runtime.playing);
   const selectedIds = useEditor((s) => s.ui.selectedIds);
+  const expanded = useEditor((s) => s.ui.expandedTracks);
+  const selectedKeyframes = useEditor((s) => s.ui.selectedKeyframes);
+  const zoom = useEditor((s) => s.ui.timelineZoom);
   const laneRef = useRef<HTMLDivElement>(null);
   const [drag, setDrag] = useState(false);
+  const [presetFor, setPresetFor] = useState<string | null>(null);
+  /** 拖拽关键帧时的临时偏移（ms），松手才提交命令，避免一次拖动刷出几十条撤销点 */
+  const [kfDrag, setKfDrag] = useState<{ ids: string[]; delta: number } | null>(null);
+  const startX = useRef(0);
+  const kfDragRef = useRef<{ ids: string[]; delta: number } | null>(null);
+  kfDragRef.current = kfDrag;
 
   const seek = (clientX: number) => {
     const el = laneRef.current;
@@ -42,12 +66,65 @@ export function Timeline() {
     };
   }, [drag, project.duration]);
 
+  // 拖拽关键帧：像素 → 毫秒，松手一次性提交
+  useEffect(() => {
+    if (!kfDrag) return;
+    const move = (e: PointerEvent) => {
+      const el = laneRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const msPerPx = project.duration / Math.max(1, rect.width);
+      setKfDrag((d) => (d ? { ...d, delta: Math.round((e.clientX - startX.current) * msPerPx) } : d));
+    };
+    const up = () => {
+      const cur = kfDragRef.current;
+      setKfDrag(null);
+      if (!cur || cur.delta === 0) return;
+      // 把选中关键帧（同图层）整体平移；跨图层选择不参与，避免语义含糊
+      const layer = project.layers.find((l) => l.animation.tracks?.some((tr) => tr.keyframes.some((k) => cur.ids.includes(k.id))));
+      if (!layer) return;
+      const moves = (layer.animation.tracks ?? []).flatMap((tr) =>
+        tr.keyframes
+          .filter((k) => cur.ids.includes(k.id))
+          .map((k) => ({ property: tr.property, keyframeId: k.id, time: k.time + cur.delta })),
+      );
+      if (moves.length) void exec('animation.moveKeyframes', { id: layer.id, moves });
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    return () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+  }, [kfDrag, project]);
+
+  const rows = useMemo<Row[]>(() => {
+    const out: Row[] = [];
+    for (const layer of [...project.layers.slice(1)].reverse()) {
+      out.push({ kind: 'layer', layer });
+      if (!expanded.includes(layer.id)) continue;
+      for (const prop of ANIMATABLE_PROPERTIES) {
+        if (trackOf(layer, prop)) out.push({ kind: 'track', layer, property: prop });
+      }
+    }
+    return out;
+  }, [project.layers, expanded]);
+
   if (!show) return null;
-  const rows = project.layers.slice(1).reverse();
   const ticks = Array.from({ length: 7 }, (_, i) => (project.duration / 6) * i);
+  const selectedLayer = project.layers.find((l) => l.id === selectedIds[0]);
+  const overflow = project.layers.slice(1).filter((l) => l.inPoint > project.duration || (l.outPoint > 0 && l.outPoint > project.duration));
+
+  // 选中的关键帧（当前工程内）
+  const picked = project.layers.flatMap((l) =>
+    (l.animation.tracks ?? []).flatMap((tr) =>
+      tr.keyframes.filter((k) => selectedKeyframes.includes(k.id)).map((k) => ({ layer: l, property: tr.property, kf: k })),
+    ),
+  );
+  const single = picked.length === 1 ? (picked[0] as (typeof picked)[number]) : null;
 
   return (
-    <section className="border-ink-700/80 bg-ink-900/90 flex h-[188px] shrink-0 flex-col border-t">
+    <section className="border-ink-700/80 bg-ink-900/90 flex h-[230px] shrink-0 flex-col border-t">
       <div className="border-ink-700/70 flex h-8 shrink-0 items-center gap-2 border-b px-2">
         <IconButton size={22} active={playing} onClick={() => void exec(playing ? 'timeline.pause' : 'timeline.play')} title={t('播放 / 暂停')}>
           {playing ? <Pause size={12} /> : <Play size={12} />}
@@ -57,115 +134,314 @@ export function Timeline() {
         <div className="bg-ink-700 mx-1 h-4 w-px" />
         <Toggle value={project.loop} onChange={(loop) => void exec('timeline.setLoop', { loop })} label={t('循环')} />
         <span className="text-[10px] text-zinc-600">{project.fps}fps</span>
+        <div className="bg-ink-700 mx-1 h-4 w-px" />
+        <span className="text-[9.5px] text-zinc-600">{t('缩放')}</span>
+        <input
+          type="range"
+          min={1}
+          max={8}
+          step={0.5}
+          value={zoom}
+          onChange={(e) => updateUi((ui) => { ui.timelineZoom = Number(e.target.value); })}
+          className="accent-accent h-1 w-16"
+          title={t('时间轴缩放')}
+        />
+        <span className="w-6 font-mono text-[9.5px] text-zinc-500">{zoom.toFixed(1)}×</span>
+        {overflow.length > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              for (const l of overflow) {
+                void exec('timeline.setLayerTiming', {
+                  id: l.id,
+                  inPoint: Math.min(l.inPoint, project.duration),
+                  outPoint: l.outPoint > project.duration ? project.duration : l.outPoint,
+                });
+              }
+            }}
+            className="rounded border border-rose-500/40 bg-rose-500/10 px-1.5 py-0.5 text-[9.5px] text-rose-300 hover:bg-rose-500/20"
+            title={t('把越界的图层收回时长内')}
+          >
+            {t('{n} 个图层越界 · 修复', { n: overflow.length })}
+          </button>
+        )}
         <div className="flex-1" />
-        <IconButton
-          size={22}
-          title={t('收起时间轴')}
-          onClick={() => updateUi((ui) => { ui.showTimeline = false; })}
-        >
+        {single && (
+          <>
+            <span className="text-[9.5px] text-zinc-500">
+              {t('{property} @ {time}ms', { property: t(PROPERTY_LABELS[single.property]), time: single.kf.time })}
+            </span>
+            <select
+              value={single.kf.easing.kind}
+              onChange={(e) =>
+                void exec('animation.setEasing', {
+                  id: single.layer.id,
+                  property: single.property,
+                  keyframeId: single.kf.id,
+                  easing: { kind: e.target.value as never },
+                })
+              }
+              className="border-ink-700 bg-ink-850 h-6 rounded border px-1 text-[9.5px] text-zinc-300"
+              title={t('缓动')}
+            >
+              {['linear', 'ease-in', 'ease-out', 'ease-in-out', 'ease-out-cubic', 'ease-out-back', 'ease-out-elastic'].map((e) => (
+                <option key={e} value={e}>
+                  {e}
+                </option>
+              ))}
+            </select>
+            <IconButton
+              size={22}
+              title={t('删除关键帧')}
+              onClick={() =>
+                void exec('animation.removeKeyframe', {
+                  id: single.layer.id,
+                  property: single.property,
+                  keyframeIds: [single.kf.id],
+                })
+              }
+            >
+              <Trash2 size={11} />
+            </IconButton>
+          </>
+        )}
+        {selectedKeyframes.length > 1 && (
+          <span className="text-[9.5px] text-zinc-500">{t('已选 {n} 个关键帧', { n: selectedKeyframes.length })}</span>
+        )}
+        <IconButton size={22} title={t('收起时间轴')} onClick={() => updateUi((ui) => { ui.showTimeline = false; })}>
           <ChevronDown size={12} />
         </IconButton>
       </div>
 
       <div className="flex min-h-0 flex-1">
-        <div className="border-ink-700/60 flex w-[152px] shrink-0 flex-col border-r">
+        <div className="border-ink-700/60 flex w-[168px] shrink-0 flex-col border-r">
           <div className="border-ink-700/60 flex h-5 items-center border-b px-2 text-[9px] tracking-wider text-zinc-600">
             TRACKS
           </div>
           <div className="ml-scroll flex-1 overflow-y-auto">
-            {rows.map((layer) => (
-              <button
-                key={layer.id}
-                type="button"
-                onClick={() => void exec('selection.set', { ids: [layer.id] })}
-                className={cx(
-                  'flex h-6 w-full items-center gap-1.5 px-2 text-left text-[10px] transition',
-                  selectedIds.includes(layer.id) ? 'bg-accent/15 text-zinc-200' : 'text-zinc-500 hover:bg-ink-800',
-                )}
-              >
-                <span
+            {rows.map((row) =>
+              row.kind === 'layer' ? (
+                <div
+                  key={row.layer.id}
                   className={cx(
-                    'h-1.5 w-1.5 shrink-0 rounded-full',
-                    layer.type === 'code' ? 'bg-cyan' : layer.type === 'text' ? 'bg-accent' : 'bg-zinc-500',
+                    'flex h-6 items-center gap-1 px-1 text-[10px] transition',
+                    selectedIds.includes(row.layer.id) ? 'bg-accent/15 text-zinc-200' : 'text-zinc-500 hover:bg-ink-800',
                   )}
-                />
-                <span className="truncate">{layer.name}</span>
-              </button>
-            ))}
+                >
+                  <button
+                    type="button"
+                    className="text-zinc-600 hover:text-zinc-300"
+                    onClick={() =>
+                      updateUi((ui) => {
+                        ui.expandedTracks = ui.expandedTracks.includes(row.layer.id)
+                          ? ui.expandedTracks.filter((x) => x !== row.layer.id)
+                          : [...ui.expandedTracks, row.layer.id];
+                      })
+                    }
+                    title={t('展开轨道')}
+                  >
+                    {expanded.includes(row.layer.id) ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void exec('selection.set', { ids: [row.layer.id] })}
+                    className="flex min-w-0 flex-1 items-center gap-1 text-left"
+                  >
+                    <span
+                      className={cx(
+                        'h-1.5 w-1.5 shrink-0 rounded-full',
+                        row.layer.type === 'code' ? 'bg-cyan' : row.layer.type === 'text' ? 'bg-accent' : 'bg-zinc-500',
+                      )}
+                    />
+                    <span className="truncate">{row.layer.name}</span>
+                  </button>
+                  <button
+                    type="button"
+                    title={t('自动关键帧')}
+                    onClick={() => void exec('animation.setAutoKeyframe', { id: row.layer.id, enabled: !row.layer.animation.autoKeyframe })}
+                    className={cx(
+                      'flex h-4 w-4 items-center justify-center rounded text-[9px] font-bold',
+                      row.layer.animation.autoKeyframe ? 'bg-accent/30 text-accent-soft' : 'text-zinc-600 hover:text-zinc-300',
+                    )}
+                  >
+                    A
+                  </button>
+                  <button
+                    type="button"
+                    title={t('用预设生成关键帧')}
+                    onClick={() => setPresetFor(presetFor === row.layer.id ? null : row.layer.id)}
+                    className="text-zinc-600 hover:text-accent-soft"
+                  >
+                    <Diamond size={10} />
+                  </button>
+                </div>
+              ) : (
+                <div
+                  key={`${row.layer.id}:${row.property}`}
+                  className="flex h-5 items-center gap-1 pr-1 pl-6 text-[9.5px] text-zinc-500 hover:bg-ink-800/60"
+                >
+                  <span className="flex-1 truncate">{t(PROPERTY_LABELS[row.property])}</span>
+                  <button
+                    type="button"
+                    title={t('在播放头打一个关键帧')}
+                    onClick={() =>
+                      void exec('animation.setKeyframe', {
+                        id: row.layer.id,
+                        property: row.property,
+                        time: Math.round(playhead - row.layer.inPoint),
+                        value: Number(currentValue(row.layer, row.property).toFixed(3)),
+                      })
+                    }
+                    className="text-zinc-600 hover:text-accent-soft"
+                  >
+                    <Diamond size={9} />
+                  </button>
+                  <button
+                    type="button"
+                    title={t('清空该轨道')}
+                    onClick={() => void exec('animation.clearTrack', { id: row.layer.id, property: row.property })}
+                    className="text-zinc-600 hover:text-rose-400"
+                  >
+                    <Trash2 size={9} />
+                  </button>
+                </div>
+              ),
+            )}
+            {rows.length === 0 && <div className="p-2 text-[10px] text-zinc-600">{t('没有可显示的图层')}</div>}
           </div>
         </div>
 
         <div className="relative min-w-0 flex-1">
           <div
-            className="border-ink-700/60 relative h-5 cursor-ew-resize border-b"
+            className="border-ink-700/60 relative h-5 cursor-ew-resize overflow-hidden border-b"
             onPointerDown={(e) => {
               setDrag(true);
               seek(e.clientX);
             }}
           >
-            {ticks.map((t, i) => (
-              <div key={i} className="absolute top-0 bottom-0" style={{ left: `${(t / project.duration) * 100}%` }}>
-                <div className="h-1.5 w-px bg-ink-600" />
-                <span className="absolute left-1 text-[9px] text-zinc-600">{Math.round(t / 100) / 10}s</span>
+            {ticks.map((tk, i) => (
+              <div key={i} className="absolute top-0 bottom-0" style={{ left: `${(tk / project.duration) * 100}%` }}>
+                <div className="bg-ink-600 h-1.5 w-px" />
+                <span className="absolute left-1 text-[9px] text-zinc-600">{Math.round(tk / 100) / 10}s</span>
               </div>
             ))}
           </div>
 
-          <div
-            ref={laneRef}
-            className="ml-scroll relative h-[calc(100%-20px)] overflow-y-auto"
-            onPointerDown={(e) => {
-              if (e.target === e.currentTarget) {
-                setDrag(true);
-                seek(e.clientX);
-              }
-            }}
-          >
-            {rows.map((layer) => {
-              const out = layer.outPoint > 0 ? layer.outPoint : project.duration;
-              const left = (layer.inPoint / project.duration) * 100;
-              const width = Math.max(1.5, ((out - layer.inPoint) / project.duration) * 100);
-              const active = selectedIds.includes(layer.id);
-              return (
-                <div key={layer.id} className="relative h-6">
-                  <div
-                    className={cx(
-                      'absolute top-1 h-4 cursor-pointer rounded-sm border transition',
-                      active
-                        ? 'border-accent bg-accent/40'
-                        : layer.type === 'code'
-                          ? 'border-cyan/40 bg-cyan/15 hover:bg-cyan/25'
-                          : 'border-ink-600 bg-ink-700/80 hover:bg-ink-600',
-                    )}
-                    style={{ left: `${left}%`, width: `${width}%` }}
-                    onPointerDown={(e) => {
-                      e.stopPropagation();
-                      void exec('selection.set', { ids: [layer.id] });
-                    }}
-                    title={`${layer.name} · ${layer.inPoint}–${out}ms`}
-                  />
-                  {layer.animation?.enter && (
-                    <div className="absolute top-2 h-2 w-0.5 bg-emerald-400" style={{ left: `${left}%` }} />
-                  )}
-                  {layer.animation?.exit && (
-                    <div className="absolute top-2 h-2 w-0.5 bg-rose-400" style={{ left: `${((out - (layer.animation.exit.duration + layer.animation.exit.delay)) / project.duration) * 100}%` }} />
-                  )}
-                </div>
-              );
-            })}
+          <div ref={laneRef} className="ml-scroll h-[calc(100%-20px)] overflow-auto" onPointerDown={(e) => { if (e.target === e.currentTarget) { setDrag(true); seek(e.clientX); } }}>
+            <div className="relative" style={{ width: `${zoom * 100}%`, minWidth: '100%' }}>
+              {rows.map((row) => {
+                if (row.kind === 'layer') {
+                  const out = row.layer.outPoint > 0 ? row.layer.outPoint : project.duration;
+                  const bad = row.layer.inPoint > project.duration || (row.layer.outPoint > 0 && row.layer.outPoint > project.duration);
+                  const left = (row.layer.inPoint / project.duration) * 100;
+                  const width = Math.max(1.5, ((Math.min(out, project.duration) - row.layer.inPoint) / project.duration) * 100);
+                  const active = selectedIds.includes(row.layer.id);
+                  return (
+                    <div key={row.layer.id} className="relative h-6">
+                      <div
+                        className={cx(
+                          'absolute top-1 h-4 cursor-pointer rounded-sm border transition',
+                          bad
+                            ? 'border-rose-500 bg-rose-500/30'
+                            : active
+                              ? 'border-accent bg-accent/40'
+                              : row.layer.type === 'code'
+                                ? 'border-cyan/40 bg-cyan/15 hover:bg-cyan/25'
+                                : 'border-ink-600 bg-ink-700/80 hover:bg-ink-600',
+                        )}
+                        style={{ left: `${left}%`, width: `${width}%` }}
+                        onPointerDown={(e) => {
+                          e.stopPropagation();
+                          void exec('selection.set', { ids: [row.layer.id] });
+                        }}
+                        title={`${row.layer.name} · ${row.layer.inPoint}–${out}ms`}
+                      />
+                      {row.layer.animation?.enter && (
+                        <div className="absolute top-2 h-2 w-0.5 bg-emerald-400" style={{ left: `${left}%` }} />
+                      )}
+                    </div>
+                  );
+                }
+                const track = trackOf(row.layer, row.property);
+                if (!track) return <div key={`${row.layer.id}:${row.property}`} className="h-5" />;
+                return (
+                  <div key={`${row.layer.id}:${row.property}`} className="relative h-5">
+                    <div className="bg-ink-700/50 absolute top-1/2 right-0 left-0 h-px" />
+                    {track.keyframes.map((kf: Keyframe) => {
+                      const localOffset = kfDrag && kfDrag.ids.includes(kf.id) ? kfDrag.delta : 0;
+                      const at = row.layer.inPoint + kf.time + localOffset;
+                      const on = selectedKeyframes.includes(kf.id);
+                      return (
+                        <button
+                          key={kf.id}
+                          type="button"
+                          title={`${t(PROPERTY_LABELS[row.property])} · ${kf.time}ms · ${kf.value} · ${kf.easing.kind}`}
+                          className={cx(
+                            'absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rotate-45 rounded-[1px] border transition',
+                            on ? 'border-accent-soft bg-accent-soft' : 'border-accent/70 bg-ink-900 hover:bg-accent/60',
+                          )}
+                          style={{ left: `${(at / project.duration) * 100}%` }}
+                          onPointerDown={(e) => {
+                            e.stopPropagation();
+                            const ids = e.shiftKey
+                              ? [...new Set([...selectedKeyframes, kf.id])]
+                              : selectedKeyframes.includes(kf.id)
+                                ? selectedKeyframes
+                                : [kf.id];
+                            updateUi((ui) => {
+                              ui.selectedKeyframes = ids;
+                            });
+                            startX.current = e.clientX;
+                            kfDragRef.current = { ids, delta: 0 };
+                            setKfDrag({ ids, delta: 0 });
+                          }}
+                        />
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
           <div
-            className="pointer-events-none absolute top-0 bottom-0 z-10 w-px bg-accent-soft"
+            className="bg-accent-soft pointer-events-none absolute top-0 bottom-0 z-10 w-px"
             style={{ left: `${(playhead / project.duration) * 100}%` }}
           >
             <div className="-ml-[5px] h-2.5 w-2.5 rounded-sm bg-accent-soft" />
           </div>
         </div>
       </div>
+
+      {presetFor && (
+        <div className="border-ink-700/70 bg-ink-850 flex h-8 shrink-0 items-center gap-1 border-t px-2">
+          <span className="text-[9.5px] text-zinc-500">{t('预设')}</span>
+          {ANIM_PRESET_TRACKS.map((p) => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => {
+                void exec('animation.applyPreset', { id: presetFor, preset: p, duration: 600 });
+                setPresetFor(null);
+                updateUi((ui) => {
+                  ui.expandedTracks = ui.expandedTracks.includes(presetFor) ? ui.expandedTracks : [...ui.expandedTracks, presetFor];
+                });
+              }}
+              className="border-ink-700 rounded border px-1.5 py-0.5 text-[9.5px] text-zinc-400 hover:border-accent/50 hover:text-zinc-100"
+            >
+              {t(PRESET_LABEL[p])}
+            </button>
+          ))}
+          <div className="flex-1" />
+          <button type="button" onClick={() => setPresetFor(null)} className="text-[9.5px] text-zinc-600 hover:text-zinc-300">
+            {t('取消')}
+          </button>
+        </div>
+      )}
     </section>
   );
 }
+
 
 export function TimelineToggle() {
   const show = useEditor((s) => s.ui.showTimeline);

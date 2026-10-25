@@ -239,7 +239,16 @@ export function renderScene(ctx: CanvasRenderingContext2D, project: Project, opt
     switch (layer.type) {
       case 'text':
         withTransform(ctx, frame, () => {
-          drawTextLayer(ctx, layer.text, layer.style, { width: layer.width, height: layer.height });
+          // v2：字号/字距可能被关键帧轨道覆盖，覆盖值只影响这一帧的绘制
+          const style =
+            frame.fontSize === undefined && frame.letterSpacing === undefined
+              ? layer.style
+              : {
+                  ...layer.style,
+                  fontSize: frame.fontSize ?? layer.style.fontSize,
+                  letterSpacing: frame.letterSpacing ?? layer.style.letterSpacing,
+                };
+          drawTextLayer(ctx, layer.text, style, { width: frame.width, height: frame.height });
         });
         break;
       case 'image':

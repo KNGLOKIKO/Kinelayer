@@ -64,6 +64,7 @@ export type CommandCategory =
   | '资源'
   | '字体'
   | '时间轴'
+  | '动画'
   | '选择'
   | '历史'
   | '窗口'
