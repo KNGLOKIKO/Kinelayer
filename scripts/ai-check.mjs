@@ -252,6 +252,9 @@ const main = async () => {
       check('编辑器打开的就是刚导入的那份', landed === true);
     }
 
+    /* 截图留在中文模式：文档是中文的，报告卡的字也该是中文 */
+    await cdp.shot(new URL('../docs/v25-import-report.png', import.meta.url));
+
     /* ── 8. 英文模式下报告卡不能有中文（降级说明也要进词典） ── */
     await cdp.conn.call('Page.navigate', { url: `${base}?view=launcher` });
     await sleep(1800);
@@ -279,7 +282,6 @@ const main = async () => {
       check('英文模式报告卡零中文（降级说明也走词典）', false, '没能唤起文件框');
     }
 
-    await cdp.shot(new URL('../docs/v25-import-report.png', import.meta.url));
   } finally {
     cdp.edge.kill();
   }
