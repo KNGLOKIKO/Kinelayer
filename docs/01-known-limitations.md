@@ -83,7 +83,7 @@
 - 舞台的 HTML 代码层用 `<iframe>` 叠加预览，滚动/缩放时靠 CSS transform 跟随，极端缩放下可能有 1px 抖动。
 - 推荐 Chrome / Edge 116+。Safari 缺 `documentPictureInPicture`、`navigator.fonts`，
   且 `ctx.letterSpacing` 支持较晚，字距会退化。
-- 首屏按视图分包：启动页约 158KB gzip（共享运行时 144KB + 启动页 10KB + 公共组件 3KB），
+- 首屏按视图分包：启动页约 159KB gzip（共享运行时 146KB + 启动页 10KB + 公共组件 3KB），
   进编辑器再加载约 204KB（CodeMirror、渲染引擎、AI 面板都在这里）。图层窗口是独立 chunk（~5KB）。
   共享运行时里包含导入管线与 `scene.ai.json` 的投影逻辑 —— 它们是命令层的依赖，两个视图都要用。
 

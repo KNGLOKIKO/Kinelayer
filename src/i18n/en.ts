@@ -651,6 +651,48 @@ export const en: Record<string, string> = {
   导入: 'Import',
   'AI 生成': 'AI generated',
   外部导入: 'Imported',
+
+  /* 导入预检：格式名与降级说明（报告由 importPipeline 以 key + 参数产出，这里必须一条不落） */
+  '场景 JSON（Rendervid / cadence 风格）': 'Scene JSON (Rendervid / cadence style)',
+  'Kinelayer 场景语义层（scene.ai.json）': 'Kinelayer scene semantics (scene.ai.json)',
+  'Kinelayer 工程包（.kly / ZIP）': 'Kinelayer package (.kly / ZIP)',
+  'Kinelayer 原生 JSON': 'Kinelayer native JSON',
+  'HTML / GSAP 片段': 'HTML / GSAP snippet',
+  视频文件: 'Video file',
+  图片文件: 'Image file',
+  'Remotion 工程': 'Remotion project',
+  认不出这个文件: 'Unrecognised file',
+  '场景 JSON': 'Scene JSON',
+  '场景里没有图层数组，只建了一个空画布': 'No layer array in the scene — imported as an empty canvas',
+  '文本层「{name}」没有文字内容，已跳过': 'Text layer "{name}" has no content — skipped',
+  '媒体「{name}」以 data URL 内嵌，导入时会写进资源库': 'Media "{name}" is embedded as a data URL and will be added to the asset library',
+  '媒体「{name}」引用外部路径 {src}，包里没带文件，图层先建但资源缺失':
+    'Media "{name}" points at {src}; the file is not included, so the layer is created without its asset',
+  '媒体层「{name}」没有 src，建成空占位': 'Media layer "{name}" has no src — created as an empty placeholder',
+  '代码层「{name}」：{summary}': 'Code layer "{name}": {summary}',
+  '形状「{name}」在 preserve-code 模式下被跳过': 'Shape "{name}" was skipped in preserve-code mode',
+  '形状「{name}」没有对应的原生图层类型，已生成 canvas2d 代码层（可改代码，但内部不可打点）':
+    'Shape "{name}" has no native layer type — generated a canvas2d code layer (editable code, no per-element keyframes)',
+  '分组「{name}」没有展平：Kinelayer 没有图层组，子元素逐个导入':
+    'Group "{name}" was flattened: Kinelayer has no layer groups, so children import one by one',
+  '图层「{name}」类型无法识别，已跳过': 'Layer "{name}" has an unknown type — skipped',
+  '「{name}」里 {props} 的动画无法映射为轨道，已跳过': 'Animation on {props} in "{name}" cannot map to a track — skipped',
+  '{n} 个媒体层只剩资源名（scene.ai.json 不带二进制），导入后需要重新指定图片/视频':
+    '{n} media layers only kept their asset names (scene.ai.json carries no binary); reassign the image/video after import',
+  '原生格式：图层、轨道、资源引用都按原样恢复': 'Native format: layers, tracks and asset references come back exactly as they were',
+  '媒体层没有图层语义：只有整体位置/尺寸/透明度，内部内容不可拆':
+    'A media layer has no structure: only position/size/opacity, its contents cannot be split',
+  '整段 HTML 作为 html 代码层导入（静态提取图片/文本是 v2.5c）':
+    'The whole HTML snippet imports as an html code layer (static extraction of images/text lands in v2.5c)',
+  '导出时这一层会被栅格化，精度可能下降': 'This layer is rasterised on export, so precision may drop',
+  '包里认出 {n} 个条目，含 TSX 组件': 'Found {n} entries in the archive, including TSX components',
+  'Remotion 需要 Node 端渲染管线，浏览器里无法执行 TSX': 'Remotion needs a Node render pipeline; TSX cannot run in the browser',
+  '支持 .kly / 场景 JSON / HTML / 图片视频；Remotion 工程需要 v2.5b':
+    'Supports .kly / scene JSON / HTML / images and video; Remotion projects arrive in v2.5b',
+  'Remotion 工程的静态解析排在 v2.5b（本版不做「假装导入成功」）；可先用 npx remotion render 出片，再按视频导入':
+    'Static parsing of Remotion projects is scheduled for v2.5b (this build does not fake a successful import); render with npx remotion render and import the video for now',
+  '场景解析失败': 'Failed to parse the scene',
+  'scene.ai.json 解析失败': 'Failed to parse scene.ai.json',
 };
 
 export type EnDict = typeof en;

@@ -19,6 +19,7 @@ import { buildAiScene, aiSceneToJson, describeCode } from '../aiScene';
 import {
   detectImportFormat,
   inspectImport,
+  renderNote,
   mapAiScene,
   mapHtml,
   mapMedia,
@@ -143,7 +144,9 @@ function summaryOf(report: ImportReport, project: Project) {
     tracks: report.counts.tracks,
     keyframes: report.counts.keyframes,
     missingAssets: report.missingAssets,
-    notes: report.notes,
+    /* 给 Agent 的是成句中文（它读得懂，也省得自己拼占位符）；界面另外用结构化 notes 走 t() */
+    notes: report.notes.map(renderNote),
+    blockers: report.blockers.map(renderNote),
   };
 }
 
@@ -191,10 +194,10 @@ export const aiCommands = [
         });
       }
       if (report.blockers.length) {
-        throw new CommandFailure('VALIDATION', report.blockers.join('；'), { report });
+        throw new CommandFailure('VALIDATION', report.blockers.map(renderNote).join('；'), { report });
       }
       if (!report.supported) {
-        throw new CommandFailure('VALIDATION', `${report.label} 暂不支持导入`, { report });
+        throw new CommandFailure('VALIDATION', `${renderNote({ key: report.label })} 暂不支持导入`, { report });
       }
 
       let project: Project;

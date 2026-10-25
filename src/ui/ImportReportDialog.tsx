@@ -57,7 +57,7 @@ export function ImportReportDialog() {
           <div className="min-w-0 flex-1">
             <div className="truncate font-mono text-[11px] text-zinc-300">{fileName}</div>
             <div className="mt-1 flex flex-wrap items-center gap-1.5">
-              <Badge tone="accent">{report.label}</Badge>
+              <Badge tone="accent">{t(report.label)}</Badge>
               <Badge tone="neutral">{report.format}</Badge>
               {zip && <Badge tone="cyan">.kly</Badge>}
               <span className="text-[10.5px] text-zinc-500">
@@ -126,8 +126,8 @@ export function ImportReportDialog() {
               <X size={12} /> {t('不能导入')}
             </div>
             <ul className="ml-4 list-disc space-y-1">
-              {report.blockers.map((text) => (
-                <li key={text}>{text}</li>
+              {report.blockers.map((item) => (
+                <li key={item.key}>{t(item.key, item.params)}</li>
               ))}
             </ul>
           </div>
@@ -139,8 +139,8 @@ export function ImportReportDialog() {
               <Sparkles size={11} /> {t('这次导入会发生什么')}
             </div>
             <ul className="ml-4 list-disc space-y-1 text-[11px] text-zinc-500">
-              {report.notes.map((text) => (
-                <li key={text}>{text}</li>
+              {report.notes.map((item) => (
+                <li key={item.key}>{t(item.key, item.params)}</li>
               ))}
             </ul>
           </div>

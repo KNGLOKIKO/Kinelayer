@@ -20,7 +20,11 @@ import { launch, reporter, sleep } from './_cdp.mjs';
 const base = 'http://localhost:5273/';
 const { check, finish } = reporter();
 
-/** 一个 Rendervid 风格的场景：两个文本层 + 一个矩形 + 一张外链图 */
+/**
+ * 一个 Rendervid 风格的场景：两个文本层 + 一个矩形 + 一张外链图。
+ * 图层名故意写成英文：英文模式的「零中文」断言要严格到整张卡片 —— 图层名是用户数据，
+ * 中文名字混进去会让断言永远失败，而失败原因跟 UI 文案没关系。
+ */
 const FIXTURE = {
   name: 'AI-SCENE',
   width: 1920,
@@ -31,7 +35,7 @@ const FIXTURE = {
   layers: [
     {
       type: 'text',
-      name: '标题',
+      name: 'Title',
       text: 'Hello Kinelayer',
       x: 120,
       y: 200,
@@ -47,7 +51,7 @@ const FIXTURE = {
     },
     {
       type: 'text',
-      name: '副标题',
+      name: 'Subtitle',
       text: 'structured import',
       x: 120,
       y: 380,
@@ -55,8 +59,8 @@ const FIXTURE = {
       height: 80,
       style: { fontSize: 40, color: '#9aa4b2' },
     },
-    { type: 'rect', name: '角标', x: 120, y: 500, width: 240, height: 12, fill: '#7c5cff' },
-    { type: 'image', name: '背景图', src: 'https://example.com/bg.png', x: 0, y: 0, width: 1920, height: 1080 },
+    { type: 'rect', name: 'Badge', x: 120, y: 500, width: 240, height: 12, fill: '#7c5cff' },
+    { type: 'image', name: 'Backdrop', src: 'https://example.com/bg.png', x: 0, y: 0, width: 1920, height: 1080 },
   ],
 };
 
@@ -200,7 +204,7 @@ const main = async () => {
       const r = await window.__kly.dispatch('ai.importProject', { text: 'x', format: 'remotion' });
       return { ok: r.ok, code: r.error?.code, message: r.error?.message, id: window.__kly.state().project.id };
     })()`);
-    check('Remotion 导入被拒且不动当前工程', refused.ok === false && refused.code === 'VALIDATION' && refused.id === curId, JSON.stringify({ c: refused.code, m: refused.message }));
+    check('Remotion 导入被拒且不动当前工程', refused.ok === false && refused.code === 'VALIDATION' && refused.id === curId, JSON.stringify({ c: refused.code, same: refused.id === curId, id: refused.id, cur: curId }));
 
     const missent = await cdp.ev(`(async () => {
       const r = await window.__kly.dispatch('ai.importProject', { text: '{}', format: 'kly' });
@@ -246,6 +250,33 @@ const main = async () => {
         15000,
       );
       check('编辑器打开的就是刚导入的那份', landed === true);
+    }
+
+    /* ── 8. 英文模式下报告卡不能有中文（降级说明也要进词典） ── */
+    await cdp.conn.call('Page.navigate', { url: `${base}?view=launcher` });
+    await sleep(1800);
+    await cdp.waitFor(`!!document.querySelector('[data-testid="launcher"]')`, 10000);
+    await cdp.ev(`(() => {
+      const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === 'EN');
+      if (!b) return false; b.click(); return true;
+    })()`);
+    await sleep(700);
+
+    await cdp.conn.call('Page.setInterceptFileChooserDialog', { enabled: true });
+    const chooser2 = cdp.conn.once('Page.fileChooserOpened');
+    const clicked2 = await realClick(cdp, findButton('Open local file'));
+    const info2 = await Promise.race([chooser2, sleep(5000).then(() => null)]);
+    if (clicked2 && info2?.backendNodeId) {
+      await cdp.conn.call('DOM.setFileInputFiles', { files: [fixturePath], backendNodeId: info2.backendNodeId });
+      await cdp.waitFor(`!!document.querySelector('[data-testid="import-dialog"]')`, 10000);
+      const en = await cdp.ev(`(() => {
+        const el = document.querySelector('[data-testid="import-dialog"]');
+        const text = el?.innerText ?? '';
+        return { cjk: (text.match(/[\\u4e00-\\u9fff]/g) ?? []).length, sample: text.replace(/\\n/g, ' / ').slice(0, 120) };
+      })()`);
+      check('英文模式报告卡零中文（降级说明也走词典）', en.cjk === 0, `${en.cjk} 个汉字 · ${en.sample}`);
+    } else {
+      check('英文模式报告卡零中文（降级说明也走词典）', false, '没能唤起文件框');
     }
 
     await cdp.shot(new URL('../docs/v25-import-report.png', import.meta.url));

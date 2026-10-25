@@ -158,10 +158,16 @@ export function describeCode(spec: CodeSpec): string {
     }
   }
   const params = Object.keys(spec.params ?? {});
-  const bits = [`${spec.engine}`, `${lines} 行`];
-  if (shapes > 0) bits.push(`${shapes} 次绘制调用`);
-  if (hits.length) bits.push(`用到 ${hits.slice(0, 5).join('、')}`);
-  if (params.length) bits.push(`参数 ${params.slice(0, 4).join('/')}`);
+  /*
+   * 输出用 `key=value` 而不是「5 行 · 用到 fillRect」这种中文短句，两个原因：
+   *   1. 这份字符串会进 scene.ai.json，也会进导入降级报告 —— 后者要在英文界面里显示，
+   *      中文短句会原样漏到界面上（i18n 词典翻不了运行时拼出来的句子）；
+   *   2. Agent 读 `lines=5 calls=fillRect×1` 比读短句更不容易理解错。
+   */
+  const bits = [spec.engine, `lines=${lines}`];
+  if (shapes > 0) bits.push(`draws=${shapes}`);
+  if (hits.length) bits.push(`calls=${hits.slice(0, 5).join(',')}`);
+  if (params.length) bits.push(`params=${params.slice(0, 4).join('/')}`);
   return bits.join(' · ');
 }
 

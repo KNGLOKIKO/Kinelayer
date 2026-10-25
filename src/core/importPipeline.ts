@@ -72,19 +72,68 @@ export interface ImportCounts {
   keyframes: number;
 }
 
+/**
+ * 一条降级说明。
+ *
+ * 不直接写成人话字符串，是因为**报告要展示给两种读者**：界面（要按当前语言翻译）
+ * 和 Agent（要能机读、拼回自己的上下文）。key 用中文原文当翻译键（和词典同一约定），
+ * `{name}` 这类占位符由 `t()` 填。拼死的字符串一旦进了界面，英文模式就露馅 —— 这条踩过。
+ */
+export interface ImportNote {
+  key: string;
+  params?: Record<string, string | number>;
+}
+
+export const note = (key: string, params?: Record<string, string | number>): ImportNote => ({ key, params });
+
+/** 同一条说明可能被多个图层各记一次：按 key + 参数去重，不按渲染后的文本 */
+function dedupeNotes(list: ImportNote[]): ImportNote[] {
+  const seen = new Set<string>();
+  const out: ImportNote[] = [];
+  for (const item of list) {
+    const id = item.params ? `${item.key}|${JSON.stringify(item.params)}` : item.key;
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push(item);
+  }
+  return out;
+}
+
+/** 给命令层/日志用的中文渲染（UI 不走这里，UI 用 t()） */
+export function renderNote(item: ImportNote): string {
+  if (!item.params) return item.key;
+  return item.key.replace(/\{(\w+)\}/g, (raw, key: string) => {
+    const value = item.params?.[key];
+    return value === undefined ? raw : String(value);
+  });
+}
+
+class NoteList {
+  private items: ImportNote[] = [];
+  push(key: string, params?: Record<string, string | number>): void {
+    this.items.push({ key, params });
+  }
+  get all(): ImportNote[] {
+    return this.items;
+  }
+  get size(): number {
+    return this.items.length;
+  }
+}
+
 export interface ImportReport {
   format: ImportFormat;
   supported: boolean;
-  /** 一句话人话 */
+  /** 一句话人话（也是翻译键，UI 用 t(report.label)） */
   label: string;
   /** 0..100，预估保真度（不是画质，是「多少东西还能继续编辑」） */
   fidelity: number;
   counts: ImportCounts;
   missingAssets: string[];
   /** 降级说明：每一句都对应一处「被降级的东西」 */
-  notes: string[];
+  notes: ImportNote[];
   /** 不能导入的原因 */
-  blockers: string[];
+  blockers: ImportNote[];
   preview: {
     name: string;
     width: number;
@@ -251,7 +300,7 @@ export function inspectImport(input: ImportInput): { report: ImportReport; mappe
             counts: countAiScene(scene),
             missingAssets: [],
             notes: [],
-            blockers: [(err as Error).message || 'scene.ai.json 解析失败'],
+            blockers: [note((err as Error).message || 'scene.ai.json 解析失败')],
             preview: previewOfScene(scene),
           },
         };
@@ -270,7 +319,7 @@ export function inspectImport(input: ImportInput): { report: ImportReport; mappe
             counts: emptyCounts(),
             missingAssets: [],
             notes: [],
-            blockers: [(err as Error).message || '场景解析失败'],
+            blockers: [note((err as Error).message || '场景解析失败')],
             preview: null,
           },
         };
@@ -291,7 +340,7 @@ export function inspectImport(input: ImportInput): { report: ImportReport; mappe
           counts: emptyCounts(),
           missingAssets: [],
           notes: [],
-          blockers: ['支持 .kly / 场景 JSON / HTML / 图片视频；Remotion 工程需要 v2.5b'],
+          blockers: [note('支持 .kly / 场景 JSON / HTML / 图片视频；Remotion 工程需要 v2.5b')],
           preview: null,
         },
       };
@@ -336,7 +385,7 @@ function nativeReport(format: ImportFormat, input: ImportInput): ImportReport {
     fidelity: 100,
     counts,
     missingAssets: [],
-    notes: ['原生格式：图层、轨道、资源引用都按原样恢复'],
+    notes: [note('原生格式：图层、轨道、资源引用都按原样恢复')],
     blockers: [],
     preview: isObj(project)
       ? {
@@ -389,7 +438,10 @@ function htmlReport(input: ImportInput): ImportReport {
   const raw = readText(input) ?? '';
   const counts = emptyCounts();
   counts.code = 1;
-  const notes = ['整段 HTML 作为 html 代码层导入（静态提取图片/文本是 v2.5c）', '导出时这一层会被栅格化，精度可能下降'];
+  const notes = [
+    note('整段 HTML 作为 html 代码层导入（静态提取图片/文本是 v2.5c）'),
+    note('导出时这一层会被栅格化，精度可能下降'),
+  ];
   return {
     format: 'html',
     supported: true,
@@ -421,7 +473,7 @@ function mediaReport(input: ImportInput): ImportReport {
     fidelity: 30,
     counts,
     missingAssets: [],
-    notes: ['媒体层没有图层语义：只有整体位置/尺寸/透明度，内部内容不可拆'],
+    notes: [note('媒体层没有图层语义：只有整体位置/尺寸/透明度，内部内容不可拆')],
     blockers: [],
     preview: { name: input.name ?? '媒体', width: 0, height: 0, duration: 0, fps: 30, sample: [] },
   };
@@ -437,10 +489,10 @@ function remotionReport(input: ImportInput): ImportReport {
     counts: emptyCounts(),
     missingAssets: [],
     notes: [
-      names.length ? `包里认出 ${names.length} 个条目，含 TSX 组件` : 'Remotion 工程',
-      'Remotion 需要 Node 端渲染管线，浏览器里无法执行 TSX',
+      names.length ? note('包里认出 {n} 个条目，含 TSX 组件', { n: names.length }) : note('Remotion 工程'),
+      note('Remotion 需要 Node 端渲染管线，浏览器里无法执行 TSX'),
     ],
-    blockers: ['Remotion 工程的静态解析排在 v2.5b（本版不做「假装导入成功」）；可先用 npx remotion render 出片，再按视频导入'],
+    blockers: [note('Remotion 工程的静态解析排在 v2.5b（本版不做「假装导入成功」）；可先用 npx remotion render 出片，再按视频导入')],
     preview: { name: input.name ?? 'Remotion 工程', width: 0, height: 0, duration: 0, fps: 0, sample: names.slice(0, 6) },
   };
 }
@@ -600,7 +652,7 @@ const PROP_ALIAS: Record<string, AnimatableProperty | null> = {
 interface MapCtx {
   info: CanvasInfo;
   mode: ImportMode;
-  notes: string[];
+  notes: NoteList;
   missing: string[];
   assetJobs: MappedImport['assetJobs'];
   counts: ImportCounts;
@@ -619,7 +671,7 @@ export function mapScene(input: ImportInput, mode: ImportMode = 'prefer-editable
   const ctx: MapCtx = {
     info,
     mode,
-    notes: [],
+    notes: new NoteList(),
     missing: [],
     assetJobs: [],
     counts: emptyCounts(),
@@ -665,7 +717,7 @@ export function mapScene(input: ImportInput, mode: ImportMode = 'prefer-editable
     fidelity: fidelityOf(ctx),
     counts: ctx.counts,
     missingAssets: [...new Set(ctx.missing)],
-    notes: [...new Set(ctx.notes)],
+    notes: dedupeNotes(ctx.notes.all),
     blockers: [],
     preview: {
       name: info.name,
@@ -685,7 +737,7 @@ function fidelityOf(ctx: MapCtx): number {
   let score = 96;
   score -= ctx.counts.code * 8;
   score -= ctx.missing.length * 5;
-  const notesAboutLoss = ctx.notes.filter((n) => n.includes('无法') || n.includes('跳过')).length;
+  const notesAboutLoss = ctx.notes.all.filter((n) => n.key.includes('无法') || n.key.includes('跳过')).length;
   score -= notesAboutLoss * 6;
   return clamp(Math.round(score), 20, 98);
 }
@@ -767,7 +819,7 @@ function mapLayer(item: Record<string, unknown>, ctx: MapCtx, index: number): La
   if (kind === 'text') {
     const content = text(firstOf(item, ['text', 'content', 'value', 'children']), '');
     if (!content) {
-      ctx.notes.push(`文本层「${name}」没有文字内容，已跳过`);
+      ctx.notes.push('文本层「{name}」没有文字内容，已跳过', { name });
       return null;
     }
     const base = createTextLayer({ width: box.width, height: box.height });
@@ -797,12 +849,12 @@ function mapLayer(item: Record<string, unknown>, ctx: MapCtx, index: number): La
     if (src.startsWith('data:')) {
       ctx.assetJobs.push({ layerId, name: text(firstOf(item, ['name', 'label']), isVideo ? 'video' : 'image'), dataUrl: src });
       assetId = `pending:${layerId}`;
-      ctx.notes.push(`媒体「${name}」以 data URL 内嵌，导入时会写进资源库`);
+      ctx.notes.push('媒体「{name}」以 data URL 内嵌，导入时会写进资源库', { name });
     } else if (src) {
       ctx.missing.push(`${name} → ${src}`);
-      ctx.notes.push(`媒体「${name}」引用外部路径 ${src}，包里没带文件，图层先建但资源缺失`);
+      ctx.notes.push('媒体「{name}」引用外部路径 {src}，包里没带文件，图层先建但资源缺失', { name, src });
     } else {
-      ctx.notes.push(`媒体层「${name}」没有 src，建成空占位`);
+      ctx.notes.push('媒体层「{name}」没有 src，建成空占位', { name });
     }
     layer = {
       ...base,
@@ -843,10 +895,10 @@ function mapLayer(item: Record<string, unknown>, ctx: MapCtx, index: number): La
       origin,
     };
     ctx.counts.code += 1;
-    ctx.notes.push(`代码层「${name}」：${describeCode(layer.type === 'code' ? layer.code : base.code)}`);
+    ctx.notes.push('代码层「{name}」：{summary}', { name, summary: describeCode(layer.type === 'code' ? layer.code : base.code) });
   } else if (kind === 'shape') {
     if (ctx.mode === 'preserve-code') {
-      ctx.notes.push(`形状「${name}」在 preserve-code 模式下被跳过`);
+      ctx.notes.push('形状「{name}」在 preserve-code 模式下被跳过', { name });
       return null;
     }
     /* 没有原生形状层，用生成的 canvas2d 代码兜住 —— 至少位置/尺寸/透明度还能打关键帧 */
@@ -875,13 +927,13 @@ function mapLayer(item: Record<string, unknown>, ctx: MapCtx, index: number): La
       origin,
     };
     ctx.counts.code += 1;
-    ctx.notes.push(`形状「${name}」没有对应的原生图层类型，已生成 canvas2d 代码层（可改代码，但内部不可打点）`);
+    ctx.notes.push('形状「{name}」没有对应的原生图层类型，已生成 canvas2d 代码层（可改代码，但内部不可打点）', { name });
   } else if (kind === 'group') {
     /* 组不建层，但把组上的动画记下来 —— 组动画无处安放，只能提示 */
-    ctx.notes.push(`分组「${name}」没有展平：Kinelayer 没有图层组，子元素逐个导入`);
+    ctx.notes.push('分组「{name}」没有展平：Kinelayer 没有图层组，子元素逐个导入', { name });
     return null;
   } else {
-    ctx.notes.push(`图层「${name}」类型无法识别，已跳过`);
+    ctx.notes.push('图层「{name}」类型无法识别，已跳过', { name });
     return null;
   }
 
@@ -1015,7 +1067,7 @@ function mapTracks(item: Record<string, unknown>, layer: Layer, ctx: MapCtx): Pr
 
   if (skipped.length) {
     const unique = [...new Set(skipped)].slice(0, 4);
-    ctx.notes.push(`「${layer.name}」里 ${unique.join('、')} 的动画无法映射为轨道，已跳过`);
+    ctx.notes.push('「{name}」里 {props} 的动画无法映射为轨道，已跳过', { name: layer.name, props: unique.join('、') });
   }
 
   return [...buckets.entries()].map(([property, keyframes]) => ({ property, keyframes }));
@@ -1094,7 +1146,7 @@ export function mapAiScene(input: ImportInput, mode: ImportMode = 'prefer-editab
   const media = mapped.report.counts.media;
   if (media > 0) {
     mapped.report.notes.push(
-      `${media} 个媒体层只剩资源名（scene.ai.json 不带二进制），导入后需要重新指定图片/视频`,
+      note('{n} 个媒体层只剩资源名（scene.ai.json 不带二进制），导入后需要重新指定图片/视频', { n: media }),
     );
   }
   return mapped;
@@ -1141,7 +1193,10 @@ export function mapHtml(input: ImportInput): MappedImport {
       fidelity: 55,
       counts: { structured: 0, code: 1, media: 0, background: 1, tracks: 0, keyframes: 0 },
       missingAssets: [],
-      notes: ['整段 HTML 作为 html 代码层导入（静态提取图片/文本是 v2.5c）', '导出时这一层会被栅格化，精度可能下降'],
+      notes: [
+        note('整段 HTML 作为 html 代码层导入（静态提取图片/文本是 v2.5c）'),
+        note('导出时这一层会被栅格化，精度可能下降'),
+      ],
       blockers: [],
       preview: { name: input.name ?? 'HTML 片段', width: info.width, height: info.height, duration: project.duration, fps: 30, sample: [raw.slice(0, 80).replace(/\s+/g, ' ')] },
     },
