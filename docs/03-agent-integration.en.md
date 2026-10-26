@@ -166,7 +166,7 @@ By category (counts move with releases — trust the panel and `/manifest`):
 | Animation | `animation.setKeyframe` `animation.applyPreset` `animation.setEasing` … |
 | Timeline | `timeline.seek` `timeline.setRange` `timeline.setZoom` |
 | Background / canvas | `background.set` `canvas.resize` `canvas.setDuration` |
-| Assets / fonts | `asset.import` `asset.place` `font.upload` |
+| Assets / fonts | `asset.import` `asset.place` `asset.assign` `font.upload` |
 | Query | `query.project` `query.layer` `query.registry` `query.capture` |
 | Export | `export.png` `export.webm` `export.json` |
 | System | `command.batch` `history.undo` `history.redo` `audit.list` |

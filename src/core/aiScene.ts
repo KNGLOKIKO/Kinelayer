@@ -44,7 +44,19 @@ interface AiSceneLayerCommon {
   visible: boolean;
   blendMode: string;
   tracks?: AiSceneTrack[];
-  origin?: { generator: string; sourceFormat?: string; sourceBundle?: string; importedAt?: number };
+  /**
+   * 溯源。给 Agent 的意义不是「讲故事」，而是让它能判断这层值不值得改：
+   * 旧解析器拆出来的层可能比新规则少东西，缺资源的层它得知道原来指向哪儿。
+   */
+  origin?: {
+    generator: string;
+    sourceFormat?: string;
+    sourceBundle?: string;
+    importedAt?: number;
+    parser?: string;
+    external?: string[];
+    sourceRef?: string;
+  };
 }
 
 export interface AiSceneTextLayer extends AiSceneLayerCommon {
@@ -244,6 +256,9 @@ function commonOf(layer: Layer, tracks: PropertyTrack[]): AiSceneLayerCommon {
       ...(layer.origin.sourceFormat ? { sourceFormat: layer.origin.sourceFormat } : {}),
       ...(layer.origin.sourceBundle ? { sourceBundle: layer.origin.sourceBundle } : {}),
       ...(layer.origin.importedAt ? { importedAt: layer.origin.importedAt } : {}),
+      ...(layer.origin.parser ? { parser: layer.origin.parser } : {}),
+      ...(layer.origin.external?.length ? { external: layer.origin.external } : {}),
+      ...(layer.origin.sourceRef ? { sourceRef: layer.origin.sourceRef } : {}),
     };
   }
   return common;

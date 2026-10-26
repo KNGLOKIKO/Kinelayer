@@ -1,13 +1,14 @@
 import { setServices } from '@/core/services';
 import { pushToast, updateUi, useEditor } from '@/core/store';
+import { exec } from '@/core/commandBus';
 import { uid } from '@/core/ids';
 import { captureFrame, exportPng, exportProjectJson, exportWebm, buildFilename, downloadBlob } from '@/render/exporters';
 import { blobOf, looksLikeZip } from '@/core/bundle';
 import { preloadAssets, ensureAsset } from '@/render/assets';
-import { idbDeleteAsset, idbGetAsset, idbPutAsset } from '@/persist/idb';
+import { idbDeleteAsset, idbDeleteCommand, idbGetAsset, idbListCommands, idbPutAsset, idbPutCommand } from '@/persist/idb';
 import { loadFonts, registerFontFace, removeFont } from '@/persist/fonts';
 import { getLayerWindowHost } from '@/windows/host';
-import type { AssetMeta } from '@/core/types';
+import type { AssetMeta, CustomCommand } from '@/core/types';
 
 import { t } from '@/i18n';
 function dataUrlToBlob(dataUrl: string): Blob {
@@ -196,6 +197,35 @@ export function ensureServices(): void {
     },
     notify(kind, text) {
       pushToast(kind, text);
+    },
+    async listCustomCommands() {
+      const rows = await idbListCommands<CustomCommand>();
+      /* 手工比一遍 id：库里的脏数据（手动改过 IndexedDB）不该让整份列表失效 */
+      return rows.filter((r) => r && typeof r.id === 'string' && Array.isArray(r.steps));
+    },
+    async saveCustomCommand(cmd) {
+      await idbPutCommand({
+        ...cmd,
+        steps: cmd.steps.map((s) => ({ ...s, payload: s.payload ?? {} })),
+      });
+    },
+    async removeCustomCommand(id) {
+      await idbDeleteCommand(id);
+    },
+    async runSteps(steps) {
+      /*
+       * 用 command.batch 而不是自己循环 exec：批量执行器已经处理好三件麻烦事 ——
+       * 失败回滚、合并成一个撤销点、逐条审计。宏只是它的一个调用方。
+       */
+      const res = await exec<{
+        results: { type: string; ok: boolean; error?: { code: string; message: string } }[];
+        rolledBack?: boolean;
+      }>('command.batch', { commands: steps, atomic: true });
+      if (!res.ok) {
+        const results = (res.data as { results?: { type: string; ok: boolean; error?: { code: string; message: string } }[] } | undefined)?.results;
+        return { ok: false, results: results ?? steps.map((s) => ({ type: s.type, ok: false, error: res.error })) };
+      }
+      return { ok: true, results: res.data?.results ?? steps.map((s) => ({ type: s.type, ok: true })) };
     },
   });
 }

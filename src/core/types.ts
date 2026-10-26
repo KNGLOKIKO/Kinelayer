@@ -260,6 +260,14 @@ export interface LayerOrigin {
    * 编辑态能加载，但导出走 foreignObject 栅格化、离线打开也拿不到 —— 必须提前说。
    */
   external?: string[];
+  /**
+   * 这一层在原工程里指向的地址（`<img src="...">`、`staticFile('assets/a.png')` 的原文）。
+   *
+   * **只在那个引用没被落地成资源时才写** —— 它的用途是在导入对话框关掉之后
+   * 还能回答「我原本要的那张图在哪」，而不是给每层都留一份资源路径。
+   * 截图里的地址可能已经失效，所以界面上按线索展示，不按事实展示。
+   */
+  sourceRef?: string;
 }
 
 export interface BaseLayer {
@@ -416,7 +424,7 @@ export interface Project {
 
 /* ---------------------------------------------------------------- ui / runtime */
 
-export type LeftTab = 'layers' | 'assets' | 'fonts' | 'commands';
+export type LeftTab = 'layers' | 'assets' | 'fonts' | 'commands' | 'custom';
 export type RightTab = 'inspect' | 'ai' | 'audit';
 export type WindowMode = 'popup' | 'pip' | 'panel';
 
@@ -448,6 +456,13 @@ export interface UiState {
   /** 界面语言（只影响 UI 文案，不改项目数据） */
   locale: 'zh-CN' | 'en-US';
   codeEditorFor: string | null;
+  /**
+   * 自定义命令编辑器：null = 关着，'new' = 新建，其它 = 编辑这条的 id。
+   * 和 codeEditorFor 一样放在 store 里 —— 切语言整树重建时对话框不该自己关掉。
+   */
+  customEditorFor: string | 'new' | null;
+  /** 参数对话框挂在哪条自定义命令上（null = 关着）。没有参数的命令不进这个对话框，直接跑 */
+  customRunFor: string | null;
   windowMode: WindowMode;
   floatingWindows: string[];
   snapping: boolean;
@@ -483,6 +498,60 @@ export interface RuntimeState {
   aiBusy: boolean;
   toasts: ToastItem[];
   captureRequestId: string | null;
+  /**
+   * 自定义命令的内存缓存。
+   *
+   * 真身在 IndexedDB（跟工程无关：在 A 工程写的一条宏，B 工程也该能用），
+   * 这里只放一份读出来的副本给界面用。`loaded` 用来区分「还没读」和「读完了是空的」——
+   * 不然面板会在第一帧闪一下「一条都没有」。
+   */
+  customCommands: CustomCommand[];
+  customCommandsLoaded: boolean;
+}
+
+/* --------------------------------------------------------- custom commands */
+
+/** 自定义命令的参数类型：决定界面用什么控件、运行时怎么取值 */
+export type CustomParamType = 'number' | 'string' | 'boolean' | 'color' | 'layerId';
+
+export interface CustomCommandParam {
+  /** 占位符里用的名字：payload 里写 `"{{key}}"`，必须匹配 /^[a-zA-Z_][a-zA-Z0-9_]*$/ */
+  key: string;
+  /** 给用户看的名字（缺省用 key） */
+  label?: string;
+  type: CustomParamType;
+  default?: string | number | boolean;
+  hint?: string;
+  min?: number;
+  max?: number;
+  step?: number;
+}
+
+/** 一步 = 一条注册表命令。payload 里可以用 `{{param}}` 占位 */
+export interface CustomCommandStep {
+  id: string;
+  /** 注册表里的命令类型，例如 layer.update */
+  type: string;
+  payload: Record<string, unknown>;
+  /** 这步在干什么（给人和 AI 读，执行时也用它做进度提示） */
+  note?: string;
+}
+
+export interface CustomCommand {
+  id: string;
+  name: string;
+  description: string;
+  params: CustomCommandParam[];
+  steps: CustomCommandStep[];
+  /** 谁写的：界面里标出来，避免「这条是 AI 塞给我的」说不清 */
+  author: 'user' | 'ai';
+  createdAt: number;
+  updatedAt: number;
+  /** 跑过几次 —— 列表按「常用」排序的依据 */
+  runCount: number;
+  lastRunAt?: number;
+  /** 最近一次失败的说明（成功时清空），列表上显示红点 */
+  lastError?: string;
 }
 
 /* ---------------------------------------------------------------- invariants */

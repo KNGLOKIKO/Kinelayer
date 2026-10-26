@@ -518,14 +518,21 @@ export const projectCommands = [
     schema: z.object({ duration: z.number().min(LIMITS.duration.min).max(LIMITS.duration.max) }),
     example: { duration: 6000 },
     handler: (draft, payload, ctx) => {
-      draft.duration = Math.round(payload.duration);
+      const duration = Math.round(payload.duration);
+      draft.duration = duration;
       for (const layer of draft.layers) {
-        if (layer.outPoint > draft.duration) layer.outPoint = draft.duration;
+        if (layer.outPoint > duration) layer.outPoint = duration;
       }
+      /*
+       * 副作用闭包里只能引用普通值，不能引用 draft。
+       * applyEffects 是在 produceWithPatches 结束之后才跑的，那会儿 draft 已被 immer
+       * 回收，闭包里读 draft.duration 会抛 "Cannot perform 'get' on a proxy that has
+       * been revoked" —— 状态其实已经提交了，但命令返回失败，用户看到的是「改成功了却报错」。
+       */
       ctx.runtime((rt) => {
-        rt.playhead = clamp(rt.playhead, 0, draft.duration);
+        rt.playhead = clamp(rt.playhead, 0, duration);
       });
-      return { duration: draft.duration };
+      return { duration };
     },
   }),
 

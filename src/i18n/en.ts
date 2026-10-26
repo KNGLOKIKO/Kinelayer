@@ -787,6 +787,166 @@ export const en: Record<string, string> = {
     '(HTML) Only absolutely positioned elements get a position: {n} elements in normal flow stay in the code layer',
   '（HTML）<{tags}> 没有对应的原生图层，整块留在代码层':
     '(HTML) <{tags}> has no matching native layer and stays whole in the code layer',
+
+  /* ---- v2.6 导入之后：来源区块 + 缺资源修复 ---- */
+  '来源': 'Source',
+  '格式': 'Format',
+  '解析器': 'Parser',
+  '来源包': 'Bundle',
+  '导入时间': 'Imported',
+  '外部依赖': 'External',
+  '解析器 {name}': 'parser {name}',
+  '{n} 个外部依赖': '{n} external deps',
+  '未知': 'Unknown',
+  'HTML 片段': 'HTML snippet',
+  'Manim 场景': 'Manim scene',
+  '单个文件': 'Single file',
+  'Kinelayer 语义层': 'Kinelayer semantic layer',
+  '还有 {n} 个': '{n} more',
+  '这些是远程地址：编辑态能加载，导出和离线打开都拿不到':
+    'These are remote URLs: they load while editing, but export and offline opening will not have them',
+  '这层的图片没跟着导入': 'The image for this layer was not imported',
+  '这层的视频没跟着导入': 'The video for this layer was not imported',
+  '另有 {n} 层指向同一个地址，会一起补上': '{n} other layers point at the same URL and will be filled in too',
+  '选资源库里的{kind}…': 'Pick a {kind} from the library…',
+  '从本地补一个': 'Choose a local file',
+  '{name} 不是{kind}，这层用不了': '{name} is not a {kind}, so this layer cannot use it',
+  '已补上 {name}': 'Attached {name}',
+  '资源没跟着导入，原本指向 {ref}': 'Asset was not imported — it originally pointed at {ref}',
+  '引用的资源不在资源库里': 'The referenced asset is not in the library',
+  '{n} 层缺资源': '{n} layers are missing assets',
+  '定位': 'Find',
+  '选中这些图层，在右侧「来源」里补上资源': 'Select these layers, then attach an asset under 「Source」 on the right',
+  '（HTML）图片「{name}」在远程 {src}，不会替用户下载，导入后需要自己指定':
+    '(HTML) Image 「{name}」 is remote ({src}); it is not downloaded for you, so pick one after import',
+  '（HTML）图片「{name}」指向 {src}，单文件里没有这个文件，导入后需要自己指定':
+    '(HTML) Image 「{name}」 points at {src}, which is not inside the single file; pick one after import',
+
+  /* ---- v2.7 自定义命令 ---- */
+  名称:
+    'Name',
+  数字:
+    'Number',
+  开关:
+    'Toggle',
+  参数名:
+    'Param name',
+  '默认值（可空）':
+    'Default (optional)',
+  '显示名（给人和 AI 看）':
+    'Label (for humans and AI)',
+  说明:
+    'Hint',
+  删除参数:
+    'Remove parameter',
+  上移:
+    'Move up',
+  下移:
+    'Move down',
+  删除这一步:
+    'Remove step',
+  '这一步在干什么（可选）':
+    'What this step does (optional)',
+  'JSON 有问题：{msg}':
+    'JSON problem: {msg}',
+  '插入参数：':
+    'Insert param:',
+  点击插入到光标位置:
+    'Click to insert at the cursor',
+  新建自定义命令:
+    'New custom command',
+  编辑自定义命令:
+    'Edit custom command',
+  '{n} 步 · 跑过 {r} 次':
+    '{n} steps · run {r} times',
+  'AI 创建':
+    'By AI',
+  我创建:
+    'By me',
+  '保存中…':
+    'Saving…',
+  '例如：做一张标题卡':
+    'e.g. Build a title card',
+  '描述（给人和 AI 看）':
+    'Description (for humans and AI)',
+  这条命令做什么:
+    'What this command does',
+  '参数（最多 8 个）':
+    'Parameters (max 8)',
+  加参数:
+    'Add param',
+  '没有参数时，运行就是点一下。需要「每次填不同的值」再加参数，步骤里写 {{key}} 引用。':
+    'With no parameters, running is one click. Add parameters when values differ each time, then reference them as {{key}} in a step.',
+  '步骤（按顺序执行，最多 30 步）':
+    'Steps (run in order, max 30)',
+  从示例开始:
+    'Start from an example',
+  加一步:
+    'Add step',
+  '每一步就是一条已有命令。先挑命令，再改 payload。':
+    'Each step is one existing command. Pick the command, then edit its payload.',
+  'payload 必须是一个对象':
+    'payload must be a JSON object',
+  '必须是一个 JSON 对象':
+    'must be a JSON object',
+  '第 {n} 步':
+    'Step {n}',
+  'payload 不是合法 JSON：{msg}':
+    'payload is not valid JSON: {msg}',
+  保存失败:
+    'Save failed',
+  '已保存「{name}」':
+    'Saved 「{name}」',
+  '保存成功，但有一处要留意：{msg}':
+    'Saved, but one thing to note: {msg}',
+  未命名命令:
+    'Untitled command',
+  '运行「{name}」':
+    'Run 「{name}」',
+  '{n} 步会作为一次原子操作执行：任何一步失败，前面改的全部回滚。':
+    '{n} steps run as one atomic operation: if any step fails, everything before it is rolled back.',
+  '选一个图层…':
+    'Pick a layer…',
+  做一张标题卡:
+    'Build a title card',
+  '在当前画布上叠标题 + 副标题两层文字':
+    'Overlay a title and a subtitle on the current canvas',
+  标题:
+    'Title',
+  副标题:
+    'Subtitle',
+  建标题层:
+    'Create the title layer',
+  建副标题层:
+    'Create the subtitle layer',
+  '「{name}」执行完成':
+    '「{name}」 finished',
+  自定义:
+    'Custom',
+  '自定义命令 {n}':
+    'Custom commands {n}',
+  '搜索名称 / 描述':
+    'Search name / description',
+  '命令 = 一串已有命令 + 参数。存下来就能重复点，AI 也能存。':
+    'A command is a list of existing commands plus parameters. Save it and reuse it; AI can save them too.',
+  '读取中…':
+    'Loading…',
+  还没有自定义命令:
+    'No custom commands yet',
+  '把一串常用操作存成一条命令；也可以让 AI 用 custom.define 存给你':
+    'Save a chain of common operations as one command; AI can also save one for you via custom.define',
+  没有匹配的命令:
+    'No matching commands',
+  我:
+    'Me',
+  '{steps} 步 · {params} 参数':
+    '{steps} steps · {params} params',
+  '跑过 {n} 次':
+    'run {n} times',
+  '删除自定义命令「{name}」？已经做过的画布改动不受影响。':
+    'Delete custom command 「{name}」? Changes already made to the canvas are unaffected.',
+  编辑:
+    'Edit',
 };
 
 export type EnDict = typeof en;

@@ -183,12 +183,17 @@ iframe 里的 GSAP / CSS 动画默认按**真实时间**自己跑，跟主时间
 ## 五、origin 元信息
 
 每层的 `origin` 除了原有的 `generator` / `sourceFormat` / `sourceBundle` / `importedAt`，
-v2.5c 加了两个字段：
+v2.5c 加了两个字段，v2.6 又补了一个：
 
 | 字段 | 含义 |
 | --- | --- |
 | `parser` | 解析这条来源用的规则版本（`html-dom/1`）。规则会变，留着它才能分辨「旧规则猜的」还是「新规则也没救」 |
 | `external` | 导入时发现的远程依赖（GSAP CDN、远程字体/图片）。编辑态能加载，**导出与离线打开会缺** |
+| `sourceRef` | 这一层在原 HTML 里指向的地址（`<img src>` 原文）。**只在那个引用没被落地成资源时写** |
+
+`sourceRef` 是给「报告关掉之后」用的：远程与相对路径的图都不替用户抓，
+导入后靠它回答「我原本要的那张图在哪」。完整机制见
+[`06-after-import.md`](06-after-import.md)。
 
 `sourceFormat` 记成 `gsap` 还是 `html`，看有没有真提取到动画 —— 记错会误导「这层到底有没有时间信息」。
 

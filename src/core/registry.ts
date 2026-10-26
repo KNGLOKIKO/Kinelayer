@@ -77,6 +77,7 @@ export type CommandCategory =
   | '导出'
   | '查询'
   | 'AI'
+  | '自定义'
   | '系统';
 
 export interface CommandDef<S extends z.ZodTypeAny = z.ZodTypeAny> {

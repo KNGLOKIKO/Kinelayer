@@ -14,8 +14,10 @@ export const timelineCommands = [
     schema: z.object({}),
     example: {},
     handler: (draft, _payload, ctx) => {
+      /* 先取值再闭包：副作用闭包不能碰 draft（详见 canvas.setDuration 里的说明） */
+      const duration = draft.duration;
       ctx.runtime((rt) => {
-        if (rt.playhead >= draft.duration - 1) rt.playhead = 0;
+        if (rt.playhead >= duration - 1) rt.playhead = 0;
         rt.playing = true;
       });
       return { playing: true };

@@ -28,6 +28,19 @@ export interface EditorState {
 
 const demo = createDemoProject();
 
+const initialRuntime: RuntimeState = {
+  playhead: 0,
+  playing: false,
+  measuredFps: 0,
+  exportProgress: { active: false, label: '', progress: 0 },
+  bridge: { state: 'off', message: '', agents: 0 },
+  aiBusy: false,
+  toasts: [],
+  captureRequestId: null,
+  customCommands: [],
+  customCommandsLoaded: false,
+};
+
 const initialUi: UiState = {
   selectedIds: [],
   activeLayerId: null,
@@ -48,6 +61,8 @@ const initialUi: UiState = {
   showPrompt: false,
   locale: detectLocale(),
   codeEditorFor: null,
+  customEditorFor: null,
+  customRunFor: null,
   windowMode: 'popup',
   floatingWindows: [],
   snapping: true,
@@ -65,17 +80,8 @@ const initialUi: UiState = {
 export const useEditor = create<EditorState>(() => ({
   project: demo,
   ui: initialUi,
-  runtime: {
-    playhead: demo.duration,
-    playing: false,
-    measuredFps: 0,
-    exportProgress: { active: false, label: '', progress: 0 },
-    // message 留空：文案由渲染层 t('未连接') 决定，模块初始化时还不知道用户语言
-    bridge: { state: 'off', message: '', agents: 0 },
-    aiBusy: false,
-    toasts: [],
-    captureRequestId: null,
-  },
+  /* message 留空：文案由渲染层 t('未连接') 决定，模块初始化时还不知道用户语言 */
+  runtime: { ...initialRuntime, playhead: demo.duration },
   audit: [],
   past: [],
   future: [],

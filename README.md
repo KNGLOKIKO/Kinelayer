@@ -55,7 +55,8 @@ Kinelayer/
 │  │  ├─ temporal.ts           自研撤销栈：immer patches / inverse patches / 700ms 合并
 │  │  ├─ store.ts              Zustand 三段式：project（存盘）/ ui / runtime（都不存盘）
 │  │  ├─ defaults.ts           工厂 + normalizeProject（读宽容、写严格）+ 演示项目
-│  │  ├─ commands/*.ts         79 条命令，按领域分文件（图层/文本/代码/背景/项目/资源/字体/时间轴/动画/选择/历史/窗口/导出/查询/AI/批处理）
+│  │  ├─ commands/*.ts         84 条命令，按领域分文件（图层/文本/代码/背景/项目/资源/字体/时间轴/动画/选择/历史/窗口/导出/查询/AI/自定义/批处理）
+│  │  ├─ customCommands.ts     【v2.7】宏的纯逻辑：占位符替换、参数收口、保存前校验、禁区命令、展开步骤
 │  │  ├─ bundle.ts             工程包（.kly）：ZIP 打包/解包、逐文件 sha256、五道解压闸门
 │  │  ├─ importPipeline.ts     【v2.5】导入管线的纯函数部分：嗅探 → 预检报告 → 映射成图层/轨道
 │  │  ├─ aiScene.ts            【v2.5】`scene.ai.json`：给 Agent 的语义投影（秒制、无 base64、代码摘要）
@@ -81,7 +82,8 @@ Kinelayer/
 │  │  ├─ routes.ts             `?view=editor|layer|launcher` 的 URL 构造与跳转
 │  │  ├─ layout.ts             响应式三档（wide ≥1440 / mid ≥1080 / narrow），rAF 节流
 │  │  ├─ importFlow.ts         导入状态机：选文件 → 预检 → 报告 → 确认 → 写库（成功后关覆盖层/跳编辑器）
-│  │  └─ ImportReportDialog.tsx 导入预检报告：格式、可编辑程度、图层统计、降级说明、缺失资源
+│  │  ├─ ImportReportDialog.tsx 导入预检报告：格式、可编辑程度、图层统计、降级说明、缺失资源
+│  │  └─ CustomCommands.tsx    【v2.7】自定义命令：步骤编辑器 + 参数表单（按 id 重挂，不用 effect 同步表单）
 │  ├─ app/services.ts          把「副作用能力」注入命令层的服务表
 │  ├─ EditorApp.tsx            三栏布局 + 引导 + 主时钟 + 自动保存 + 快捷键 + 窄屏抽屉
 │  └─ main.tsx                 注册命令 → 注入服务 → 按 URL 分流主窗口/图层窗口
@@ -100,6 +102,8 @@ Kinelayer/
 │  ├─ ai-check.mjs             34 项 · v2.5a 导入预检/降级映射/scene.ai.json 往返
 │  ├─ remotion-check.mjs       37 项 · v2.5b Remotion 静态解析/remotion-component/kit 导出
 │  ├─ html-check.mjs           43 项 · v2.5c HTML/GSAP 静态解析/postMessage 时间同步/origin 元信息
+│  ├─ import-edit-check.mjs    30 项 · v2.6 导入之后：sourceRef/缺资源总账/asset.assign/来源区块
+│  ├─ custom-check.mjs         39 项 · v2.7 自定义命令：存前校验/原子执行/参数类型/失败回滚/持久化/双语
 │  └─ online-smoke.mjs         31 项 · 对线上 GitHub Pages 部署的冒烟（不需 dev server）
 └─ docs/
    ├─ 00-reference-notes.md    参考项目提取报告（第十四章）
@@ -107,7 +111,9 @@ Kinelayer/
    ├─ 02-bundle-format.md      工程包格式（.kly = ZIP）规范与敌意输入闸门
    ├─ 03-agent-integration.md  Agent 接入说明（中英双份，.en.md 为英文版）
    ├─ 04-code-video-integration.md  AI 代码视频：Remotion 静态解析与 remotion-kit 导出
-   └─ 05-html-gsap-import.md    HTML/GSAP 片段：DOM 结构提取、iframe 时间同步、origin 元信息
+   ├─ 05-html-gsap-import.md    HTML/GSAP 片段：DOM 结构提取、iframe 时间同步、origin 元信息
+   ├─ 06-after-import.md        导入之后：缺资源的四种状态、来源溯源、asset.assign 补回
+   └─ 07-custom-commands.md     自定义命令：为什么不做 DSL、{{x}} 两种语义、原子执行、禁区命令、跟人不跟工程
 ```
 
 **分层规矩**：`ui/` 不能直接改 `project`；`render/` 不能 import `store`；
@@ -116,7 +122,7 @@ Kinelayer/
 
 ---
 
-## 命令一览（79 条）
+## 命令一览（84 条）
 
 | 分类  | 条数 | 代表命令                                                                                                                                                                                                                          |
 | --- | -- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -126,7 +132,7 @@ Kinelayer/
 | 背景  | 2  | `background.set` `background.setCode`                                                                                                                                                                                         |
 | 画布  | 3  | `canvas.resize` `canvas.setDuration` `canvas.setFps`                                                                                                                                                                          |
 | 项目  | 10 | `project.new` `project.load` `project.create` `project.open` `project.rename` `project.duplicate` `project.deleteLocal` `project.listRecent` `project.exportBundle` `project.importBundle` |
-| 资源  | 3  | `asset.import` `asset.place` `asset.remove`                                                                                                                                                                                   |
+| 资源  | 4  | `asset.import` `asset.place` `asset.assign` `asset.remove`                                                                                                                                                                    |
 | 字体  | 3  | `font.register` `font.load` `font.remove`                                                                                                                                                                                     |
 | 时间轴 | 5  | `timeline.play` `timeline.pause` `timeline.seek` `timeline.setLayerTiming` `timeline.setLoop`                                                                                                                                 |
 | 动画  | 8  | `animation.setKeyframe` `animation.removeKeyframe` `animation.moveKeyframes` `animation.setEasing` `animation.setKeyframeValue` `animation.clearTrack` `animation.setAutoKeyframe` `animation.applyPreset`                     |
@@ -136,6 +142,7 @@ Kinelayer/
 | 导出  | 4  | `export.png` `export.webm` `export.json` `export.commands`                                                                                                                                                                    |
 | 查询  | 4  | `query.project` `query.layer` `query.registry` `query.capture`                                                                                                                                                                |
 | AI  | 5  | `ai.inspectImport` `ai.importProject` `ai.exportProject` `ai.queryCodeLayer` `ai.exportRemotionKit`                                                                                                                                    |
+| 自定义 | 4  | `custom.list` `custom.define` `custom.remove` `custom.run`（宏：一串已有命令 + 参数，存独立 IndexedDB）                                                                                                                                                |
 | 批处理 | 1  | `command.batch`（多条命令合成一个撤销点，失败原子回滚）                                                                                                                                                                                           |
 
 每条命令都自带：zod schema、中文描述、可直接跑的 `example`、
@@ -318,6 +325,56 @@ npm install && npx remotion render src/index.ts kly-01 out/kly-01.mp4
 （`html/body` 写 `transparent` 也白，实测四个变体），只能让背景色等于画布底色、
 再把 iframe 收缩到真有内容的那块，不然它会把整张画布连同一堆原生图层糊掉。
 
+报告关掉之后缺资源的图只剩一块灰占位，所以每个没落地的图都会在 `origin.sourceRef`
+留下原始地址；图层树上有「N 层缺资源 · 定位」的总账（点一下全选），Inspector 的
+**来源** 区块负责把资源补回去（`asset.assign`，几何与关键帧一律不动），
+指向同一地址的多层会一起补好。细节见 [docs/06-after-import.md](docs/06-after-import.md)。
+
+---
+
+## v2.7 · 自定义命令
+
+一条命令只干一件事，可真实动作是「做一张标题卡要三步」。于是有了自定义命令：
+**一串已有命令 + 一组参数**，用户和 AI 都能建、都能跑。
+
+不做 DSL 是刻意的。宏的每一步就是一条注册表命令（`type` + `payload`），
+参数用 `{{key}}` 在 payload 里占位。这样新加一条命令，宏能用的动作自动多一个，
+不需要改宏系统的任何代码；AI 也不用先学一门语言，它本来就会写 JSON 命令。
+
+```jsonc
+// 整个值就是一个占位符 → 保留原类型（传 7500 得到的还是数字，不会被 z.number() 拒收）
+{ "duration": "{{ms}}" }
+// 嵌在字符串里 → 拼接
+{ "text": "标题-{{tag}}" }
+```
+
+**一条宏 = 一次原子批处理**：全部成功才落盘，任一步失败整体回滚，撤销一次就全退。
+这条语义不新写，直接复用了 `command.batch`（失败回滚、合并撤销点、逐条审计都已经在里面）。
+
+**存之前校验，不是跑之前**：命令是否存在、payload 是否符合该命令的 schema、
+占位符有没有声明、有没有踩禁区命令 —— 全在保存那一刻挑出来并指到「第几步」。
+否则就是「保存成功但永远失败」，用户根本不知道该改哪儿。
+唯一例外是「字段值本身来自占位符」的情况，静态量不出来，降级成 warning。
+
+禁区命令（编辑器下拉里直接过滤掉）：`command.batch`（套娃）、`custom.*`（递归）、
+`history.*`（拆自己的地板）、`project.*`（换文档会清掉撤销历史）。
+
+**宏跟人不跟工程**：存在独立的 IndexedDB store（DB v3 的 `commands`）里，不进 `.kly`。
+在 A 工程写的「做标题卡」，B 工程也该能用。
+
+界面上左栏多一个「自定义」页签：一条宏一张卡片（名字、`AI`/`我` 徽标、几步几参、跑过几次、
+上次错在哪），一级按钮是运行 / 编辑 / 删除。有参数的宏点运行会先弹参数表单 ——
+不问就按默认值跑，等于替用户做决定。编辑器里挑命令、改 payload、按光标位置插入参数。
+
+AI 侧四条命令：`custom.list` / `custom.define` / `custom.run` / `custom.remove`，
+`custom.run` 支持 `dryRun`（只回报「如果跑会跑哪些步骤」，真的什么都不改）。
+宏的 `author` 由调用来源推断，所以「这条是谁建的」是记录在案的，不是猜的。
+
+顺手还修了两个老 bug：`canvas.setDuration` 每次都在副作用闭包里读已被 immer 回收的 draft
+（画面改了、命令却返回失败，控制台每改一次时长多一条 unhandled rejection）；
+批处理遇到抛异常的命令时回滚代码执行不到，「原子」变成「前两步已提交」。
+细节见 [docs/07-custom-commands.md](docs/07-custom-commands.md)。
+
 ---
 
 ## 快捷键
@@ -367,7 +424,7 @@ npm run mcp
 状态栏出现「Agent 已连接」就通了。
 
 **不想手写配置**：打开「设置 → 桌面 Agent」，那里有一份由命令注册表实时生成的接入提示词——
-站点地址、两种接入方式、74 条命令的能力范围、七条调用契约、七条权限边界、错误码处置、
+站点地址、两种接入方式、75 条命令的能力范围、七条调用契约、七条权限边界、错误码处置、
 外加三条 `curl` 自检命令，一键复制就能交给本机 Agent 工具；旁边还有「复制 MCP 配置」。
 
 Claude Desktop 配置示例见 `agent-bridge/claude-desktop-config.json`。
@@ -431,6 +488,8 @@ VITE_BASE=/Kinelayer/ npm run build   # 项目页需要这个前缀
 - [工程包格式](docs/02-bundle-format.md) —— `.kly` 的 ZIP 布局、manifest 字段、五道敌意输入闸门、错误码
 - [代码视频集成](docs/04-code-video-integration.md) —— Remotion 能解析到什么程度、`remotion-component` 的边界、remotion-kit 怎么出片
 - [HTML / GSAP 导入](docs/05-html-gsap-import.md) —— DOM 结构提取的取舍、iframe 白底绕不过去之后怎么办、postMessage 时间同步协议
+- [导入之后](docs/06-after-import.md) —— 媒体层的四种状态、`sourceRef` 为什么只记没拿到的、同地址多层怎么一起补
+- [自定义命令](docs/07-custom-commands.md) —— 为什么不做 DSL、`{{x}}` 的两种语义、一条宏为什么必须是一次批处理、禁区命令
 
 ## 许可
 

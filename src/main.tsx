@@ -25,7 +25,8 @@ if (!readLayerParams().layerId) {
  */
 if (import.meta.env.DEV) {
   (window as unknown as Record<string, unknown>).__kly = {
-    dispatch: (type: string, payload?: unknown) => dispatch(type, payload ?? {}, { source: 'user' }),
+    dispatch: (type: string, payload?: unknown, opts?: { dryRun?: boolean; source?: 'user' | 'ai' }) =>
+      dispatch(type, payload ?? {}, { source: opts?.source ?? 'user', dryRun: opts?.dryRun }),
     state: () => useEditor.getState(),
     commands: () => listCommands().map((c) => c.type),
     /** e2e 用：拿到某个图层的独立窗口地址（含本窗口 hostId） */

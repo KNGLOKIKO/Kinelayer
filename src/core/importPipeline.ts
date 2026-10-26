@@ -617,6 +617,7 @@ export async function mapRemotion(
     sourceFormat: 'remotion',
     sourceBundle: input.name,
     importedAt: Date.now(),
+    parser: 'remotion-ast/1',
   };
 
   const layers: Layer[] = [createBackground({ width, height, kind: 'solid', color: '#0b0b10' })];
@@ -670,13 +671,18 @@ export async function mapRemotion(
       } else if (spec.kind === 'image') {
         const base = createImageLayer({ width: box.width, height: box.height });
         const src = spec.src;
+        let layerOrigin = origin;
         if (src?.startsWith('data:')) {
           /* 内联 data URL 直接进资源池，不留在 layer 上（scene.ai.json 也不许塞 base64） */
           jobs.push({ layerId: base.id, name: `${spec.name || 'image'}.png`, dataUrl: src });
         } else if (src) {
           const hit = matchAsset(parsed.assets, src);
           if (hit) jobs.push({ layerId: base.id, name: baseName(hit.path), dataUrl: dataUrlOfPath(hit.bytes, hit.path) });
-          else missing.push(src);
+          else {
+            missing.push(src);
+            /* 报告关掉之后没人记得这张图原本叫什么，把地址留在层上 */
+            layerOrigin = { ...origin, sourceRef: src };
+          }
         }
         layer = {
           ...base,
@@ -687,7 +693,7 @@ export async function mapRemotion(
           inPoint,
           outPoint,
           radius: spec.style.radius ?? 0,
-          origin,
+          origin: layerOrigin,
         };
         counts.structured += 1;
         counts.media += 1;
@@ -1150,7 +1156,13 @@ function mapLayer(item: Record<string, unknown>, ctx: MapCtx, index: number): La
   const name = text(firstOf(item, ['name', 'label', 'title', 'id']), `图层 ${index + 1}`).slice(0, 80);
   const opacity = clamp(num(firstOf(item, ['opacity', 'alpha']), 1), 0, 1);
   const rotation = num(firstOf(item, ['rotation', 'rotate', 'angle']), 0);
-  const origin = { generator: 'import' as const, sourceFormat: ctx.origin, sourceBundle: ctx.sourceBundle, importedAt: Date.now() };
+  const origin: LayerOrigin = {
+    generator: 'import',
+    sourceFormat: ctx.origin,
+    sourceBundle: ctx.sourceBundle,
+    importedAt: Date.now(),
+    parser: 'scene-json/1',
+  };
 
   let layer: Layer | null = null;
 
@@ -1189,6 +1201,7 @@ function mapLayer(item: Record<string, unknown>, ctx: MapCtx, index: number): La
     const base = isVideo ? createVideoLayer({ width: box.width, height: box.height }) : createImageLayer({ width: box.width, height: box.height });
     const layerId = localId('ly');
     let assetId: string | null = null;
+    let layerOrigin = origin;
     if (src.startsWith('data:')) {
       ctx.assetJobs.push({ layerId, name: text(firstOf(item, ['name', 'label']), isVideo ? 'video' : 'image'), dataUrl: src });
       assetId = `pending:${layerId}`;
@@ -1196,6 +1209,8 @@ function mapLayer(item: Record<string, unknown>, ctx: MapCtx, index: number): La
     } else if (src) {
       ctx.missing.push(`${name} → ${src}`);
       ctx.notes.push('媒体「{name}」引用外部路径 {src}，包里没带文件，图层先建但资源缺失', { name, src });
+      /* 包名 + 路径是这类导入唯一的线索：报告关掉后至少还能看见它原本指向哪儿 */
+      layerOrigin = { ...origin, sourceRef: src };
     } else {
       ctx.notes.push('媒体层「{name}」没有 src，建成空占位', { name });
     }
@@ -1212,7 +1227,7 @@ function mapLayer(item: Record<string, unknown>, ctx: MapCtx, index: number): La
       assetId,
       inPoint: timing.inPoint,
       outPoint: timing.outPoint,
-      origin,
+      origin: layerOrigin,
     } as Layer;
     ctx.counts.structured += 1;
     ctx.counts.media += 1;
@@ -1587,13 +1602,21 @@ export async function mapHtml(
       } else if (block.kind === 'image') {
         const base = createImageLayer({ width: box.width, height: box.height });
         const src = block.src;
+        let layerOrigin = origin;
         if (src.startsWith('data:')) {
           jobs.push({ layerId: base.id, name: `${block.name || 'image'}.png`, dataUrl: src });
-        } else if (/^https?:\/\//i.test(src) || src.startsWith('//')) {
-          /* 远程图片：不替用户下载（可能几百 KB 也可能挂），记进缺失，让用户自己指定 */
-          missing.push(src);
         } else {
+          /*
+           * 远程和相对路径都不替用户抓：前者可能几百 KB 也可能挂，后者在单文件里根本不存在。
+           * 结果一样（缺资源），但原因不同 —— 报告里得分开说，用户才知道该去哪儿找图。
+           */
           missing.push(src);
+          layerOrigin = { ...origin, sourceRef: src };
+          if (/^https?:\/\//i.test(src) || src.startsWith('//')) {
+            pushNote('（HTML）图片「{name}」在远程 {src}，不会替用户下载，导入后需要自己指定', { name: block.name, src });
+          } else {
+            pushNote('（HTML）图片「{name}」指向 {src}，单文件里没有这个文件，导入后需要自己指定', { name: block.name, src });
+          }
         }
         layers.push({
           ...base,
@@ -1604,7 +1627,7 @@ export async function mapHtml(
           inPoint: 0,
           outPoint: duration,
           radius: block.radius,
-          origin,
+          origin: layerOrigin,
         });
         counts.structured += 1;
         counts.media += 1;

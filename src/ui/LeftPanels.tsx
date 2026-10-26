@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  AlertTriangle,
   ChevronDown,
   Code2,
   Copy,
@@ -10,8 +11,10 @@ import {
   Layers,
   Lock,
   MonitorSmartphone,
+  Play,
   Plus,
   Search,
+  Sparkles,
   Square,
   Terminal,
   Trash2,
@@ -26,17 +29,20 @@ import { listByCategory, type CommandCategory } from '@/core/registry';
 import { pushToast, updateUi, useEditor } from '@/core/store';
 import { idbGetAsset } from '@/persist/idb';
 import { SYSTEM_FONTS, listLocalFonts } from '@/persist/fonts';
-import type { Layer, LayerOrigin } from '@/core/types';
+import type { CustomCommand, Layer, LayerOrigin } from '@/core/types';
 import { Badge, Button, EmptyState, IconButton, TextInput, cx } from './primitives';
+import { isAssetMissing, missingAssetLayers } from './assetGaps';
+import { fileToDataUrl, uploadAsset } from './uploadAsset';
 
 import { t } from '@/i18n';
 /* ------------------------------------------------------------------ rail */
 
 // label 一律存中文原文：模块级拿不到「用户当前语言」，翻译必须留到渲染时做
-const TABS: { id: 'layers' | 'assets' | 'fonts' | 'commands'; icon: typeof Layers; label: string }[] = [
+const TABS: { id: 'layers' | 'assets' | 'fonts' | 'commands' | 'custom'; icon: typeof Layers; label: string }[] = [
   { id: 'layers', icon: Layers, label: '图层' },
   { id: 'assets', icon: ImageIcon, label: '资源' },
   { id: 'fonts', icon: Type, label: '字体' },
+  { id: 'custom', icon: Sparkles, label: '自定义' },
   { id: 'commands', icon: Terminal, label: '命令' },
 ];
 
@@ -90,13 +96,17 @@ function originTitle(origin: LayerOrigin): string {
   const parts = [generator];
   if (origin.sourceFormat) parts.push(origin.sourceFormat);
   if (origin.sourceBundle) parts.push(origin.sourceBundle);
+  if (origin.parser) parts.push(t('解析器 {name}', { name: origin.parser }));
   if (origin.importedAt) parts.push(new Date(origin.importedAt).toLocaleString());
+  /* 外部依赖只给个数：悬浮提示塞不下几条 URL，详细清单在右侧「来源」里 */
+  if (origin.external?.length) parts.push(t('{n} 个外部依赖', { n: origin.external.length }));
   return parts.join(' · ');
 }
 
 function LayerRow({ layer, index }: { layer: Layer; index: number }) {
   const selected = useEditor((s) => s.ui.selectedIds.includes(layer.id));
   const active = useEditor((s) => s.ui.activeLayerId === layer.id);
+  const gap = useEditor((s) => isAssetMissing(s.project, layer));
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(layer.name);
   const isBg = layer.type === 'background';
@@ -190,6 +200,22 @@ function LayerRow({ layer, index }: { layer: Layer; index: number }) {
           </Badge>
         </span>
       )}
+      {/*
+        缺资源标记要挨着来源徽标，因为这两件事是同一个故事：
+        「这层是导入来的」+「它要的那张图没跟着来」。分开摆用户对不上。
+      */}
+      {gap && (
+        <span
+          data-testid="asset-gap-mark"
+          title={
+            layer.origin?.sourceRef
+              ? t('资源没跟着导入，原本指向 {ref}', { ref: layer.origin.sourceRef })
+              : t('引用的资源不在资源库里')
+          }
+        >
+          <AlertTriangle size={11} className="text-amber-400" />
+        </span>
+      )}
       {!isBg && (
         <button
           type="button"
@@ -233,9 +259,11 @@ function LayerRow({ layer, index }: { layer: Layer; index: number }) {
 
 function LayersPanel() {
   const layers = useEditor((s) => s.project.layers);
+  const project = useEditor((s) => s.project);
   const selected = useEditor((s) => s.ui.selectedIds);
   const [addOpen, setAddOpen] = useState(false);
   const reversed = useMemo(() => [...layers].reverse(), [layers]);
+  const gaps = useMemo(() => missingAssetLayers(project), [project]);
 
   const add = (type: 'text' | 'code' | 'image') => {
     setAddOpen(false);
@@ -274,6 +302,24 @@ function LayersPanel() {
         </div>
       </div>
       <div className="ml-scroll flex-1 overflow-y-auto p-1.5">
+        {gaps.length > 0 && (
+          /*
+           * 缺资源是「导入之后」才会暴露的问题：报告对话框已经关了，
+           * 画上只剩一块「图片资源缺失」的占位，用户看不出总共有几层、是哪几层。
+           * 这条横幅就是那个「总账」，点一下把有问题的层全部选中。
+           */
+          <button
+            type="button"
+            data-testid="asset-gap-banner"
+            onClick={() => void exec('selection.set', { ids: gaps.map((l) => l.id) })}
+            title={t('选中这些图层，在右侧「来源」里补上资源')}
+            className="border-amber-500/30 bg-amber-500/10 text-amber-300/90 hover:bg-amber-500/15 mb-1.5 flex w-full items-center gap-1.5 rounded border px-2 py-1.5 text-left text-[11px]"
+          >
+            <AlertTriangle size={12} className="shrink-0" />
+            <span className="flex-1">{t('{n} 层缺资源', { n: gaps.length })}</span>
+            <span className="text-[10px] opacity-70">{t('定位')}</span>
+          </button>
+        )}
         {reversed.map((layer, i) => (
           <LayerRow key={layer.id} layer={layer} index={layers.length - 1 - i} />
         ))}
@@ -355,45 +401,12 @@ function AssetCard({ id, name, kind, size }: { id: string; name: string; kind: s
   );
 }
 
-function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error ?? new Error(t('读取文件失败')));
-    reader.readAsDataURL(file);
-  });
-}
-
 export async function importFiles(files: FileList | File[]): Promise<void> {
-  const arr = Array.from(files);
-  for (const file of arr) {
-    const isVideo = file.type.startsWith('video/');
-    const isImage = file.type.startsWith('image/');
-    if (!isVideo && !isImage) {
-      pushToast('warn', t('跳过不支持的文件：{name}', { name: file.name }));
-      continue;
-    }
-    if (file.size > 48 * 1024 * 1024) {
-      pushToast('error', t('{name} 超过 48MB，已跳过', { name: file.name }));
-      continue;
-    }
-    try {
-      const dataUrl = await fileToDataUrl(file);
-      const res = await exec<{ id: string }>('asset.import', {
-        name: file.name,
-        mime: file.type || (isVideo ? 'video/mp4' : 'image/png'),
-        dataUrl,
-        kind: isVideo ? 'video' : 'image',
-      });
-      if (res.ok && res.data?.id) {
-        await exec('asset.place', { assetId: res.data.id });
-        pushToast('success', t('已导入 {name}', { name: file.name }));
-      } else {
-        pushToast('error', res.error?.message ?? t('导入失败'));
-      }
-    } catch (err) {
-      pushToast('error', (err as Error).message);
-    }
+  for (const file of Array.from(files)) {
+    const meta = await uploadAsset(file);
+    if (!meta) continue;
+    await exec('asset.place', { assetId: meta.id });
+    pushToast('success', t('已导入 {name}', { name: file.name }));
   }
 }
 
@@ -615,6 +628,111 @@ function CommandRow({ type, description, example }: { type: string; description:
   );
 }
 
+/* ------------------------------------------------------- 自定义命令面板 */
+
+/**
+ * 自定义命令（宏）列表。
+ *
+ * 这一屏要回答三个问题，顺序就是卡片从上到下的顺序：
+ * 这条命令是干什么的 → 它有多重（几步 / 几个参数）→ 上次跑成功没有。
+ * 运行按钮放在最显眼的位置：存下来就是为了重复点。
+ */
+function CustomPanel() {
+  const list = useEditor((s) => s.runtime.customCommands);
+  const loaded = useEditor((s) => s.runtime.customCommandsLoaded);
+  const [query, setQuery] = useState('');
+  const norm = query.trim().toLowerCase();
+  const filtered = useMemo(
+    () => list.filter((c) => !norm || c.name.toLowerCase().includes(norm) || c.description.toLowerCase().includes(norm)),
+    [list, norm],
+  );
+
+  const openEditor = (id: string | 'new') => updateUi((ui) => { ui.customEditorFor = id; });
+
+  const run = async (cmd: CustomCommand) => {
+    /* 有参数的先弹表单：不问就按默认值跑，等于替用户做决定 */
+    if (cmd.params.length > 0) {
+      updateUi((ui) => { ui.customRunFor = cmd.id; });
+      return;
+    }
+    const res = await exec('custom.run', { id: cmd.id });
+    if (res.ok) pushToast('success', t('「{name}」执行完成', { name: cmd.name }));
+    else pushToast('error', res.error?.message ?? t('执行失败'));
+  };
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="border-ink-700/70 flex h-9 items-center justify-between border-b px-2.5">
+        <span className="text-[11px] font-semibold tracking-[0.1em] text-zinc-400 uppercase">{t('自定义命令 {n}', { n: list.length })}</span>
+        <IconButton title={t('新建自定义命令')} onClick={() => openEditor('new')} size={24}>
+          <Plus size={14} />
+        </IconButton>
+      </div>
+      <div className="border-ink-700/70 border-b p-2">
+        <div className="relative">
+          <Search size={12} className="absolute top-1/2 left-2 -translate-y-1/2 text-zinc-600" />
+          <TextInput value={query} onChange={setQuery} placeholder={t('搜索名称 / 描述')} className="pl-6" />
+        </div>
+        <p className="mt-1.5 text-[10px] leading-relaxed text-zinc-600">{t('命令 = 一串已有命令 + 参数。存下来就能重复点，AI 也能存。')}</p>
+      </div>
+
+      <div className="ml-scroll flex-1 overflow-y-auto p-1.5">
+        {!loaded && <p className="px-2 py-3 text-[11px] text-zinc-600">{t('读取中…')}</p>}
+        {loaded && list.length === 0 && (
+          <EmptyState
+            icon={<Sparkles size={18} />}
+            title={t('还没有自定义命令')}
+            hint={t('把一串常用操作存成一条命令；也可以让 AI 用 custom.define 存给你')}
+          />
+        )}
+        {loaded && list.length > 0 && filtered.length === 0 && <p className="px-2 py-3 text-[11px] text-zinc-600">{t('没有匹配的命令')}</p>}
+        {filtered.map((cmd) => (
+          <div key={cmd.id} data-testid="custom-command-row" data-cmd-id={cmd.id} className="border-ink-700/70 bg-ink-900/50 mb-1.5 rounded-md border p-2">
+            <div className="flex items-center gap-1.5">
+              <span className="min-w-0 flex-1 truncate text-[11.5px] font-medium text-zinc-200" title={cmd.name} data-user-text>
+                {cmd.name}
+              </span>
+              <Badge tone={cmd.author === 'ai' ? 'accent' : 'neutral'}>{cmd.author === 'ai' ? t('AI') : t('我')}</Badge>
+            </div>
+            {cmd.description && <p className="mt-0.5 line-clamp-2 text-[10.5px] leading-relaxed text-zinc-500" data-user-text>{cmd.description}</p>}
+            <div className="mt-1 flex items-center gap-2 text-[10px] text-zinc-600">
+              <span>{t('{steps} 步 · {params} 参数', { steps: cmd.steps.length, params: cmd.params.length })}</span>
+              {cmd.runCount > 0 && <span>· {t('跑过 {n} 次', { n: cmd.runCount })}</span>}
+            </div>
+            {cmd.lastError && (
+              <p className="mt-1 flex items-start gap-1 text-[10px] leading-relaxed text-rose-400" title={cmd.lastError} data-user-text>
+                <AlertTriangle size={10} className="mt-[3px] shrink-0" />
+                <span className="line-clamp-2">{cmd.lastError}</span>
+              </p>
+            )}
+            <div className="mt-1.5 flex items-center gap-1">
+              <Button size="sm" variant="accent" onClick={() => void run(cmd)}>
+                <Play size={10} /> {t('运行')}
+              </Button>
+              <Button size="sm" variant="ghost" onClick={() => openEditor(cmd.id)}>
+                {t('编辑')}
+              </Button>
+              <div className="flex-1" />
+              <button
+                type="button"
+                title={t('删除')}
+                className="text-zinc-600 hover:text-rose-400"
+                onClick={() => {
+                  if (confirm(t('删除自定义命令「{name}」？已经做过的画布改动不受影响。', { name: cmd.name }))) {
+                    void exec('custom.remove', { id: cmd.id });
+                  }
+                }}
+              >
+                <Trash2 size={11} />
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function CommandsPanel() {
   const [query, setQuery] = useState('');
   const grouped = useMemo(() => listByCategory(), []);
@@ -666,6 +784,7 @@ export function LeftPanel({ width = 268 }: { width?: number }) {
       {tab === 'layers' && <LayersPanel />}
       {tab === 'assets' && <AssetsPanel />}
       {tab === 'fonts' && <FontsPanel />}
+      {tab === 'custom' && <CustomPanel />}
       {tab === 'commands' && <CommandsPanel />}
     </aside>
   );

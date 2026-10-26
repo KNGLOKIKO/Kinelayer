@@ -14,6 +14,7 @@ import { windowCommands } from './windows';
 import { exportCommands } from './export';
 import { queryCommands } from './query';
 import { aiCommands } from './ai';
+import { customCommands } from './custom';
 import { batchCommand } from './batch';
 
 let registered = false;
@@ -39,5 +40,6 @@ export function registerAllCommands(): void {
   registerCommands(exportCommands);
   registerCommands(queryCommands);
   registerCommands(aiCommands);
+  registerCommands(customCommands);
   registerCommands([batchCommand]);
 }

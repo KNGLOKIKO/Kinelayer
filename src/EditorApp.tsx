@@ -9,13 +9,14 @@ import { AIPanel } from '@/ui/AIPanel';
 import { AuditPanel, StatusBar, Toasts } from '@/ui/Chrome';
 import { ImportReportDialog } from '@/ui/ImportReportDialog';
 import { CodeEditorDialog, ExportDialog, SettingsDialog } from '@/ui/Dialogs';
+import { CustomCommandEditor, CustomRunDialog } from '@/ui/CustomCommands';
 import { Launcher } from '@/ui/Launcher';
 import { editorUrl, go, launcherUrl, replaceUrl } from '@/ui/routes';
 import { PromptDialog } from '@/ui/PromptDialog';
 import { FloatingLayerPanels } from '@/ui/FloatingLayerPanels';
 import { exec } from '@/core/commandBus';
 import { setBroadcastHandler } from '@/core/commandBus';
-import { updateUi, useEditor } from '@/core/store';
+import { updateRuntime, updateUi, useEditor } from '@/core/store';
 import {
   ensureProjectRecorded,
   getLastProjectId,
@@ -30,6 +31,7 @@ import { initAI } from '@/ai/config';
 import { connectBridge, subscribeBridgeSync } from '@/ai/bridgeClient';
 import { getLayerWindowHost } from '@/windows/host';
 import { ensureServices } from '@/app/services';
+import { getServices } from '@/core/services';
 import { cx } from '@/ui/primitives';
 import { useLayoutTier } from '@/ui/layout';
 
@@ -80,6 +82,8 @@ export function EditorApp() {
   const tier = useLayoutTier();
   const drawer = useEditor((s) => s.ui.narrowDrawer);
   const showTimeline = useEditor((s) => s.ui.showTimeline);
+  const customEditorFor = useEditor((s) => s.ui.customEditorFor);
+  const customRunFor = useEditor((s) => s.ui.customRunFor);
   const setDrawer = (next: 'left' | 'right' | null) =>
     updateUi((ui) => {
       ui.narrowDrawer = next;
@@ -94,6 +98,18 @@ export function EditorApp() {
     const boot = async () => {
       await initAI();
       await restoreFonts().catch(() => []);
+      /* 自定义命令是全局的（不属于任何工程），跟字体一样在启动时读一次。
+         读失败不该拦住编辑器启动 —— 只是面板空着，用户还能新建。 */
+      await getServices()
+        .listCustomCommands()
+        .then((rows) => {
+          if (disposed) return;
+          updateRuntime((rt) => {
+            rt.customCommands = [...rows].sort((a, b) => b.updatedAt - a.updatedAt);
+            rt.customCommandsLoaded = true;
+          });
+        })
+        .catch(() => updateRuntime((rt) => { rt.customCommandsLoaded = true; }));
       /* 打开哪一份：URL 上的 projectId 优先（分享链接/多标签），其次是上次打开的工程。
          两者都没有 = 直接敲了 ?view=editor，没东西可开 —— 回启动页选一个，
          不要凭空造一份示例工程（那会让「工程库」里凭空多出一条记录）。 */
@@ -370,6 +386,8 @@ export function EditorApp() {
       <ExportDialog />
       <ImportReportDialog />
       <CodeEditorDialog />
+      {customEditorFor && <CustomCommandEditor key={customEditorFor} />}
+      {customRunFor && <CustomRunDialog key={customRunFor} />}
       <FloatingLayerPanels />
       <Toasts />
     </div>

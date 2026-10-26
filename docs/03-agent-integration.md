@@ -163,9 +163,10 @@ curl -s -X POST http://127.0.0.1:2718/command \
 | 动画 | `animation.setKeyframe` `animation.applyPreset` `animation.setEasing` … |
 | 时间轴 | `timeline.seek` `timeline.setRange` `timeline.setZoom` |
 | 背景 / 画布 | `background.set` `canvas.resize` `canvas.setDuration` |
-| 资源 / 字体 | `asset.import` `asset.place` `font.upload` |
+| 资源 / 字体 | `asset.import` `asset.place` `asset.assign` `font.upload` |
 | 查询 | `query.project` `query.layer` `query.registry` `query.capture` |
 | 导出 | `export.png` `export.webm` `export.json` |
+| 自定义 | `custom.list` `custom.define` `custom.run` `custom.remove`（宏：一串已有命令 + 参数） |
 | 系统 | `command.batch` `history.undo` `history.redo` `audit.list` |
 
 ---
@@ -174,6 +175,7 @@ curl -s -X POST http://127.0.0.1:2718/command \
 
 1. **先读后写**：id 必须来自 `query.project` / `manifest.summary`，不要凭空编。
 2. **多步合成一条**：两处以上改动放进 `command.batch`（`atomic:true`），用户一次撤销全回退。
+   同一串步骤会被反复用到时，用 `custom.define` 存成一条宏，之后 `custom.run` 一行调起 —— 宏内部同样是一次原子批处理。
 3. **不确定就试算**：`dryRun:true` 只校验、不落盘、不产生撤销点。
 4. **并发写带锁**：写命令带 `expectedVersion`（上次结果的 `projectVersion`）。收到 `CONFLICT` 重读再改，别盲目重试。
 5. **串行发送**：总线是串行队列，一条做完再下一条。

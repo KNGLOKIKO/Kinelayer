@@ -56,7 +56,8 @@ Kinelayer/
 │  │  ├─ temporal.ts           Hand-rolled undo: immer patches / inverse patches / 700ms coalescing
 │  │  ├─ store.ts              Zustand in three slices: project (persisted) / ui / runtime (never persisted)
 │  │  ├─ defaults.ts           Factories + normalizeProject (lenient read, strict write) + demo project
-│  │  ├─ commands/*.ts         79 commands, one file per domain (layer/text/code/background/project/asset/font/timeline/animation/selection/history/window/export/query/AI/batch)
+│  │  ├─ commands/*.ts         84 commands, one file per domain (layer/text/code/background/project/asset/font/timeline/animation/selection/history/window/export/query/AI/custom/batch)
+│  │  ├─ customCommands.ts     [v2.7] Macro logic, pure: placeholder substitution, param coercion, pre-save validation, forbidden commands, step expansion
 │  │  ├─ bundle.ts             Project package (.kly): ZIP packing/unpacking, per-file sha256, five unzip gates
 │  │  ├─ importPipeline.ts     [v2.5] Import pipeline, pure functions: sniff → inspect report → map to layers/tracks
 │  │  ├─ aiScene.ts            [v2.5] `scene.ai.json`: the semantic projection agents read (seconds, no base64, code digest)
@@ -110,7 +111,7 @@ injected through `services.ts`.
 
 ---
 
-## Commands at a glance (79)
+## Commands at a glance (84)
 
 | Category | Count | Representative commands |
 | --- | --- | --- |
@@ -120,7 +121,7 @@ injected through `services.ts`.
 | Background | 2 | `background.set` `background.setCode` |
 | Canvas | 3 | `canvas.resize` `canvas.setDuration` `canvas.setFps` |
 | Project | 10 | `project.new` `project.load` `project.create` `project.open` `project.rename` `project.duplicate` `project.deleteLocal` `project.listRecent` `project.exportBundle` `project.importBundle` |
-| Asset | 3 | `asset.import` `asset.place` `asset.remove` |
+| Asset | 4 | `asset.import` `asset.place` `asset.assign` `asset.remove` |
 | Font | 3 | `font.register` `font.load` `font.remove` |
 | Timeline | 5 | `timeline.play` `timeline.pause` `timeline.seek` `timeline.setLayerTiming` `timeline.setLoop` |
 | Animation v2 | 8 | `animation.setKeyframe` `animation.removeKeyframe` `animation.moveKeyframes` `animation.setEasing` `animation.setKeyframeValue` `animation.clearTrack` `animation.setAutoKeyframe` `animation.applyPreset` |
@@ -130,6 +131,7 @@ injected through `services.ts`.
 | Export | 4 | `export.png` `export.webm` `export.json` `export.commands` |
 | Query | 4 | `query.project` `query.layer` `query.registry` `query.capture` |
 | AI | 5 | `ai.inspectImport` `ai.importProject` `ai.exportProject` `ai.queryCodeLayer` `ai.exportRemotionKit` |
+| Custom | 4 | `custom.list` `custom.define` `custom.remove` `custom.run` (macros: a sequence of existing commands plus params, stored in their own IndexedDB store) |
 | Batch | 1 | `command.batch` (many commands collapsed into one undo point, atomic rollback on failure) |
 
 Every command carries a zod schema, a description, a runnable `example`, and metadata such as
@@ -303,6 +305,13 @@ a sandbox iframe's white background cannot be removed in Chrome (`html/body { ba
 transparent }` fails too; four variants were tested), so the only way is to make its background
 equal the canvas colour and shrink the iframe to the region that actually has content.
 
+Once the import report is dismissed, an image that never made it into the project leaves a grey
+placeholder and nothing else — so each such layer keeps `origin.sourceRef` (the address it
+pointed at), the layer tree shows a "N layers missing assets" tally that selects them all, and
+the Inspector's **Source** section attaches a replacement in place (geometry and keyframes
+untouched) via `asset.assign`. Layers sharing one URL are filled together. Details in
+[docs/06-after-import.md](docs/06-after-import.md).
+
 ---
 
 ## Shortcuts
@@ -355,7 +364,7 @@ hit connect. The status bar shows "Agent connected" when it is up.
 A Claude Desktop config sample lives in `agent-bridge/claude-desktop-config.json`.
 
 **Rather not hand-write config?** Open **Settings → Desktop agent**. It carries an integration prompt generated live
-from the command registry — site address, both ways in, the capability scope of all 74 commands, seven contract rules,
+from the command registry — site address, both ways in, the capability scope of all 75 commands, seven contract rules,
 seven permission boundaries, error-code handling, plus three `curl` pre-flight checks. One click copies it for any
 local agent tool, and a “Copy MCP config” button sits right next to it.
 
@@ -415,6 +424,8 @@ all three flavours grow at once.
 - [Known limitations and extension points](docs/01-known-limitations.md) — export formats, sandbox boundaries, multi-window fallback chain, performance ledger
 - [Project package format](docs/02-bundle-format.md) — `.kly` ZIP layout, manifest fields, the five hostile-input gates, error codes
 - [Code video integration](docs/04-code-video-integration.md) — how far Remotion parsing goes, the `remotion-component` boundary, rendering a remotion-kit
+- [After import](docs/06-after-import.md) — the four states of a media layer, why `sourceRef` only records what was never fetched, fixing layers that share one address
+- [Custom commands](docs/07-custom-commands.md) — why there is no DSL, the two meanings of `{{x}}`, why one macro must be one atomic batch, forbidden commands
 
 ## License
 

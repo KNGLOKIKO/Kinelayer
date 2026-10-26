@@ -64,6 +64,39 @@ export const assetCommands = [
   }),
 
   defineCommand({
+    type: 'asset.assign',
+    category: '资源',
+    mutating: true,
+    description:
+      '把已导入的资源挂到已有的图片层/视频层上，位置、尺寸、关键帧全部保留。用于补上导入时缺失的资源；类型不匹配（视频挂图片层）会整批拒绝，不会只改一半。',
+    schema: z.object({ ids: z.array(zId).min(1).max(200), assetId: zId }),
+    example: { ids: ['ly_abc'], assetId: 'as_abc' },
+    handler: (draft, payload) => {
+      const meta = draft.assets.find((a) => a.id === payload.assetId);
+      if (!meta) throw new CommandFailure('NOT_FOUND', `资源不存在：${payload.assetId}`);
+      const targets = payload.ids.map((id) => {
+        const layer = draft.layers.find((l) => l.id === id);
+        if (!layer) throw new CommandFailure('NOT_FOUND', `图层不存在：${id}`);
+        if (layer.type !== 'image' && layer.type !== 'video') {
+          throw new CommandFailure('VALIDATION', `「${layer.name}」不是图片/视频层，挂不了资源`);
+        }
+        if (layer.type === 'image' && meta.kind === 'video') {
+          throw new CommandFailure('VALIDATION', `视频资源不能挂到图片层「${layer.name}」`);
+        }
+        if (layer.type === 'video' && meta.kind !== 'video') {
+          throw new CommandFailure('VALIDATION', `图片资源不能挂到视频层「${layer.name}」`);
+        }
+        return layer;
+      });
+      /* 先校验完再动手：一批里有一层不合适就整批不改，避免用户看到「改了一半」 */
+      for (const layer of targets) {
+        (layer as { assetId: string | null }).assetId = meta.id;
+      }
+      return { ids: payload.ids, assetId: meta.id, name: meta.name };
+    },
+  }),
+
+  defineCommand({
     type: 'asset.place',
     category: '资源',
     mutating: true,

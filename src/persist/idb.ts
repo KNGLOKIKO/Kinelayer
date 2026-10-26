@@ -10,13 +10,15 @@ const DB_NAME = 'kinelayer';
 const LEGACY_DB_NAME = 'motionlayer';
 const LEGACY_FLAG = 'migration:motionlayer-to-kinelayer';
 const MULTI_FLAG = 'migration:v1-to-multi';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORE_ASSETS = 'assets';
 const STORE_KV = 'kv';
 const STORE_META = 'meta';
 const STORE_PROJECTS = 'projects';
 const STORE_FONTS = 'fonts';
 const STORE_PREFS = 'prefs';
+/** 自定义命令：跟着用户走，不跟工程走 —— 在 A 工程写的宏，B 工程也该能用 */
+const STORE_COMMANDS = 'commands';
 
 /** 单工程时代的 key：迁移时读一次，之后不再写、也不删 */
 const LEGACY_PROJECT_KEYS = ['project.autosave', 'currentProject', 'project'];
@@ -46,6 +48,7 @@ function openDb(): Promise<IDBDatabase> {
         [STORE_PROJECTS, { keyPath: 'id' }],
         [STORE_FONTS, { keyPath: 'id' }],
         [STORE_PREFS, { keyPath: 'key' }],
+        [STORE_COMMANDS, { keyPath: 'id' }],
       ];
       for (const [name, params] of stores) {
         if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, params);
@@ -384,4 +387,22 @@ export async function idbRecoverLegacyProject(): Promise<ProjectMeta | null> {
   const next = [meta, ...index.filter((m) => m.id !== id)].sort((a, b) => b.updatedAt - a.updatedAt);
   await idbSaveProjectWithMeta(record, next);
   return meta;
+}
+
+/* ── 自定义命令 ───────────────────────────────────────────
+ * 唯一一个「不属于任何工程」的用户资产：宏是用户的能力，不是文档内容。
+ * 所以它不随 .kly 工程包走，也不进撤销栈 —— 撤销栈只该管画布上的改动。
+ */
+
+export async function idbListCommands<T>(): Promise<T[]> {
+  const rows = await tx<T[]>(STORE_COMMANDS, 'readonly', (s) => s.getAll() as IDBRequest<T[]>);
+  return Array.isArray(rows) ? rows : [];
+}
+
+export async function idbPutCommand(row: unknown): Promise<void> {
+  await tx(STORE_COMMANDS, 'readwrite', (s) => s.put(row));
+}
+
+export async function idbDeleteCommand(id: string): Promise<void> {
+  await tx(STORE_COMMANDS, 'readwrite', (s) => s.delete(id));
 }

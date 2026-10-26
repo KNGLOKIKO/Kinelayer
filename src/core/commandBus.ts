@@ -356,14 +356,31 @@ async function runBatch<T>(command: Command, payload: BatchPayload, started: num
   let failed = false;
 
   for (const item of payload.commands) {
-    const result = await runCommand<unknown>({
-      id: newCommandId(),
-      type: item.type,
-      payload: item.payload ?? {},
-      source: command.source,
-      ts: Date.now(),
-      dryRun: command.dryRun,
-    });
+    /*
+     * 单条命令不许用异常打断批次：一旦抛出，下面的回滚逻辑就跑不到了，
+     * 「原子批处理」会变成「前两步已提交、后面全没跑」。所以把异常收成一条失败结果。
+     */
+    let result: CommandResult;
+    try {
+      result = await runCommand<unknown>({
+        id: newCommandId(),
+        type: item.type,
+        payload: item.payload ?? {},
+        source: command.source,
+        ts: Date.now(),
+        dryRun: command.dryRun,
+      });
+    } catch (err) {
+      result = {
+        ok: false,
+        commandId: newCommandId(),
+        type: item.type,
+        error: toCommandError(err),
+        projectVersion: useEditor.getState().project.version,
+        durationMs: 0,
+        dryRun: !!command.dryRun,
+      };
+    }
     results.push(result);
     if (!result.ok) {
       failed = true;
@@ -452,7 +469,17 @@ function toCommandError(err: unknown): CommandError {
     return { code: err.code, message: err.message, detail: err.detail };
   }
   const e = err as Error;
-  return { code: 'RUNTIME', message: e?.message ? e.message : String(err) };
+  const message = e?.message ? e.message : String(err);
+  /*
+   * 非预期异常（命令 handler 里的 bug）带上前几帧调用栈 —— 只在开发构建里。
+   * 线上不带：报错是要给用户看的，不该把源码路径一起递出去。
+   */
+  if (!import.meta.env.DEV) return { code: 'RUNTIME', message };
+  const stack = String(e?.stack ?? '')
+    .split(String.fromCharCode(10))
+    .slice(0, 6)
+    .join(' <- ');
+  return { code: 'RUNTIME', message, detail: { stack } };
 }
 
 function recordAudit(command: Command, ok: boolean, durationMs: number, error?: string): void {

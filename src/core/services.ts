@@ -1,4 +1,4 @@
-import type { AssetMeta, Project } from './types';
+import type { AssetMeta, CustomCommand, Project } from './types';
 
 export interface ExportPngOptions {
   scale: number;
@@ -90,6 +90,22 @@ export interface Services {
    */
   preloadProjectAssets(project: Project): Promise<void>;
   notify(kind: 'info' | 'success' | 'error' | 'warn', text: string): void;
+
+  /* ---- 自定义命令（宏）：跟工程无关，存 IndexedDB ---- */
+  listCustomCommands(): Promise<CustomCommand[]>;
+  saveCustomCommand(cmd: CustomCommand): Promise<void>;
+  removeCustomCommand(id: string): Promise<void>;
+  /**
+   * 把宏展开出来的步骤当成一次原子批处理跑掉。
+   *
+   * 走 services 而不是让命令层直接 import commandBus：命令层不能反向依赖总线
+   * （总线 → commands/index → commands/custom → 总线 会成环），
+   * 而且「一批命令 = 一个撤销点」的语义只该在总线里实现一次。
+   */
+  runSteps(steps: { type: string; payload: Record<string, unknown> }[]): Promise<{
+    ok: boolean;
+    results: { type: string; ok: boolean; error?: { code: string; message: string } }[];
+  }>;
 }
 
 let current: Services | null = null;

@@ -1,5 +1,7 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
+import type { ReactNode } from 'react';
 import {
+  AlertTriangle,
   AlignCenter,
   AlignLeft,
   AlignRight,
@@ -11,10 +13,11 @@ import {
   Square,
   Trash2,
   Type,
+  Upload,
   Video,
 } from 'lucide-react';
 import { exec } from '@/core/commandBus';
-import { updateUi, useEditor } from '@/core/store';
+import { pushToast, updateUi, useEditor } from '@/core/store';
 import type {
   AnimPreset,
   BlendMode,
@@ -42,6 +45,8 @@ import {
   Toggle,
   cx,
 } from './primitives';
+import { isAssetMissing, sameRefLayers } from './assetGaps';
+import { uploadAsset } from './uploadAsset';
 
 import { t } from '@/i18n';
 const BLEND_LABELS: Record<string, string> = {
@@ -458,8 +463,164 @@ export function Inspector() {
             <p className="text-[10px] text-zinc-600">{t('消失填 0 表示持续到结尾。')}</p>
           </Section>
         )}
+
+        {/* 来源放在最后一节：诊断信息，不该挡住日常要改的参数 */}
+        <OriginSection layer={layer} />
       </div>
     </div>
+  );
+}
+
+/* ---------------------------------------------------------------- origin */
+
+/** 来源格式的人话名字。字典里的 key 用中文原文，和别处一致 */
+const ORIGIN_FORMATS: Record<string, string> = {
+  remotion: 'Remotion 工程',
+  html: 'HTML 片段',
+  gsap: 'HTML / GSAP 片段',
+  manim: 'Manim 场景',
+  raw: '单个文件',
+  'scene-json': '场景 JSON',
+  'ai-scene': 'Kinelayer 语义层',
+};
+
+/** 来源区块里的一行「标签 → 值」。值可能是地址，必须能换行，别把面板撑破 */
+function MetaRow({ label, mono, children }: { label: string; mono?: boolean; children: ReactNode }) {
+  return (
+    <div className="flex gap-1.5 text-[11px] leading-relaxed">
+      <span className="w-[52px] shrink-0 text-zinc-500">{label}</span>
+      <span className={cx('min-w-0 flex-1 break-words', mono ? 'font-mono text-[10px] text-zinc-400' : 'text-zinc-300')}>{children}</span>
+    </div>
+  );
+}
+
+/**
+ * 「这层是从哪来的」+「它缺的东西怎么补」。
+ *
+ * 导入报告是个一次性对话框：关掉之后，缺资源的层在画布上只剩一块
+ * 「图片资源缺失」的占位，用户既不知道它原本指向哪儿，也不知道补哪儿。
+ * 所以这里把两件事放在同一个区块里 —— 溯源信息是诊断，补资源是处方，
+ * 拆成两个地方用户就得自己去连线。
+ *
+ * 只在 layer.origin 存在时渲染（手搓的层没有来源，不需要这一块）。
+ */
+function OriginSection({ layer }: { layer: Layer }) {
+  const project = useEditor((s) => s.project);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const origin = layer.origin;
+  if (!origin) return null;
+
+  const mediaKind = layer.type === 'image' || layer.type === 'video' ? layer.type : null;
+  const gap = isAssetMissing(project, layer);
+  const ref = origin.sourceRef;
+  /* 同一个地址被多处引用的情况（HTML 里的 logo 最常见）：补一次就该全好 */
+  const shared = sameRefLayers(project, layer);
+  const ids = [layer.id, ...shared.map((l) => l.id)];
+  const assign = (assetId: string) => {
+    if (assetId) void exec('asset.assign', { ids, assetId });
+  };
+
+  const candidates = mediaKind
+    ? project.assets.filter((a) => a.kind === (mediaKind === 'video' ? 'video' : 'image'))
+    : [];
+
+  return (
+    <Section
+      title={t('来源')}
+      defaultOpen={false}
+      right={
+        <Badge tone={origin.generator === 'ai' ? 'accent' : 'neutral'}>
+          {origin.generator === 'ai' ? t('AI 生成') : t('外部导入')}
+        </Badge>
+      }
+    >
+      {/* 一个统一的测试/断言入口：英文模式零中文、来源字段这些检查都只扫这一块 */}
+      <div data-testid="origin-body" className="space-y-2">
+      <MetaRow label={t('格式')}>
+        {origin.sourceFormat ? t(ORIGIN_FORMATS[origin.sourceFormat] ?? origin.sourceFormat) : t('未知')}
+      </MetaRow>
+      {origin.parser && (
+        <MetaRow label={t('解析器')} mono>
+          {origin.parser}
+        </MetaRow>
+      )}
+      {origin.sourceBundle && (
+        <MetaRow label={t('来源包')} mono>
+          {origin.sourceBundle}
+        </MetaRow>
+      )}
+      {origin.importedAt && <MetaRow label={t('导入时间')}>{new Date(origin.importedAt).toLocaleString()}</MetaRow>}
+
+      {origin.external && origin.external.length > 0 && (
+        <div className="space-y-1">
+          <MetaRow label={t('外部依赖')} mono>
+            {origin.external.slice(0, 3).map((url) => (
+              <div key={url} className="truncate" title={url}>
+                {url}
+              </div>
+            ))}
+            {origin.external.length > 3 && (
+              <div className="text-zinc-600">{t('还有 {n} 个', { n: origin.external.length - 3 })}</div>
+            )}
+          </MetaRow>
+          <p className="text-[10px] leading-relaxed text-amber-400/80">
+            {t('这些是远程地址：编辑态能加载，导出和离线打开都拿不到')}
+          </p>
+        </div>
+      )}
+
+      {gap && mediaKind && (
+        <div className="space-y-1.5 rounded border border-amber-500/30 bg-amber-500/[0.07] p-2">
+          <div className="flex gap-1.5 text-[11px] text-amber-300/90">
+            <AlertTriangle size={12} className="mt-[3px] shrink-0" />
+            <span>{mediaKind === 'video' ? t('这层的视频没跟着导入') : t('这层的图片没跟着导入')}</span>
+          </div>
+          {ref && (
+            <div className="font-mono text-[10px] break-all text-zinc-500" title={ref}>
+              {ref}
+            </div>
+          )}
+          {shared.length > 0 && (
+            <p className="text-[10px] text-zinc-500">
+              {t('另有 {n} 层指向同一个地址，会一起补上', { n: shared.length })}
+            </p>
+          )}
+          <Select
+            value=""
+            onChange={assign}
+            options={[
+              { value: '', label: t('选资源库里的{kind}…', { kind: mediaKind === 'video' ? t('视频') : t('图片') }) },
+              ...candidates.map((a) => ({ value: a.id, label: a.name })),
+            ]}
+          />
+          <Button size="sm" variant="outline" className="w-full" onClick={() => fileRef.current?.click()}>
+            <Upload size={11} /> {t('从本地补一个')}
+          </Button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept={mediaKind === 'video' ? 'video/*' : 'image/*'}
+            className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              e.target.value = '';
+              if (!file) return;
+              const meta = await uploadAsset(file);
+              if (!meta) return;
+              /* 补错类型时把刚写进资源库的那条删掉，别留下没人引用的孤儿资源 */
+              if (meta.kind !== mediaKind) {
+                await exec('asset.remove', { id: meta.id, removeLayers: false });
+                pushToast('warn', t('{name} 不是{kind}，这层用不了', { name: file.name, kind: mediaKind === 'video' ? t('视频') : t('图片') }));
+                return;
+              }
+              const res = await exec('asset.assign', { ids, assetId: meta.id });
+              if (res.ok) pushToast('success', t('已补上 {name}', { name: file.name }));
+            }}
+          />
+        </div>
+      )}
+      </div>
+    </Section>
   );
 }
 
