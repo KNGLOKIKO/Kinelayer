@@ -104,7 +104,8 @@ Kinelayer/
 │  ├─ html-check.mjs           43 项 · v2.5c HTML/GSAP 静态解析/postMessage 时间同步/origin 元信息
 │  ├─ import-edit-check.mjs    30 项 · v2.6 导入之后：sourceRef/缺资源总账/asset.assign/来源区块
 │  ├─ custom-check.mjs         39 项 · v2.7 自定义命令：存前校验/原子执行/参数类型/失败回滚/持久化/双语
-│  └─ online-smoke.mjs         31 项 · 对线上 GitHub Pages 部署的冒烟（不需 dev server）
+│  ├─ online-smoke.mjs         31 项 · 对线上 GitHub Pages 部署的冒烟（不需 dev server）
+│  └─ push-via-api.mjs         推送兜底：github.com 这一跳被网络策略掐掉时，改走 Git Data REST API（只推已跟踪文件）
 └─ docs/
    ├─ 00-reference-notes.md    参考项目提取报告（第十四章）
    ├─ 01-known-limitations.md  已知限制与扩展点
