@@ -738,6 +738,55 @@ export const en: Record<string, string> = {
     'Remotion component layer: its internal keyframes are not shown on the timeline',
   '场景解析失败': 'Failed to parse the scene',
   'scene.ai.json 解析失败': 'Failed to parse scene.ai.json',
+
+  /* ---- v2.5c：HTML / GSAP 静态解析 ---- */
+  'HTML / GSAP 片段（静态解析）': 'HTML / GSAP snippet (static parse)',
+  'HTML 片段（静态解析）': 'HTML snippet (static parse)',
+  'preserve-code 模式：整份 HTML 保留为一个代码层，没有拆成原生图层':
+    'preserve-code mode: the whole HTML stays one code layer and was not split into native layers',
+  '剩下的 {n} 个元素不是绝对定位，整块保留为 html 代码层（编辑态用 sandbox iframe 渲染）':
+    'The remaining {n} elements are not absolutely positioned, so they stay together as an html code layer (rendered in a sandboxed iframe while editing)',
+  '这个 HTML 里没有可识别的元素': 'No recognizable elements in this HTML',
+  '文件 {n} 个字符': 'The file is {n} characters',
+  '{n} 个图片地址没能落地成资源（远程/相对路径），导入后需要重新指定':
+    '{n} image URLs could not be materialized as assets (remote or relative paths) — reassign them after import',
+  '（HTML）{n} 个动画选择器没对上任何图层，轨道没有建：{list}':
+    '(HTML) {n} animation selectors matched no layer, so no tracks were built: {list}',
+  '（HTML）跳过了 {n} 条 @ 规则（@media / @keyframes 不参与静态提取）':
+    '(HTML) Skipped {n} @-rules (@media / @keyframes are not part of static extraction)',
+  '（HTML）JS 解析器加载失败，这段脚本里的动画没有提取':
+    '(HTML) The JS parser failed to load, so animations in this script were not extracted',
+  '（HTML）有一段 <script> 解析不了（可能是 minified 或语法较新），里面的动画跳过':
+    '(HTML) One <script> could not be parsed (minified or newer syntax) — its animations were skipped',
+  '（HTML）认出 GSAP 调用，但目标都不是字符串选择器，动画没有提取':
+    '(HTML) GSAP calls were found, but none targeted a string selector, so no animation was extracted',
+  '（HTML）scale / 颜色 / 滤镜动画没有对应轨道，已跳过 {n} 项':
+    '(HTML) Scale / color / filter animations have no matching track, skipped {n} of them',
+  '（HTML）GSAP timeline 里的相对位置（如 "-=0.5"）读不出绝对时间，已按顺序累加 {n} 处':
+    '(HTML) Relative positions in the GSAP timeline (such as "-=0.5") do not resolve to absolute time; {n} of them were accumulated in order',
+  '（HTML）有 {n} 个动画用变量或相对值（"+=" / 函数），终点读不出来，已跳过':
+    '(HTML) {n} animations use variables or relative values ("+=" / functions), so their end values cannot be read statically and were skipped',
+  '（HTML）有 {n} 个 GSAP 调用的目标是变量而非选择器，已跳过':
+    '(HTML) {n} GSAP calls target a variable instead of a selector and were skipped',
+  '（HTML）引用了 {n} 个远程资源（GSAP CDN、字体、图片等）：编辑态能加载，导出与离线打开会缺':
+    '(HTML) References {n} remote resources (GSAP CDN, fonts, images): they load while editing but will be missing on export and offline',
+  '（HTML）有 <img> 没有 src，已跳过': '(HTML) An <img> has no src and was skipped',
+  '（HTML）图片「{name}」不是绝对定位，位置按画布左上角估的，需要手动摆':
+    '(HTML) Image 「{name}」 is not absolutely positioned; its position was guessed as the top-left corner and needs manual placement',
+  '（HTML）文本「{name}」没写宽高，按字号与字数估了 {w}×{h}':
+    '(HTML) Text 「{name}」 has no width/height; estimated {w}×{h} from font size and character count',
+  '（HTML）可提取的元素超过 {n} 个上限，后面的没有再拆（避免图层树被撑爆）':
+    '(HTML) Extractable elements exceeded the {n} limit; the rest were not split (to keep the layer tree manageable)',
+  '（HTML）从 <script> 里提取了 {n} 条 GSAP 动画轨道':
+    '(HTML) Extracted {n} GSAP animation tracks from <script>',
+  '（HTML）没解析出任何内容（可能是纯 <canvas> 或空文档）':
+    '(HTML) Nothing could be parsed (probably a pure <canvas> or an empty document)',
+  '（HTML）源码来自「{name}」，只做静态结构解析，不执行脚本':
+    '(HTML) Source from 「{name}」; only static structure is parsed, scripts are never executed',
+  '（HTML）只认绝对定位元素的位置：流式布局的 {n} 个元素留在代码层':
+    '(HTML) Only absolutely positioned elements get a position: {n} elements in normal flow stay in the code layer',
+  '（HTML）<{tags}> 没有对应的原生图层，整块留在代码层':
+    '(HTML) <{tags}> has no matching native layer and stays whole in the code layer',
 };
 
 export type EnDict = typeof en;

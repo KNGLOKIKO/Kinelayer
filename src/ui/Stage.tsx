@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MousePointer2 } from 'lucide-react';
 import { exec } from '@/core/commandBus';
 import { clamp, fitViewport, hitLayer, layerCenter, rotatePoint, screenToWorld, snapValue, type Vec } from '@/core/geometry';
 import { updateUi, useEditor } from '@/core/store';
 import { computeLayerFrame } from '@/render/animation';
 import { renderScene } from '@/render/renderScene';
+import { bridgeToken, injectBridge } from '@/render/htmlBridge';
 import type { CodeLayer, Layer, Project } from '@/core/types';
 
 import { t } from '@/i18n';
@@ -59,6 +60,22 @@ export function Stage() {
   const userAdjustedRef = useRef(false);
   const lastSigRef = useRef('');
   const tickRef = useRef(0);
+  /**
+   * html 代码层的时间同步。
+   *
+   * iframe 里的 GSAP/CSS 动画默认按真实时间自己跑，跟主时间轴没关系；
+   * 这里把「图层 id → iframe 元素」和「图层 id → token」存下来，
+   * 在下面的 rAF 循环里按播放头推时间（见 htmlBridge.ts）。
+   */
+  const htmlFrameRefs = useRef(new Map<string, HTMLIFrameElement>());
+  const htmlTokensRef = useRef<{ id: string; token: string }[]>([]);
+  const lastHtmlMsRef = useRef(-1);
+  /**
+   * 桥接脚本量出来的内容包围盒（设计稿坐标）。
+   * iframe 的白底去不掉，只能把它收缩到真内容那一块，见 render/htmlBridge.ts。
+   * 拿到之前按整张设计稿铺，但 opacity 为 0 —— 不然会先闪一下整块白。
+   */
+  const [htmlBounds, setHtmlBounds] = useState<Record<string, { x: number; y: number; w: number; h: number }>>({});
   const setOverrides = (map: Map<string, Partial<Layer>>) => {
     overridesRef.current = map;
     tickRef.current += 1;
@@ -154,6 +171,18 @@ export function Stage() {
       if (sig === lastSigRef.current) return;
       lastSigRef.current = sig;
 
+      /*
+       * html 代码层：把播放头推给 iframe。
+       * 判重按整毫秒 —— 播放头是 float，逐帧相比会把 60fps 的消息量翻倍而画面没有区别。
+       */
+      const htmlMs = Math.round(runtime.playhead);
+      if (htmlMs !== lastHtmlMsRef.current) {
+        lastHtmlMsRef.current = htmlMs;
+        for (const entry of htmlTokensRef.current) {
+          htmlFrameRefs.current.get(entry.id)?.contentWindow?.postMessage({ kly: entry.token, type: 'time', ms: htmlMs }, '*');
+        }
+      }
+
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -179,6 +208,8 @@ export function Stage() {
         time: runtime.playhead,
         scale: clamp(ui.zoom * dpr, 0.5, 2),
         overrides: overridesRef.current,
+        /* html 层由下面的 iframe 实时渲染，canvas 不要再画占位（会盖住原生层） */
+        htmlLive: true,
       });
       ctx.restore();
 
@@ -645,9 +676,79 @@ export function Stage() {
 
   const editingLayerRaw = editingText ? project.layers.find((l) => l.id === editingText.id) : null;
   const editingLayer = editingLayerRaw && editingLayerRaw.type === 'text' ? editingLayerRaw : null;
-  const htmlLayers = project.layers.filter(
-    (l): l is CodeLayer => l.type === 'code' && l.code.engine === 'html' && l.visible,
+  const htmlLayers = useMemo(
+    () => project.layers.filter((l): l is CodeLayer => l.type === 'code' && l.code.engine === 'html' && l.visible),
+    [project.layers],
   );
+
+  /*
+   * 注入桥接脚本 + 记 token。按「源码 + id」缓存：React 重渲染时字符串不变，
+   * iframe 的 srcDoc 才不会被判定为「变了又重载一遍」—— 重载会闪一下白。
+   * 依赖必须挂在 project.layers 上：Stage 在拖动平移时每帧重渲染，
+   * 若依赖是每次新建的 filter 结果，这里就会每帧重拼一遍几十 KB 的字符串。
+   */
+  const htmlFrames = useMemo(
+    () =>
+      htmlLayers.map((layer) => {
+        const token = bridgeToken(layer.id);
+        const designWidth = Number(layer.code.params.designWidth) || layer.width;
+        const designHeight = Number(layer.code.params.designHeight) || layer.height;
+        return {
+          layer,
+          token,
+          designWidth: Math.max(1, designWidth),
+          designHeight: Math.max(1, designHeight),
+          srcDoc: injectBridge(layer.code.source, token),
+        };
+      }),
+    [htmlLayers],
+  );
+
+  useEffect(() => {
+    htmlTokensRef.current = htmlFrames.map((x) => ({ id: x.layer.id, token: x.token }));
+  }, [htmlFrames]);
+
+  /*
+   * 宿主侧校验：iframe 没有 allow-same-origin，event.origin 恒为 "null"，
+   * 拿 origin 判断「谁发的」毫无意义。只认「来自我这些 iframe 的 contentWindow」。
+   * 收到 ready 就立刻补推一次当前时间，别等到下一帧 —— 否则会停在 bridge 冻结的那一帧。
+   * 收到 bounds 就把 iframe 收缩到内容区域（它铺满画布会把原生层全糊掉）。
+   */
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      const source = e.source as Window | null;
+      if (!source) return;
+      let matchedId = '';
+      for (const [id, frame] of htmlFrameRefs.current) {
+        if (frame.contentWindow === source) {
+          matchedId = id;
+          break;
+        }
+      }
+      if (!matchedId) return;
+      const data = e.data as { kly?: string; type?: string; box?: { x: number; y: number; w: number; h: number } } | null;
+      if (!data) return;
+
+      if (data.type === 'bounds' && data.box) {
+        const box = data.box;
+        setHtmlBounds((prev) => {
+          const old = prev[matchedId];
+          if (old && old.x === box.x && old.y === box.y && old.w === box.w && old.h === box.h) return prev;
+          return { ...prev, [matchedId]: box };
+        });
+        return;
+      }
+      if (data.type !== 'ready') return;
+
+      const ms = Math.round(useEditor.getState().runtime.playhead);
+      lastHtmlMsRef.current = ms;
+      for (const entry of htmlTokensRef.current) {
+        htmlFrameRefs.current.get(entry.id)?.contentWindow?.postMessage({ kly: entry.token, type: 'time', ms }, '*');
+      }
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, []);
 
   const makeTransform = useCallback(
     (layer: Layer) => {
@@ -680,22 +781,46 @@ export function Stage() {
       <canvas ref={canvasRef} className="absolute inset-0 block" />
 
       {/* HTML 代码层：编辑态用 sandbox iframe 实时渲染（导出时走 foreignObject 栅格化） */}
-      {htmlLayers.map((layer) => {
+      {htmlFrames.map(({ layer, token, designWidth, designHeight, srcDoc }) => {
         const t = makeTransform(layer);
+        /*
+         * iframe 按设计稿尺寸铺，再整体 scale 到图层盒子：
+         * 里面的 vw/vh 和百分比定位认的是 designWidth/Height，
+         * 直接改 iframe 宽高会让内容跟着盒子一起被「重新排版」，跟画面里看到的不是一回事。
+         *
+         * 尺寸/位置用桥接脚本量出来的内容包围盒（box）：iframe 的白底去不掉（实测过），
+         * 只能让它缩到真有内容的那块，别把整张画布连同下面的原生层一起盖住。
+         * 还没量到时先 opacity 0，避免闪一下整块白。
+         */
+        const fitX = t.width / designWidth;
+        const fitY = t.height / designHeight;
+        const box = htmlBounds[layer.id];
+        const w = box?.w ?? designWidth;
+        const h = box?.h ?? designHeight;
+        const bx = box?.x ?? 0;
+        const by = box?.y ?? 0;
         return (
           <iframe
             key={layer.id}
+            ref={(el) => {
+              if (el) htmlFrameRefs.current.set(layer.id, el);
+              else htmlFrameRefs.current.delete(layer.id);
+            }}
             title={layer.name}
-            srcDoc={layer.code.source}
+            data-kly-token={token}
+            srcDoc={srcDoc}
             sandbox="allow-scripts"
             className="pointer-events-none absolute border-0"
+            /* onLoad 主动要一次包围盒：桥接自己的上报有竞态 —— srcdoc 的 iframe 可能在
+               宿主 useEffect 装好监听之前就把消息发出去，那条会直接丢（偶发的铺满画布就是这个） */
+            onLoad={(e) => e.currentTarget.contentWindow?.postMessage({ kly: token, type: 'measure' }, '*')}
             style={{
               left: 0,
               top: 0,
-              width: t.width,
-              height: t.height,
-              opacity: t.opacity,
-              transform: `translate(${panX + t.left * zoom}px, ${panY + t.top * zoom}px) rotate(${t.rotation}deg) scale(${zoom})`,
+              width: w,
+              height: h,
+              opacity: box ? t.opacity : 0,
+              transform: `translate(${panX + (t.left + bx * fitX) * zoom}px, ${panY + (t.top + by * fitY) * zoom}px) rotate(${t.rotation}deg) scale(${zoom * Math.min(fitX, fitY)})`,
               transformOrigin: '0 0',
             }}
           />

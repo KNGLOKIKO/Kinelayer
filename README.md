@@ -99,13 +99,15 @@ Kinelayer/
 │  ├─ launcher-check.mjs       22 项 · 启动页路由/新建对话框/单位换算/缩略图/删除/英文模式
 │  ├─ ai-check.mjs             34 项 · v2.5a 导入预检/降级映射/scene.ai.json 往返
 │  ├─ remotion-check.mjs       37 项 · v2.5b Remotion 静态解析/remotion-component/kit 导出
+│  ├─ html-check.mjs           43 项 · v2.5c HTML/GSAP 静态解析/postMessage 时间同步/origin 元信息
 │  └─ online-smoke.mjs         31 项 · 对线上 GitHub Pages 部署的冒烟（不需 dev server）
 └─ docs/
    ├─ 00-reference-notes.md    参考项目提取报告（第十四章）
    ├─ 01-known-limitations.md  已知限制与扩展点
    ├─ 02-bundle-format.md      工程包格式（.kly = ZIP）规范与敌意输入闸门
    ├─ 03-agent-integration.md  Agent 接入说明（中英双份，.en.md 为英文版）
-   └─ 04-code-video-integration.md  AI 代码视频：Remotion 静态解析与 remotion-kit 导出
+   ├─ 04-code-video-integration.md  AI 代码视频：Remotion 静态解析与 remotion-kit 导出
+   └─ 05-html-gsap-import.md    HTML/GSAP 片段：DOM 结构提取、iframe 时间同步、origin 元信息
 ```
 
 **分层规矩**：`ui/` 不能直接改 `project`；`render/` 不能 import `store`；
@@ -252,7 +254,7 @@ in/out 之外压暗、每条属性轨道一条细线、关键帧按属性配色�
 | 原生 `project.json` | `normalizeProject` 精确还原（认的是 blendMode/animation/inPoint 这套原生字段，不是 `layers[0].type`） | 100 |
 | `scene.ai.json` | 摊平回场景形状再走同一条映射管线 | 96 起 |
 | 场景 JSON（Rendervid / cadence 风格） | 文本→文本层、图片视频→媒体层、坐标/尺寸/时序→图层属性、`tracks`→属性轨道；矩形/圆→canvas2d 代码层 | 70–96 |
-| HTML / GSAP 片段 | 整段作为 `html` 代码层 | 55 |
+| HTML / GSAP 片段 | 静态 DOM 解析：绝对定位的文本/图片/容器→原生图层、CSS class 规则→字号颜色、GSAP timeline→属性轨道；流式布局的元素整块留成 `html` 代码层 | 20–95 |
 | 图片 / 视频 | 建画布 + 媒体层 | 30 |
 | Remotion 工程 ZIP | 静态 AST 解析：`<Sequence>` 的时间、文字/图片/容器→原生图层、`interpolate`/`spring`→属性轨道；自定义组件整块留成 `remotion-component` 代码层 | 25–90 |
 
@@ -300,8 +302,21 @@ remotion-kit/
 npm install && npx remotion render src/index.ts kly-01 out/kly-01.mp4
 ```
 
-阶段 C（HTML/GSAP 的 DOM 结构提取 + postMessage 时间同步）还没做，
-README 与 `docs/01-known-limitations.md` 都按「没做」写。
+### HTML / GSAP：留下来的是「剩下那部分」
+
+一个 `.html` 文件进来，先按绝对定位拆一遍：`position:absolute` 且写了 `left/top` 的
+文本/图片/容器变成原生图层，`<style>` 里的 class 规则（字号、颜色、圆角）跟着读进来，
+`<script>` 里的 `gsap.to / from / fromTo / timeline` 变成原生关键帧。
+
+拆不动的（普通流、flex、canvas、svg）不会硬猜位置 —— 整块留成一个 `html` 代码层，
+报告里写明「流式布局的 N 个元素留在代码层」。这条边界写在
+[docs/05-html-gsap-import.md](docs/05-html-gsap-import.md) 第三章。
+
+那个 `html` 代码层在编辑态是一个 `sandbox="allow-scripts"` 的 iframe，
+里面注入了桥接脚本：**一加载就冻结动画，跟着主时间轴 seek**，不会自己按真实时间跑。
+它还会量出自己的内容包围盒上报回来 —— sandbox iframe 的白底在 Chrome 里去不掉
+（`html/body` 写 `transparent` 也白，实测四个变体），只能让背景色等于画布底色、
+再把 iframe 收缩到真有内容的那块，不然它会把整张画布连同一堆原生图层糊掉。
 
 ---
 
@@ -400,7 +415,10 @@ VITE_BASE=/Kinelayer/ npm run build   # 项目页需要这个前缀
 - **JSON 备份**：设置 → 数据 → 导出 JSON 备份，产出纯 JSON 工程本体，不含二进制 —— 适合进 git 看 diff。
 - **导入宽容**：`.kly`、v1 JSON 外壳、更早的裸 `Project` JSON 三种都认，老备份不会因为改格式而打不开。
 - **自动保存**：每 1.6s 把项目写进 IndexedDB（`kinelayer` 库），刷新页面自动恢复。
-- **不出网**：除你主动配置的 AI 接口外，应用不发起任何网络请求；没有 CDN、没有埋点、没有远程字体。
+- **不出网**：应用自身不发起任何网络请求 —— 没有 CDN、没有埋点、没有远程字体。
+  唯一的例外是**你导入的 HTML 自己引用了远程资源**（比如 `<script src="https://cdn.../gsap.min.js">`）：
+  那个 `html` 代码层在编辑态是 sandbox iframe，浏览器会照原样去加载。
+  导入报告会把这类地址列出来并记进 `origin.external`；不想让它联网就别用带外链的 HTML。
 - **升级不丢数据**：品牌更名时数据库与存储键都换了名字，首次启动会把旧库数据**整份复制**到新库，
   旧库原样保留（不删）；旧命名空间的 localStorage 键在读取时自动迁移；旧版裸项目 JSON 备份照样能导入。
 
@@ -412,6 +430,7 @@ VITE_BASE=/Kinelayer/ npm run build   # 项目页需要这个前缀
 - [已知限制与扩展点](docs/01-known-limitations.md) —— 导出格式、沙箱边界、多窗口降级链、性能账本
 - [工程包格式](docs/02-bundle-format.md) —— `.kly` 的 ZIP 布局、manifest 字段、五道敌意输入闸门、错误码
 - [代码视频集成](docs/04-code-video-integration.md) —— Remotion 能解析到什么程度、`remotion-component` 的边界、remotion-kit 怎么出片
+- [HTML / GSAP 导入](docs/05-html-gsap-import.md) —— DOM 结构提取的取舍、iframe 白底绕不过去之后怎么办、postMessage 时间同步协议
 
 ## 许可
 

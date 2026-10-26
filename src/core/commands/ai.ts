@@ -192,7 +192,7 @@ export const aiCommands = [
     resetsHistory: true,
     asyncHandler: true,
     description:
-      '把外部工程/场景导入成一份**新**工程并打开（不覆盖同名工程）。支持 scene JSON（Rendervid/cadence 风格）、scene.ai.json、HTML 片段、图片/视频、原生 project.json、Remotion 工程 ZIP（静态 AST 解析）；.kly 工程包请走 project.importBundle。内部会先跑一次等价于 ai.inspectImport 的预检，结果随记录一起返回。Remotion 里能识别成文字/图片/盒子的元素变原生图层，其余组件整块保留为 remotion-component 代码层（不执行、不假装可内部编辑）。',
+      '把外部工程/场景导入成一份**新**工程并打开（不覆盖同名工程）。支持 scene JSON（Rendervid/cadence 风格）、scene.ai.json、HTML/GSAP 片段（静态 DOM 解析）、图片/视频、原生 project.json、Remotion 工程 ZIP（静态 AST 解析）；.kly 工程包请走 project.importBundle。内部会先跑一次等价于 ai.inspectImport 的预检，结果随记录一起返回。Remotion 里能识别成文字/图片/盒子的元素变原生图层，其余组件整块保留为 remotion-component 代码层（不执行、不假装可内部编辑）。HTML 只拆绝对定位的元素（文本/图片/容器→原生图层，GSAP timeline→原生关键帧），普通流与 flex 布局的元素不猜位置，整块留成 html 代码层。',
     schema: z.object({
       ...inputShape,
       mode: z.enum(['prefer-editable', 'preserve-code']).default('prefer-editable'),
@@ -240,7 +240,15 @@ export const aiCommands = [
             project.assets = [meta];
           }
         } else if (format === 'html') {
-          project = mapHtml(input).project;
+          /* 和 Remotion 一样：预检跑的是 dryRun，这里按用户选的 mode 重跑一遍才有 project */
+          const result = await mapHtml(input, mode, ctx.dryRun);
+          if (!result.mapped) {
+            throw new CommandFailure('VALIDATION', result.report.blockers.map(renderNote).join('；') || 'HTML 解析没有产出工程', {
+              report: result.report,
+            });
+          }
+          project = result.mapped.project;
+          jobs = result.mapped.assetJobs;
         } else if (format === 'remotion') {
           /*
            * Remotion 的预检只跑 dryRun（拿到报告，不建工程），

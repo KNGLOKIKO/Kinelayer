@@ -41,6 +41,7 @@ import {
 import { AI_SCENE_FORMAT, describeCode } from './aiScene';
 import { bytesToDataUrl, looksLikeZip, zipEntryNames } from './bundle';
 import { parseRemotionZip, RemotionParseError, type RemotionParse, type RemotionTrack } from './remotionParser';
+import { parseHtmlDocument, matchSelectorToLayer, type HtmlParse } from './htmlImport';
 
 /* ------------------------------------------------------------------ 类型 */
 
@@ -348,7 +349,7 @@ export async function inspectImport(input: ImportInput): Promise<{ report: Impor
         };
       }
     case 'html':
-      return { report: htmlReport(input) };
+      return mapHtml(input, 'prefer-editable', true);
     case 'media':
       return { report: mediaReport(input) };
     case 'remotion':
@@ -373,6 +374,21 @@ export async function inspectImport(input: ImportInput): Promise<{ report: Impor
 function emptyCounts(): ImportCounts {
   return { structured: 0, code: 0, media: 0, background: 0, tracks: 0, keyframes: 0 };
 }
+
+/** 关键帧数值留两位小数：GSAP 的 ease 中间值容易带 0.30000000000000004 这种尾巴 */
+const round2 = (v: number): number => Math.round(v * 100) / 100;
+
+/**
+ * html 层的 params。
+ *
+ * `designWidth/Height` 是「这段 HTML 当初是按多大画布写的」：图层被缩放之后
+ * iframe 尺寸会变，但里面的 vw/vh、百分比定位仍然认设计稿尺寸。留着这两个数，
+ * Stage 才能按 `图层宽 / designWidth` 去 scale，而不是让内容跟着盒子糊掉。
+ */
+const htmlParams = (width: number, height: number): Record<string, string | number> => ({
+  designWidth: Math.round(width),
+  designHeight: Math.round(height),
+});
 
 function readText(input: ImportInput): string | null {
   if (typeof input.text === 'string') return input.text;
@@ -457,33 +473,6 @@ function countAiScene(scene: unknown): ImportCounts {
   return counts;
 }
 
-function htmlReport(input: ImportInput): ImportReport {
-  const raw = readText(input) ?? '';
-  const counts = emptyCounts();
-  counts.code = 1;
-  const notes = [
-    note('整段 HTML 作为 html 代码层导入（静态提取图片/文本是 v2.5c）'),
-    note('导出时这一层会被栅格化，精度可能下降'),
-  ];
-  return {
-    format: 'html',
-    supported: true,
-    label: 'HTML / GSAP 片段',
-    fidelity: 55,
-    counts,
-    missingAssets: [],
-    notes,
-    blockers: [],
-    preview: {
-      name: input.name ?? 'HTML 片段',
-      width: 0,
-      height: 0,
-      duration: 0,
-      fps: 30,
-      sample: raw ? [raw.slice(0, 80).replace(/\s+/g, ' ')] : [],
-    },
-  };
-}
 
 function mediaReport(input: ImportInput): ImportReport {
   const counts = emptyCounts();
@@ -1508,52 +1497,318 @@ export function mapAiScene(input: ImportInput, mode: ImportMode = 'prefer-editab
 
 /* ------------------------------------------------------------------ HTML / 媒体 */
 
-export function mapHtml(input: ImportInput): MappedImport {
+export async function mapHtml(
+  input: ImportInput,
+  mode: ImportMode = 'prefer-editable',
+  dryRun = false,
+): Promise<{ report: ImportReport; mapped?: MappedImport }> {
   const raw = readText(input) ?? '';
-  if (!raw.trim()) throw new ImportError('EMPTY', 'HTML 是空的');
-  const info = (() => {
-    const guess = /(\d{3,4})\s*[x×]\s*(\d{3,4})/i.exec(raw);
-    return {
-      width: guess ? Number(guess[1]) : 1080,
-      height: guess ? Number(guess[2]) : 1080,
-    };
-  })();
-  const background = createBackground({ width: info.width, height: info.height, kind: 'solid', color: '#000000' });
-  const layer = createCodeLayer({
-    name: input.name ?? 'HTML 片段',
-    x: 0,
-    y: 0,
-    width: info.width,
-    height: info.height,
-    code: { engine: 'html', source: raw, params: {} },
-    origin: { generator: 'import', sourceFormat: 'html', sourceBundle: input.name, importedAt: Date.now() },
-  });
+
+  let parsed: HtmlParse;
+  try {
+    parsed = await parseHtmlDocument(raw, input.name);
+  } catch (err) {
+    return { report: htmlFailure(input, (err as Error).message || 'HTML 解析失败') };
+  }
+
+  const width = Math.max(1, Math.round(parsed.size.width));
+  const height = Math.max(1, Math.round(parsed.size.height));
+  const duration = clamp(Math.round(parsed.durationMs), 500, 600_000);
+
+  /*
+   * sourceFormat 记成 gsap 还是 html，看有没有真提取到动画：
+   * 记错会误导「这层到底有没有时间信息」，宁可保守。
+   */
+  const origin: LayerOrigin = {
+    generator: 'import',
+    sourceFormat: parsed.tweens.length ? 'gsap' : 'html',
+    sourceBundle: input.name,
+    importedAt: Date.now(),
+    parser: 'html-dom/1',
+    external: parsed.externalDeps.length ? parsed.externalDeps.slice(0, 12) : undefined,
+  };
+
+  const notes: ImportNote[] = parsed.notes.map((n) => note(n.key, n.params));
+  const pushNote = (key: string, params?: Record<string, string | number>) => notes.push(note(key, params));
+  const counts = emptyCounts();
+  /*
+   * 底色从 HTML 的 body 读，不再写死黑色。
+   * leftover 的 iframe 被强制成透明背景（见 htmlImport），所以底色只能由这一层承载 ——
+   * 写死黑色会让「深紫渐变的海报」导进来变成黑的。
+   */
+  const layers: Layer[] = [
+    createBackground({ width, height, kind: 'solid', color: parsed.background || '#000000' }),
+  ];
+  const jobs: AssetJob[] = [];
+  const missing: string[] = [];
+
+  /* preserve-code：不拆，整份 HTML 一个代码层（用户明确要「原样带走」时） */
+  if (mode === 'preserve-code') {
+    pushNote('preserve-code 模式：整份 HTML 保留为一个代码层，没有拆成原生图层');
+    const base = createCodeLayer({ width, height });
+    layers.push({
+      ...base,
+      name: (input.name ?? 'HTML 片段').slice(0, 60),
+      x: 0,
+      y: 0,
+      inPoint: 0,
+      outPoint: duration,
+      code: { ...base.code, engine: 'html', source: raw, params: htmlParams(width, height) },
+      origin,
+    });
+    counts.code = 1;
+  } else {
+    /* ---- 结构化层 ---- */
+    for (const block of parsed.blocks) {
+      const box = block.box;
+      if (block.kind === 'text') {
+        const base = createTextLayer({ width: box.width, height: box.height });
+        layers.push({
+          ...base,
+          name: block.name,
+          text: block.text,
+          x: Math.round(box.x),
+          y: Math.round(box.y),
+          opacity: block.opacity,
+          inPoint: 0,
+          outPoint: duration,
+          style: {
+            ...base.style,
+            fontSize: block.style.fontSize,
+            fontWeight: block.style.fontWeight,
+            color: block.style.color,
+            align: block.style.align,
+            lineHeight: block.style.lineHeight,
+            letterSpacing: block.style.letterSpacing,
+          },
+          origin,
+        });
+        counts.structured += 1;
+      } else if (block.kind === 'image') {
+        const base = createImageLayer({ width: box.width, height: box.height });
+        const src = block.src;
+        if (src.startsWith('data:')) {
+          jobs.push({ layerId: base.id, name: `${block.name || 'image'}.png`, dataUrl: src });
+        } else if (/^https?:\/\//i.test(src) || src.startsWith('//')) {
+          /* 远程图片：不替用户下载（可能几百 KB 也可能挂），记进缺失，让用户自己指定 */
+          missing.push(src);
+        } else {
+          missing.push(src);
+        }
+        layers.push({
+          ...base,
+          name: block.name,
+          x: Math.round(box.x),
+          y: Math.round(box.y),
+          opacity: block.opacity,
+          inPoint: 0,
+          outPoint: duration,
+          radius: block.radius,
+          origin,
+        });
+        counts.structured += 1;
+        counts.media += 1;
+      } else {
+        const base = createCodeLayer({ width: box.width, height: box.height });
+        layers.push({
+          ...base,
+          name: block.name,
+          x: Math.round(box.x),
+          y: Math.round(box.y),
+          opacity: block.opacity,
+          inPoint: 0,
+          outPoint: duration,
+          code: { ...base.code, engine: 'canvas2d', source: shapeSnippet(false, block.background, block.radius), params: {} },
+          origin,
+        });
+        counts.code += 1;
+      }
+    }
+
+    /* ---- GSAP 轨道 → 原生关键帧 ---- */
+    const targets = layers.filter((l) => l.type !== 'background');
+    const names = targets.map((l) => l.name);
+    if (parsed.tweens.length) {
+      const baseOf = (layer: Layer, property: AnimatableProperty): number => {
+        if (property === 'x') return layer.x;
+        if (property === 'y') return layer.y;
+        if (property === 'width') return layer.width;
+        if (property === 'height') return layer.height;
+        if (property === 'rotation') return layer.rotation;
+        return layer.opacity;
+      };
+      const tracksByLayer = new Map<string, Map<AnimatableProperty, Keyframe[]>>();
+      const unmatched = new Set<string>();
+
+      for (const tween of parsed.tweens) {
+        const index = matchSelectorToLayer(tween.selector, names);
+        if (index < 0) {
+          unmatched.add(tween.selector);
+          continue;
+        }
+        const target = targets[index];
+        if (!target) continue;
+        /*
+         * GSAP 的 `x` / `y` 是 transform 位移，不是绝对坐标：
+         * `gsap.to(el, { y: 140 })` 表示「在元素当前位置基础上再往下 140」。
+         * 图层的 x/y 是绝对坐标，所以这里必须叠上元素自己的位置 ——
+         * 直接拿 140 当终点，画面会跳回画布左上角附近（这个错犯过一次）。
+         * 其余属性（opacity / rotation / width / height）在 GSAP 里就是绝对值，不叠。
+         * 两端都可能缺：`to` 缺起点、`from` 缺终点，缺的那端就是元素原值。
+         */
+        const offset = tween.property === 'x' || tween.property === 'y';
+        const base = baseOf(target, tween.property);
+        const abs = (v: number | undefined): number => (v === undefined ? base : offset ? base + v : v);
+        const fromValue = abs(tween.from);
+        const toValue = abs(tween.to);
+        const end = clamp(tween.startMs + tween.durationMs, 1, duration);
+        const start = clamp(tween.startMs, 0, Math.max(0, end - 1));
+        const keys: Keyframe[] = [
+          {
+            id: localId('kf'),
+            time: start,
+            value: round2(fromValue),
+            easing: easing(tween.easing),
+          },
+          {
+            id: localId('kf'),
+            time: end,
+            value: round2(toValue),
+            easing: easing(tween.easing),
+          },
+        ];
+        const perLayer = tracksByLayer.get(target.id) ?? new Map<AnimatableProperty, Keyframe[]>();
+        const existing = perLayer.get(tween.property);
+        if (existing) {
+          /* 同一属性有多条 tween：按时间插入，同一时刻保留后写的（GSAP 也是后覆盖） */
+          for (const k of keys) {
+            const dup = existing.findIndex((x) => Math.abs(x.time - k.time) < 1);
+            if (dup >= 0) existing[dup] = k;
+            else existing.push(k);
+          }
+        } else {
+          perLayer.set(tween.property, keys);
+        }
+        tracksByLayer.set(target.id, perLayer);
+      }
+
+      for (const layer of targets) {
+        const perLayer = tracksByLayer.get(layer.id);
+        if (!perLayer) continue;
+        const tracks: PropertyTrack[] = [];
+        for (const [property, keyframes] of perLayer) {
+          keyframes.sort((a, b) => a.time - b.time);
+          tracks.push({ property, keyframes });
+          counts.keyframes += keyframes.length;
+        }
+        if (tracks.length) {
+          layer.animation = { ...layer.animation, tracks };
+          counts.tracks += tracks.length;
+        }
+      }
+
+      if (unmatched.size) {
+        pushNote('（HTML）{n} 个动画选择器没对上任何图层，轨道没有建：{list}', {
+          n: unmatched.size,
+          list: [...unmatched].slice(0, 4).join('、'),
+        });
+      }
+    }
+  }
+
+  /* ---- leftover：没拆走的原生结构 ---- */
+  if (parsed.leftoverHtml) {
+    const base = createCodeLayer({ width, height });
+    layers.push({
+      ...base,
+      name: 'HTML 剩余结构',
+      x: 0,
+      y: 0,
+      inPoint: 0,
+      outPoint: duration,
+      code: { ...base.code, engine: 'html', source: parsed.leftoverHtml, params: htmlParams(width, height) },
+      origin,
+    });
+    counts.code += 1;
+    pushNote('剩下的 {n} 个元素不是绝对定位，整块保留为 html 代码层（编辑态用 sandbox iframe 渲染）', {
+      n: parsed.flowSkipped,
+    });
+  }
+
+  if (missing.length) {
+    pushNote('{n} 个图片地址没能落地成资源（远程/相对路径），导入后需要重新指定', { n: missing.length });
+  }
+
+  /* ---- 保真度：提取成原生图层的越多越高 ---- */
+  const editable = counts.structured * 2 + (parsed.leftoverHtml ? 0 : counts.code);
+  const totalWeight = Math.max(1, parsed.blocks.length * 2 + (parsed.leftoverHtml ? 2 : 0));
+  const penalty = Math.min(20, missing.length * 5);
+  const fidelity =
+    mode === 'preserve-code'
+      ? 20
+      : clamp(Math.round((editable / totalWeight) * 100 - penalty), 5, 95);
+
+  const blockers: ImportNote[] = [];
+  if (!parsed.blocks.length && !parsed.leftoverHtml) {
+    blockers.push(note('这个 HTML 里没有可识别的元素'));
+  }
+
+  const report: ImportReport = {
+    format: 'html',
+    supported: blockers.length === 0,
+    label: parsed.tweens.length ? 'HTML / GSAP 片段（静态解析）' : 'HTML 片段（静态解析）',
+    fidelity,
+    counts,
+    missingAssets: missing,
+    notes: dedupeNotes(notes),
+    blockers: dedupeNotes(blockers),
+    preview: {
+      name: input.name ?? 'HTML 片段',
+      width,
+      height,
+      duration,
+      fps: parsed.fps,
+      sample: [
+        `${width}×${height}`,
+        `blocks=${parsed.blocks.length}`,
+        `tweens=${parsed.tweens.length}`,
+        `css=${parsed.cssRules}`,
+        ...parsed.externalDeps.slice(0, 2),
+      ].filter(Boolean),
+    },
+  };
+
+  if (!report.supported || dryRun) return { report };
+
   const project = normalizeProject({
     ...createEmptyProject(input.name ?? 'HTML 导入'),
     name: (input.name ?? 'HTML 导入').replace(/\.[^.]+$/, ''),
-    width: info.width,
-    height: info.height,
-    layers: [background, layer],
+    width,
+    height,
+    duration,
+    fps: parsed.fps,
+    loop: true,
+    layers,
     assets: [],
     fonts: [],
   });
+
+  return { report, mapped: { project, report, assetJobs: jobs } };
+}
+
+/** HTML 解析失败的兜底报告：不静默退回「整段代码层」，要说清为什么没拆 */
+function htmlFailure(input: ImportInput, message: string): ImportReport {
+  const raw = readText(input) ?? '';
   return {
-    project,
-    assetJobs: [],
-    report: {
-      format: 'html',
-      supported: true,
-      label: 'HTML / GSAP 片段',
-      fidelity: 55,
-      counts: { structured: 0, code: 1, media: 0, background: 1, tracks: 0, keyframes: 0 },
-      missingAssets: [],
-      notes: [
-        note('整段 HTML 作为 html 代码层导入（静态提取图片/文本是 v2.5c）'),
-        note('导出时这一层会被栅格化，精度可能下降'),
-      ],
-      blockers: [],
-      preview: { name: input.name ?? 'HTML 片段', width: info.width, height: info.height, duration: project.duration, fps: 30, sample: [raw.slice(0, 80).replace(/\s+/g, ' ')] },
-    },
+    format: 'html',
+    supported: false,
+    label: 'HTML / GSAP 片段',
+    fidelity: 0,
+    counts: emptyCounts(),
+    missingAssets: [],
+    notes: raw ? [note('文件 {n} 个字符', { n: raw.length })] : [],
+    blockers: [note(message)],
+    preview: { name: input.name ?? 'HTML 片段', width: 0, height: 0, duration: 0, fps: 30, sample: raw ? [raw.slice(0, 80).replace(/\s+/g, ' ')] : [] },
   };
 }
 

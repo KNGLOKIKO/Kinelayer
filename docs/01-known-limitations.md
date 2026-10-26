@@ -85,6 +85,17 @@
   极端情况（图层比整条时间轴还长）可能判错，报告里的轨道/关键帧计数可以用来核对。
 - **导入不合并资源**：每次导入都新建一条工程记录与新资源，不做跨工程去重。
 - **预检是 async 的**（v2.5b 起）：Remotion 分支要动态加载 `@babel/parser`。不读写库这条没变。
+- **HTML 只拆绝对定位的元素**（v2.5c）：`position:absolute|fixed` 且写了 `left/top` 的才认。
+  flex / grid / 普通流里的位置取决于字体度量与浏览器排版，静态算不出来 —— 硬算的结果是
+  「看着差不多、改起来全是错」。这类元素整块留成 html 代码层，报告里写明数量。
+  想提高提取率，让 AI 生成时用绝对定位写死坐标。
+- **HTML 的 CSS 只读声明块**，不实现 specificity / `!important` / 继承。合并规则是
+  「文档顺序覆盖 + inline style 最高」。样式写得越平（少嵌套、少 `!important`）提取越准。
+- **sandbox iframe 的白底去不掉**：Chrome 里 `html,body{background:transparent}` 也没用
+  （默认 / 文档透明 / 文档透明 + 元素透明 / 加 `color-scheme`，四个变体实测全是白的）。
+  所以 html 代码层的背景被强制成画布底色，并收缩到内容包围盒 —— 它仍会挡住自己那一小块下面的内容。
+- **HTML 里的远程依赖不拦**：`<script src="https://cdn...">` 会真的被 iframe 加载。
+  这不是应用发起的请求，但你导入的页面会发起。导入报告会列出来，`origin.external` 也记着。
 
 ## 六、性能与兼容
 
@@ -96,7 +107,9 @@
 - 首屏按视图分包：启动页约 178KB gzip（共享运行时 158KB + 启动页 10KB + 公共组件 3KB + CSS 7KB），
   进编辑器再加载约 205KB（CodeMirror、渲染引擎、AI 面板都在这里）。图层窗口是独立 chunk（~5KB）。
   共享运行时里包含导入管线与 `scene.ai.json` 的投影逻辑 —— 它们是命令层的依赖，两个视图都要用。
-- `@babel/parser` 单独一个 chunk（289KB / 73KB gzip），**只在真的导入 Remotion 工程时才下载**。
+- `@babel/parser` 单独一个 chunk（289KB / 73KB gzip），**只在真的导入 Remotion 工程或带 `<script>` 的 HTML 时才下载**（两条路共用同一个 chunk）。
+- html 代码层的 iframe 会在导入后异步量一次内容包围盒（量到之前 `opacity: 0`），
+  所以导入瞬间那一层是空的，几十毫秒后才出现。不用「先显示后跳位」是刻意的 —— 跳位更刺眼。
   这不是优化洁癖：把 babel 塞进共享 chunk 会让启动页白背 73KB，而 99% 的会话不会导入 Remotion。
 
 ## 七、后续扩展点（按「投入产出比」排序）

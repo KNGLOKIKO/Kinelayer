@@ -12,6 +12,14 @@ export interface RenderOptions {
   transparent?: boolean;
   /** 导出时预栅格化的 HTML 层 */
   htmlBitmaps?: Map<string, Drawable>;
+  /**
+   * 编辑态标志：html 层由 Stage 上的 sandbox iframe 实时渲染，canvas 不要再画占位。
+   *
+   * 占位是「铺满图层 + 半透明紫 + 一行说明」—— 编辑态它还画，就会盖住下面的原生图层，
+   * 也会盖住 iframe 显示不出来的部分（用户会以为导入错了）。
+   * 离屏渲染（图层独立窗口）与导出不能传它，那时没有 iframe，占位是唯一的信息。
+   */
+  htmlLive?: boolean;
   /** 只渲染某一个图层（图层独立窗口用） */
   onlyLayerId?: string | null;
   /** 调试：跳过代码层 */
@@ -252,13 +260,20 @@ function drawCodeLayer(
   frame: FrameTransform,
   time: number,
   scale: number,
-  htmlBitmaps?: Map<string, Drawable>,
+  opts: RenderOptions,
 ): void {
-  if (layer.code.engine === 'html') {
+  const htmlBitmaps = opts.htmlBitmaps;  if (layer.code.engine === 'html') {
     const bitmap = htmlBitmaps?.get(layer.id);
+    if (bitmap) {
+      withTransform(ctx, frame, () => {
+        ctx.drawImage(bitmap as CanvasImageSource, 0, 0, layer.width, layer.height);
+      });
+      return;
+    }
+    /* 编辑态：iframe 已经在上面实时渲染，这里什么都不画 */
+    if (opts.htmlLive) return;
     withTransform(ctx, frame, () => {
-      if (bitmap) ctx.drawImage(bitmap as CanvasImageSource, 0, 0, layer.width, layer.height);
-      else drawPlaceholder(ctx, layer.width, layer.height, 'HTML 层 · 编辑态为实时 DOM 叠加');
+      drawPlaceholder(ctx, layer.width, layer.height, 'HTML 层 · 编辑态为实时 DOM 叠加');
     });
     return;
   }
@@ -355,7 +370,7 @@ export function renderScene(ctx: CanvasRenderingContext2D, project: Project, opt
         drawVideoLayer(ctx, layer, frame);
         break;
       case 'code':
-        if (!opts.skipCode) drawCodeLayer(ctx, layer, frame, time, scale, opts.htmlBitmaps);
+        if (!opts.skipCode) drawCodeLayer(ctx, layer, frame, time, scale, opts);
         break;
       default:
         break;

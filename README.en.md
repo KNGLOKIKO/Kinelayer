@@ -238,7 +238,7 @@ The job of this phase is to let AI-generated projects come in and go out, under 
 | native `project.json` | `normalizeProject` restores it exactly (detected by blendMode/animation/inPoint, not `layers[0].type`) | 100 |
 | `scene.ai.json` | flattened back to scene shape, then the same pipeline | 96+ |
 | scene JSON (Rendervid / cadence style) | text→text layer, media→media layer, box/timing→layer props, `tracks`→property tracks; rect/circle→canvas2d code layer | 70–96 |
-| HTML / GSAP snippet | whole snippet as an `html` code layer | 55 |
+| HTML / GSAP snippet | Static DOM parse: absolutely positioned text/images/containers become native layers, CSS class rules feed font size and colour, GSAP timelines become property tracks; elements in normal flow stay together as an `html` code layer | 20–95 |
 | image / video | canvas + media layer | 30 |
 | Remotion project ZIP | static AST parse: `<Sequence>` timing, text/image/container→native layers, `interpolate`/`spring`→property tracks; custom components stay whole as `remotion-component` code layers | 25–90 |
 
@@ -284,8 +284,24 @@ remotion-kit/
 npm install && npx remotion render src/index.ts kly-01 out/kly-01.mp4
 ```
 
-Phase C (structured HTML/GSAP DOM extraction + postMessage time sync) is not implemented;
-both READMEs and `docs/01-known-limitations.md` say so.
+### HTML / GSAP: what stays behind is "the rest"
+
+An `.html` file comes in and is split once, by absolute positioning: elements with
+`position:absolute` **and** `left/top` become native layers; class rules in `<style>`
+(font size, colour, radius) are read along; `gsap.to / from / fromTo / timeline` inside
+`<script>` become native keyframes.
+
+What cannot be split (normal flow, flex, canvas, svg) never gets a guessed position — it stays
+together as one `html` code layer, and the report says "N elements in normal flow stay in the
+code layer". The boundary is written up in
+[docs/05-html-gsap-import.md](docs/05-html-gsap-import.md).
+
+While editing, that `html` code layer is a `sandbox="allow-scripts"` iframe with a bridge
+script injected: **it freezes its animations on load and seeks with the main timeline** instead of
+running on wall-clock time. It also measures its own content bounds and reports them back —
+a sandbox iframe's white background cannot be removed in Chrome (`html/body { background:
+transparent }` fails too; four variants were tested), so the only way is to make its background
+equal the canvas colour and shrink the iframe to the region that actually has content.
 
 ---
 

@@ -250,6 +250,16 @@ export interface LayerOrigin {
   /** 原始工程包的标识/文件名，方便回查「这层从哪来的」 */
   sourceBundle?: string;
   importedAt?: number;
+  /**
+   * 解析这条来源时用到的解析器版本（`html-dom/1`、`remotion-ast/1`）。
+   * 解析规则会变，留着它才能分辨「这层是旧规则猜的」还是「新规则也没救」。
+   */
+  parser?: string;
+  /**
+   * 导入时发现的远程依赖（GSAP CDN、远程字体/图片）。
+   * 编辑态能加载，但导出走 foreignObject 栅格化、离线打开也拿不到 —— 必须提前说。
+   */
+  external?: string[];
 }
 
 export interface BaseLayer {
