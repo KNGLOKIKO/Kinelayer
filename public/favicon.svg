@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <!--
+    三层错位堆叠 = 「织层」。
+    刻意用大色块、不画细线：favicon 常被压到 16px，细节在这个尺寸全糊成噪点。
+  -->
+  <defs>
+    <linearGradient id="kly-top" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#8f72ff" />
+      <stop offset="1" stop-color="#22d3ee" />
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="7" fill="#0b0e14" />
+  <rect x="4" y="15" width="16" height="12" rx="2.5" fill="#2a3444" />
+  <rect x="8" y="10.5" width="16" height="12" rx="2.5" fill="#46557a" />
+  <rect x="12" y="6" width="16" height="12" rx="2.5" fill="url(#kly-top)" />
+</svg>

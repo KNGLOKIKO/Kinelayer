@@ -59,8 +59,18 @@ async function openWs(url) {
   return { ws, call, on, once };
 }
 
-/** 起浏览器并连上第一个匹配的页面 */
-export async function launch({ url, port = 9300 + Math.floor(Math.random() * 90), profile, width = 1600, height = 1000 }) {
+/**
+ * 起浏览器并连上第一个匹配的页面。
+ * matchUrl 是「认哪个标签」的片段，本地默认 5273；跑线上冒烟时传 'github.io'。
+ */
+export async function launch({
+  url,
+  port = 9300 + Math.floor(Math.random() * 90),
+  profile,
+  width = 1600,
+  height = 1000,
+  matchUrl = '5273',
+}) {
   const userDataDir = profile ?? `C:/Users/KngLokiko/AppData/Local/Temp/kly-e2e-${Date.now()}-${port}`;
   const edge = spawn(
     EDGE,
@@ -82,7 +92,7 @@ export async function launch({ url, port = 9300 + Math.floor(Math.random() * 90)
   for (let i = 0; i < 120; i += 1) {
     try {
       const list = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json();
-      page = list.find((t) => t.type === 'page' && t.url.includes('5273'));
+      page = list.find((t) => t.type === 'page' && t.url.includes(matchUrl));
       if (page?.webSocketDebuggerUrl) break;
     } catch {
       /* 还没起 */

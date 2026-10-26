@@ -98,7 +98,8 @@ Kinelayer/
 │  ├─ bundle-check.mjs         20 项 · .kly 真下载/真导入/敌意包拒绝
 │  ├─ launcher-check.mjs       22 项 · 启动页路由/新建对话框/单位换算/缩略图/删除/英文模式
 │  ├─ ai-check.mjs             34 项 · v2.5a 导入预检/降级映射/scene.ai.json 往返
-│  └─ remotion-check.mjs       37 项 · v2.5b Remotion 静态解析/remotion-component/kit 导出
+│  ├─ remotion-check.mjs       37 项 · v2.5b Remotion 静态解析/remotion-component/kit 导出
+│  └─ online-smoke.mjs         31 项 · 对线上 GitHub Pages 部署的冒烟（不需 dev server）
 └─ docs/
    ├─ 00-reference-notes.md    参考项目提取报告（第十四章）
    ├─ 01-known-limitations.md  已知限制与扩展点
