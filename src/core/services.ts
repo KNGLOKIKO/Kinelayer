@@ -62,8 +62,19 @@ export interface Services {
   peekBundleStage(stageId: string): Promise<{ name: string; bytes: Uint8Array } | null>;
   /** 保存一份文本产物（scene.ai.json / 降级报告 / 命令清单），触发下载 */
   saveTextFile(filename: string, text: string, mime?: string): Promise<{ filename: string; bytes: number }>;
+  /**
+   * 保存一份二进制产物（remotion-kit ZIP 等），触发下载。
+   * `saveBundle` 是工程包专用（自己拼文件名），这个给「已经打好包的任意产物」用。
+   */
+  saveBinaryFile(filename: string, bytes: Uint8Array, mime?: string): Promise<{ filename: string; bytes: number }>;
   capture(o: CaptureOptions): Promise<{ dataUrl: string; width: number; height: number }>;
   importAsset(input: ImportAssetInput): Promise<AssetMeta>;
+  /**
+   * 按 id 取回资源字节。
+   * 导出 remotion-kit 的时候要把工程里引用的图片/视频原样写进 public/assets ——
+   * 只拿到 AssetMeta 是不够的，必须能读到内容。
+   */
+  readAsset(id: string): Promise<{ bytes: Uint8Array; mime: string; name: string } | null>;
   removeAsset(id: string): Promise<void>;
   registerFont(input: RegisterFontInput): Promise<void>;
   removeFont(family: string): Promise<void>;

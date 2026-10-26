@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, ChevronUp, Diamond, Pause, Play, Repeat, Trash2 } from 'lucide-react';
+import { Boxes, ChevronDown, ChevronRight, ChevronUp, Diamond, Pause, Play, Repeat, Trash2 } from 'lucide-react';
 import { exec } from '@/core/commandBus';
 import { updateUi, useEditor } from '@/core/store';
 import { clamp } from '@/core/geometry';
@@ -8,6 +8,11 @@ import { currentValue, trackOf, ANIM_PRESET_TRACKS, type AnimPresetTrack } from 
 import { IconButton, Toggle, cx } from './primitives';
 import { useLayoutTier } from './layout';
 import { t } from '@/i18n';
+
+/** remotion 组件层：内部不可编辑，时间轴只表示「这段时间它可见」 */
+function isRemotionLayer(layer: Layer): boolean {
+  return layer.type === 'code' && layer.code.engine === 'remotion-component';
+}
 
 function fmt(ms: number): string {
   const s = Math.max(0, ms) / 1000;
@@ -235,20 +240,30 @@ export function Timeline() {
                     selectedIds.includes(row.layer.id) ? 'bg-accent/15 text-zinc-200' : 'text-zinc-500 hover:bg-ink-800',
                   )}
                 >
-                  <button
-                    type="button"
-                    className="text-zinc-600 hover:text-zinc-300"
-                    onClick={() =>
-                      updateUi((ui) => {
-                        ui.expandedTracks = ui.expandedTracks.includes(row.layer.id)
-                          ? ui.expandedTracks.filter((x) => x !== row.layer.id)
-                          : [...ui.expandedTracks, row.layer.id];
-                      })
-                    }
-                    title={t('展开轨道')}
-                  >
-                    {expanded.includes(row.layer.id) ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-                  </button>
+                  {isRemotionLayer(row.layer) ? (
+                    /*
+                     * Remotion 层的内部关键帧不在 Kinelayer 里 —— 展开也是空的。
+                     * 与其给一个「点开什么都没有」的箭头，不如直接说明这一点。
+                     */
+                    <span className="text-amber-500/70" title={t('Remotion 组件层：内部关键帧不在时间轴上展示')}>
+                      <Boxes size={11} />
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      className="text-zinc-600 hover:text-zinc-300"
+                      onClick={() =>
+                        updateUi((ui) => {
+                          ui.expandedTracks = ui.expandedTracks.includes(row.layer.id)
+                            ? ui.expandedTracks.filter((x) => x !== row.layer.id)
+                            : [...ui.expandedTracks, row.layer.id];
+                        })
+                      }
+                      title={t('展开轨道')}
+                    >
+                      {expanded.includes(row.layer.id) ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={() => void exec('selection.set', { ids: [row.layer.id] })}
@@ -257,7 +272,13 @@ export function Timeline() {
                     <span
                       className={cx(
                         'h-1.5 w-1.5 shrink-0 rounded-full',
-                        row.layer.type === 'code' ? 'bg-cyan' : row.layer.type === 'text' ? 'bg-accent' : 'bg-zinc-500',
+                        isRemotionLayer(row.layer)
+                          ? 'bg-amber-400'
+                          : row.layer.type === 'code'
+                            ? 'bg-cyan'
+                            : row.layer.type === 'text'
+                              ? 'bg-accent'
+                              : 'bg-zinc-500',
                       )}
                     />
                     <span className="truncate">{row.layer.name}</span>

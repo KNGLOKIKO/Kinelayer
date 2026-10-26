@@ -685,12 +685,57 @@ export const en: Record<string, string> = {
   '整段 HTML 作为 html 代码层导入（静态提取图片/文本是 v2.5c）':
     'The whole HTML snippet imports as an html code layer (static extraction of images/text lands in v2.5c)',
   '导出时这一层会被栅格化，精度可能下降': 'This layer is rasterised on export, so precision may drop',
-  '包里认出 {n} 个条目，含 TSX 组件': 'Found {n} entries in the archive, including TSX components',
-  'Remotion 需要 Node 端渲染管线，浏览器里无法执行 TSX': 'Remotion needs a Node render pipeline; TSX cannot run in the browser',
-  '支持 .kly / 场景 JSON / HTML / 图片视频；Remotion 工程需要 v2.5b':
-    'Supports .kly / scene JSON / HTML / images and video; Remotion projects arrive in v2.5b',
-  'Remotion 工程的静态解析排在 v2.5b（本版不做「假装导入成功」）；可先用 npx remotion render 出片，再按视频导入':
-    'Static parsing of Remotion projects is scheduled for v2.5b (this build does not fake a successful import); render with npx remotion render and import the video for now',
+  /* Remotion 工程导入（v2.5b 静态 AST 解析）：报告说明 */
+  'Remotion 工程（静态解析）': 'Remotion project (static parse)',
+  '包里认出 {n} 个条目': 'Found {n} entries in the archive',
+  '支持 .kly / 场景 JSON / HTML / 图片视频 / Remotion 工程 ZIP':
+    'Supports .kly / scene JSON / HTML / images and video / Remotion project ZIP',
+  'Remotion 工程要传 ZIP：源码在压缩包里，纯文本给不出组件结构':
+    'A Remotion project must be a ZIP — the component structure lives in the source files',
+  '这个 Composition 里没有可识别的元素，也没有可保留的组件':
+    'This composition has no recognisable element and no component worth keeping',
+  '（Remotion）Composition「{id}」：{w}×{h} · {fps}fps · {n} 帧':
+    '(Remotion) Composition "{id}": {w}×{h} · {fps}fps · {n} frames',
+  '（Remotion）源码来自「{name}」，浏览器内不执行，只做结构解析':
+    '(Remotion) Source from "{name}" is never executed in the browser — structure only',
+  '（Remotion）没解析出任何结构化元素，整个 Composition 作为代码层导入':
+    '(Remotion) Nothing structured could be parsed — the whole composition imports as a code layer',
+  '（Remotion）<{name}> 是带背景的容器，已生成 canvas2d 代码层':
+    '(Remotion) <{name}> is a container with a background — generated as a canvas2d code layer',
+  '（Remotion）图片元素没有静态 src，建成空占位':
+    '(Remotion) Image element has no static src — created as an empty placeholder',
+  '（Remotion）容器「{name}」上的动画无法归到具体元素，已跳过':
+    '(Remotion) Animation on container "{name}" cannot be attached to an element — skipped',
+  '（Remotion）scale 插值没有对应轨道，已跳过':
+    '(Remotion) scale interpolation has no matching track — skipped',
+  '（Remotion）scale 动画没有对应轨道，已跳过（缩放请手动改 width/height）':
+    '(Remotion) scale animation has no matching track — skipped (animate width/height instead)',
+  '（Remotion）spring 按 eased 0→1 近似（真曲线要跑物理积分，这里不猜）':
+    '(Remotion) spring is approximated as eased 0→1 (the real curve needs physics integration — not guessed here)',
+  'Remotion 里的 <{tag}> 没有对应图层，已跳过（Kinelayer 没有这个原生图层类型）':
+    '(Remotion) <{tag}> has no matching layer and was skipped (Kinelayer has no such native layer type)',
+  'preserve-code 模式：整个 Composition 保留为一个 Remotion 代码层，没有拆成原生图层':
+    'preserve-code mode: the whole composition stays one Remotion code layer, nothing is split into native layers',
+  '找到代理视频「{name}」，remotion 层按它预览（不再是静态首帧）':
+    'Found proxy video "{name}" — Remotion layers preview it instead of a static first frame',
+  'remotion 层没有代理视频：时间轴上显示静态首帧卡片，要看到动画得在外部 `npx remotion render`':
+    'No proxy video for the Remotion layers: the timeline shows a static first-frame card — run `npx remotion render` outside to see the motion',
+  '{n} 个组件整块保留为 Remotion 代码层（内部关键帧不展示，双击看源码）':
+    '{n} components kept whole as Remotion code layers (their internal keyframes are not shown — double-click to read the source)',
+  '原工程源码共 {n} 个文件，超过 600KB 上限没有随工程保存：remotion-kit 只能导出解析出来的组件':
+    'The original project has {n} source files and exceeded the 600KB cap, so it was not stored — remotion-kit will only export the parsed components',
+  'Remotion 组件层：源码原样保存，内部不可编辑，成片需在外部渲染':
+    'Remotion component layer: source kept verbatim, internals not editable, render outside Kinelayer',
+  'Remotion 组件层': 'Remotion component layer',
+  '只读：Remotion 组件在外部渲染，Kinelayer 不执行这段源码':
+    'Read-only: Remotion components render outside Kinelayer, which never executes this source',
+  '这段源码原样保存，Kinelayer 不执行、不渲染它 —— 时间轴上只显示静态首帧卡片。要看到动画，请用「导出 remotion-kit」拿到可 render 的工程，在外部跑 npx remotion render。':
+    'This source is stored verbatim; Kinelayer neither executes nor renders it — the timeline only shows a static first-frame card. To see the motion, export the remotion-kit and run npx remotion render outside.',
+  '内部不可编辑，时间轴只有静态首帧；成片请导出 remotion-kit 在外部渲染。':
+    'Internals are not editable and the timeline only shows a static first frame; export the remotion-kit to render outside.',
+  '查看源码': 'View source',
+  'Remotion 组件层：内部关键帧不在时间轴上展示':
+    'Remotion component layer: its internal keyframes are not shown on the timeline',
   '场景解析失败': 'Failed to parse the scene',
   'scene.ai.json 解析失败': 'Failed to parse scene.ai.json',
 };

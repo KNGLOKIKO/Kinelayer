@@ -646,19 +646,34 @@ function VideoSection({ layer }: { layer: Extract<Layer, { type: 'video' }> }) {
 function CodeSection({ layer }: { layer: Extract<Layer, { type: 'code' }> }) {
   const open = () => updateUi((ui) => { ui.codeEditorFor = layer.id; });
   const paramsJson = useMemo(() => JSON.stringify(layer.code.params, null, 2), [layer.code.params]);
+  const isRemotion = layer.code.engine === 'remotion-component';
+  const rt = layer.code.runtime;
   return (
     <Section title={t('代码')}>
-      <Field label={t('引擎')}>
-        <Select
-          value={layer.code.engine}
-          options={CODE_ENGINES.map((e) => ({ value: e as CodeEngine, label: e }))}
-          onChange={(engine) => void exec('code.setEngine', { id: layer.id, engine })}
-        />
-      </Field>
+      {isRemotion ? (
+        /* remotion 层的引擎不是「可切换的选项」：源码是 TSX，切走就再也画不出来 */
+        <div className="rounded-lg border border-amber-500/25 bg-amber-500/5 px-2.5 py-2 text-[10.5px] leading-relaxed text-zinc-400">
+          <div className="mb-1 font-medium text-amber-300">{t('Remotion 组件层')}</div>
+          {rt ? (
+            <div className="font-mono text-[10px] text-zinc-500">
+              {rt.compositionId} · {rt.width}×{rt.height} · {rt.fps}fps · {rt.durationInFrames}f
+            </div>
+          ) : null}
+          <p className="mt-1">{t('内部不可编辑，时间轴只有静态首帧；成片请导出 remotion-kit 在外部渲染。')}</p>
+        </div>
+      ) : (
+        <Field label={t('引擎')}>
+          <Select
+            value={layer.code.engine}
+            options={CODE_ENGINES.map((e) => ({ value: e as CodeEngine, label: e }))}
+            onChange={(engine) => void exec('code.setEngine', { id: layer.id, engine })}
+          />
+        </Field>
+      )}
       <div className="flex items-center justify-between">
         <Badge tone="cyan">{t('{n} 行', { n: layer.code.source.split('\n').length })}</Badge>
         <Button size="sm" variant="accent" onClick={open}>
-          <Code2 size={11} /> {t('打开编辑器')}
+          <Code2 size={11} /> {isRemotion ? t('查看源码') : t('打开编辑器')}
         </Button>
       </div>
       <Field label={t('参数 params（JSON）')}>

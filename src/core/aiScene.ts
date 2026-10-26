@@ -69,6 +69,21 @@ export interface AiSceneCodeLayer extends AiSceneLayerCommon {
   params: Record<string, string | number | boolean>;
   /** 完整源码：Agent 真要改代码时才读这个字段 */
   code: string;
+  /**
+   * `engine === 'remotion-component'` 才有。
+   * 刻意不导出 `sources`（原工程源码树）：它可能几百 KB，而 scene.ai.json 是给 Agent 读的，
+   * 需要的只是「这层是什么组件、多大、多长、能不能内部编辑」。
+   */
+  remotion?: {
+    compositionId: string;
+    durationInFrames: number;
+    fps: number;
+    width: number;
+    height: number;
+    previewMode: string;
+    sourceFiles: number;
+    note: string;
+  };
 }
 
 export interface AiSceneBackgroundLayer extends AiSceneLayerCommon {
@@ -147,6 +162,22 @@ const API_PATTERNS: { re: RegExp; label: string }[] = [
 export function describeCode(spec: CodeSpec): string {
   const src = spec.source ?? '';
   const lines = src ? src.split('\n').length : 0;
+
+  /*
+   * remotion-component 不是 canvas 代码：拿 canvas API 模式去扫 TSX 只会得到假摘要
+   * （比如把 JSX 里的 params 当成绘图调用）。这里只报能核对的事实。
+   */
+  if (spec.engine === 'remotion-component') {
+    const rt = spec.runtime;
+    const bits = ['remotion-component', `lines=${lines}`];
+    if (rt?.compositionId) bits.push(`composition=${rt.compositionId}`);
+    if (rt) bits.push(`${rt.width}×${rt.height}@${rt.fps}`);
+    if (rt) bits.push(`preview=${rt.previewMode}`);
+    if (rt?.sources?.length) bits.push(`sources=${rt.sources.length}`);
+    bits.push('render=external');
+    return bits.join(' · ');
+  }
+
   const hits: string[] = [];
   let shapes = 0;
   for (const { re, label } of API_PATTERNS) {
@@ -274,6 +305,20 @@ export function buildAiScene(project: Project): AiScene {
           codeBytes: (layer.code.source ?? '').length,
           params: layer.code.params,
           code: layer.code.source,
+          ...(layer.code.runtime
+            ? {
+                remotion: {
+                  compositionId: layer.code.runtime.compositionId,
+                  durationInFrames: layer.code.runtime.durationInFrames,
+                  fps: layer.code.runtime.fps,
+                  width: layer.code.runtime.width,
+                  height: layer.code.runtime.height,
+                  previewMode: layer.code.runtime.previewMode,
+                  sourceFiles: layer.code.runtime.sources?.length ?? 0,
+                  note: 'internal-keyframes-not-editable · render-outside-remotion',
+                },
+              }
+            : {}),
         });
         break;
       default:
@@ -298,7 +343,7 @@ export function buildAiScene(project: Project): AiScene {
     loop: project.loop,
     layers,
     capabilities: {
-      availableEngines: ['canvas2d', 'glsl', 'html'],
+      availableEngines: ['canvas2d', 'glsl', 'html', 'remotion-component'],
       animationCommands: ANIMATION_COMMANDS,
       limitations: LIMITATIONS,
     },

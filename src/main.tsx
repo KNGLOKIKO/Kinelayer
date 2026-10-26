@@ -3,6 +3,7 @@ import './styles.css';
 import App from './App';
 import { registerAllCommands } from './core/commands';
 import { ensureServices } from './app/services';
+import { getServices } from './core/services';
 import { buildLayerUrl, getLayerWindowHost, readLayerParams } from './windows/host';
 import { useEditor } from './core/store';
 import { setActiveLocale } from './i18n';
@@ -29,6 +30,12 @@ if (import.meta.env.DEV) {
     commands: () => listCommands().map((c) => c.type),
     /** e2e 用：拿到某个图层的独立窗口地址（含本窗口 hostId） */
     layerUrl: (layerId: string) => buildLayerUrl(layerId, getLayerWindowHost().hostId),
+    /**
+     * e2e 用：把一份 File 放进导入暂存区，拿到 stageId。
+     * 命令的 payload 只收 stageId（几十 MB 的 zip 不该进 JSON），
+     * 而 CDP 里造 File 比走文件选择框稳定得多 —— 自检两条路都留着。
+     */
+    stage: (file: File) => getServices().stageBundle(file),
   };
 }
 

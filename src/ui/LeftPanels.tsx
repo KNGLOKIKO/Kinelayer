@@ -103,6 +103,7 @@ function LayerRow({ layer, index }: { layer: Layer; index: number }) {
 
   return (
     <div
+      data-testid="layer-row"
       draggable={!isBg}
       onDragStart={(e) => {
         e.dataTransfer.setData('text/layer-id', layer.id);
@@ -124,10 +125,20 @@ function LayerRow({ layer, index }: { layer: Layer; index: number }) {
         else void exec('selection.set', { ids: [layer.id] });
       }}
       onDoubleClick={() => {
-        if (!isBg) {
-          setEditing(true);
-          setName(layer.name);
+        if (isBg) return;
+        /*
+         * Remotion 层双击不进重命名，直接开代码查看器 ——
+         * 这类层的名字通常就是组件名（ParticleField），用户双击它想问的是「里面是什么」，
+         * 而不是改名字。查看器里也只读（见 Dialogs 的说明）。
+         */
+        if (layer.type === 'code' && layer.code.engine === 'remotion-component') {
+          updateUi((ui) => {
+            ui.codeEditorFor = layer.id;
+          });
+          return;
         }
+        setEditing(true);
+        setName(layer.name);
       }}
       className={cx(
         'group flex h-8 cursor-default items-center gap-1.5 rounded-md px-1.5 transition',
@@ -158,7 +169,15 @@ function LayerRow({ layer, index }: { layer: Layer; index: number }) {
       ) : (
         <span className="min-w-0 flex-1 truncate text-[11.5px]">{layer.name}</span>
       )}
-      {layer.type === 'code' ? <Badge tone="cyan">code</Badge> : null}
+      {layer.type === 'code' ? (
+        layer.code.engine === 'remotion-component' ? (
+          <span title={t('Remotion 组件层：源码原样保存，内部不可编辑，成片需在外部渲染')}>
+            <Badge tone="warn">remotion</Badge>
+          </span>
+        ) : (
+          <Badge tone="cyan">code</Badge>
+        )
+      ) : null}
       {/*
         来源徽标：AI 生成的层和导入的层长得跟手搓的一模一样，
         不标出来用户会以为「这层本来就是我做的」，然后奇怪为什么改不了。

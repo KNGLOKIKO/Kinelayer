@@ -4,7 +4,7 @@ import { uid } from '@/core/ids';
 import { captureFrame, exportPng, exportProjectJson, exportWebm, buildFilename, downloadBlob } from '@/render/exporters';
 import { blobOf, looksLikeZip } from '@/core/bundle';
 import { preloadAssets, ensureAsset } from '@/render/assets';
-import { idbDeleteAsset, idbPutAsset } from '@/persist/idb';
+import { idbDeleteAsset, idbGetAsset, idbPutAsset } from '@/persist/idb';
 import { loadFonts, registerFontFace, removeFont } from '@/persist/fonts';
 import { getLayerWindowHost } from '@/windows/host';
 import type { AssetMeta } from '@/core/types';
@@ -117,6 +117,12 @@ export function ensureServices(): void {
       pushToast('success', t('已导出 {name}', { name: filename }));
       return { filename, bytes: blob.size };
     },
+    async saveBinaryFile(filename, bytes, mime = 'application/zip') {
+      const blob = blobOf(bytes, mime);
+      downloadBlob(blob, filename);
+      pushToast('success', t('已导出 {name}', { name: filename }));
+      return { filename, bytes: blob.size };
+    },
     async capture(opts) {
       const project = useEditor.getState().project;
       return captureFrame(project, { maxWidth: opts.maxWidth ?? 720, layerId: opts.layerId ?? null, time: opts.time });
@@ -137,6 +143,11 @@ export function ensureServices(): void {
       await idbPutAsset({ ...meta, blob });
       void ensureAsset(meta.id, kind);
       return meta;
+    },
+    async readAsset(id) {
+      const rec = await idbGetAsset(id);
+      if (!rec) return null;
+      return { bytes: new Uint8Array(await rec.blob.arrayBuffer()), mime: rec.mime, name: rec.name };
     },
     async removeAsset(id) {
       await idbDeleteAsset(id);

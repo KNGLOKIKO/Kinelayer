@@ -62,12 +62,21 @@
 - **触屏/手写笔未适配**：舞台交互基于 Pointer Events 的鼠标语义（中键平移、Ctrl+滚轮缩放），
   触屏上只能点选，不能双指缩放。
 
-## 五之二、导入（v2.5 阶段 A）
+## 五之二、导入（v2.5 阶段 A / B）
 
-- **Remotion 工程不支持**。浏览器里跑不了 TSX/Node 渲染管线，静态解析排在阶段 B。现在给它会明确拒绝
-  并说明原因 —— 不假装导入成功，也不偷偷降级成一张截图。
+- **Remotion 工程是「静态解析」，不是「还原原片」**。只认结构（JSX 元素、字面量、常量表、
+  interpolate/spring 的参数），不还原运行时：`useContext` 里的数据、`fetch` 的返回、
+  循环里算出来的坐标一律不猜。拆不出来的组件整块留成 `remotion-component` 代码层。
+  细节见 [04-code-video-integration.md](./04-code-video-integration.md)。
+- **`remotion-component` 层不可内部编辑**：时间轴不展开它的内部关键帧，双击是**只读**源码查看器；
+  容器上的 x/y/opacity 仍可打点（那是图层属性，不是组件内部）。成片必须外部 `npx remotion render`。
+- **spring 只是近似**：不跑物理积分，压成 eased 0→1 两个关键帧，报告里会明说。
+  `scale` 动画没有对应轨道（Kinelayer 用 width/height 表达缩放），导入时跳过并记说明。
+- **remotion-kit 不一定含原工程整树**：源码总量超过 600KB 时只保存解析出来的组件，
+  报告里会说「kit 只能导出解析出来的组件」。kit 的「能出片」本机只在结构层验证过
+  （语法合法 / import 路径存在 / README 命令正确），真跑 render 需要用户自己在 Node 环境执行。
 - **形状没有原生图层类型**：矩形/圆/路径在导入时生成 canvas2d 代码层（位置、尺寸、透明度能打关键帧，
-  内部不能逐元素编辑）。降级说明会写进预检报告，不藏在日志里。
+  内部不能逐元素编辑）。Remotion 里带背景的容器（含 `AbsoluteFill`）同理。
 - **`scene.ai.json` 不含二进制**：导回来后媒体层只剩资源名，需要重新指定图片/视频。这是设计取舍 ——
   语义层要塞进 Agent 的上下文预算，base64 会让它失效。要连素材一起搬，用 `.kly`。
 - **场景 JSON 的识别靠启发式**：时间单位先看 `timeUnit`，没有就按「数值 ≤120 当秒、否则当毫秒」推断；
@@ -75,6 +84,7 @@
 - **关键帧时间单位靠图层时长反推**：超出图层时长的按绝对时间处理并减去 inPoint，其余按相对时间。
   极端情况（图层比整条时间轴还长）可能判错，报告里的轨道/关键帧计数可以用来核对。
 - **导入不合并资源**：每次导入都新建一条工程记录与新资源，不做跨工程去重。
+- **预检是 async 的**（v2.5b 起）：Remotion 分支要动态加载 `@babel/parser`。不读写库这条没变。
 
 ## 六、性能与兼容
 
@@ -83,9 +93,11 @@
 - 舞台的 HTML 代码层用 `<iframe>` 叠加预览，滚动/缩放时靠 CSS transform 跟随，极端缩放下可能有 1px 抖动。
 - 推荐 Chrome / Edge 116+。Safari 缺 `documentPictureInPicture`、`navigator.fonts`，
   且 `ctx.letterSpacing` 支持较晚，字距会退化。
-- 首屏按视图分包：启动页约 159KB gzip（共享运行时 146KB + 启动页 10KB + 公共组件 3KB），
-  进编辑器再加载约 204KB（CodeMirror、渲染引擎、AI 面板都在这里）。图层窗口是独立 chunk（~5KB）。
+- 首屏按视图分包：启动页约 178KB gzip（共享运行时 158KB + 启动页 10KB + 公共组件 3KB + CSS 7KB），
+  进编辑器再加载约 205KB（CodeMirror、渲染引擎、AI 面板都在这里）。图层窗口是独立 chunk（~5KB）。
   共享运行时里包含导入管线与 `scene.ai.json` 的投影逻辑 —— 它们是命令层的依赖，两个视图都要用。
+- `@babel/parser` 单独一个 chunk（289KB / 73KB gzip），**只在真的导入 Remotion 工程时才下载**。
+  这不是优化洁癖：把 babel 塞进共享 chunk 会让启动页白背 73KB，而 99% 的会话不会导入 Remotion。
 
 ## 七、后续扩展点（按「投入产出比」排序）
 

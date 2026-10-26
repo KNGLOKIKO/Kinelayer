@@ -55,7 +55,7 @@ Kinelayer/
 │  │  ├─ temporal.ts           自研撤销栈：immer patches / inverse patches / 700ms 合并
 │  │  ├─ store.ts              Zustand 三段式：project（存盘）/ ui / runtime（都不存盘）
 │  │  ├─ defaults.ts           工厂 + normalizeProject（读宽容、写严格）+ 演示项目
-│  │  ├─ commands/*.ts         78 条命令，按领域分文件（图层/文本/代码/背景/项目/资源/字体/时间轴/动画/选择/历史/窗口/导出/查询/AI/批处理）
+│  │  ├─ commands/*.ts         79 条命令，按领域分文件（图层/文本/代码/背景/项目/资源/字体/时间轴/动画/选择/历史/窗口/导出/查询/AI/批处理）
 │  │  ├─ bundle.ts             工程包（.kly）：ZIP 打包/解包、逐文件 sha256、五道解压闸门
 │  │  ├─ importPipeline.ts     【v2.5】导入管线的纯函数部分：嗅探 → 预检报告 → 映射成图层/轨道
 │  │  ├─ aiScene.ts            【v2.5】`scene.ai.json`：给 Agent 的语义投影（秒制、无 base64、代码摘要）
@@ -97,12 +97,14 @@ Kinelayer/
 │  ├─ agent-panel-check.mjs    16 项 · 桌面 Agent 提示词面板
 │  ├─ bundle-check.mjs         20 项 · .kly 真下载/真导入/敌意包拒绝
 │  ├─ launcher-check.mjs       22 项 · 启动页路由/新建对话框/单位换算/缩略图/删除/英文模式
-│  └─ ai-check.mjs             33 项 · v2.5 导入预检/降级映射/scene.ai.json 往返/Remotion 明确拒绝
+│  ├─ ai-check.mjs             34 项 · v2.5a 导入预检/降级映射/scene.ai.json 往返
+│  └─ remotion-check.mjs       37 项 · v2.5b Remotion 静态解析/remotion-component/kit 导出
 └─ docs/
    ├─ 00-reference-notes.md    参考项目提取报告（第十四章）
    ├─ 01-known-limitations.md  已知限制与扩展点
    ├─ 02-bundle-format.md      工程包格式（.kly = ZIP）规范与敌意输入闸门
-   └─ 03-agent-integration.md  Agent 接入说明（中英双份，.en.md 为英文版）
+   ├─ 03-agent-integration.md  Agent 接入说明（中英双份，.en.md 为英文版）
+   └─ 04-code-video-integration.md  AI 代码视频：Remotion 静态解析与 remotion-kit 导出
 ```
 
 **分层规矩**：`ui/` 不能直接改 `project`；`render/` 不能 import `store`；
@@ -111,7 +113,7 @@ Kinelayer/
 
 ---
 
-## 命令一览（78 条）
+## 命令一览（79 条）
 
 | 分类  | 条数 | 代表命令                                                                                                                                                                                                                          |
 | --- | -- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -130,7 +132,7 @@ Kinelayer/
 | 窗口  | 4  | `window.openLayer` `window.closeLayer` `window.focusLayer` `window.setMode`                                                                                                                                                   |
 | 导出  | 4  | `export.png` `export.webm` `export.json` `export.commands`                                                                                                                                                                    |
 | 查询  | 4  | `query.project` `query.layer` `query.registry` `query.capture`                                                                                                                                                                |
-| AI  | 4  | `ai.inspectImport` `ai.importProject` `ai.exportProject` `ai.queryCodeLayer`                                                                                                                                                   |
+| AI  | 5  | `ai.inspectImport` `ai.importProject` `ai.exportProject` `ai.queryCodeLayer` `ai.exportRemotionKit`                                                                                                                                    |
 | 批处理 | 1  | `command.batch`（多条命令合成一个撤销点，失败原子回滚）                                                                                                                                                                                           |
 
 每条命令都自带：zod schema、中文描述、可直接跑的 `example`、
@@ -251,11 +253,16 @@ in/out 之外压暗、每条属性轨道一条细线、关键帧按属性配色�
 | 场景 JSON（Rendervid / cadence 风格） | 文本→文本层、图片视频→媒体层、坐标/尺寸/时序→图层属性、`tracks`→属性轨道；矩形/圆→canvas2d 代码层 | 70–96 |
 | HTML / GSAP 片段 | 整段作为 `html` 代码层 | 55 |
 | 图片 / 视频 | 建画布 + 媒体层 | 30 |
-| Remotion 工程 | **明确拒绝**（浏览器里跑不了 TSX，不假装导入成功），等阶段 B 的静态解析 | — |
+| Remotion 工程 ZIP | 静态 AST 解析：`<Sequence>` 的时间、文字/图片/容器→原生图层、`interpolate`/`spring`→属性轨道；自定义组件整块留成 `remotion-component` 代码层 | 25–90 |
 
-`scene.ai.json` 能原路导回（33 项自检里有一组往返用例）：导出的语义投影再导入，
+`scene.ai.json` 能原路导回（34 项自检里有一组往返用例）：导出的语义投影再导入，
 图层数、文字内容、轨道与关键帧都能对上；媒体层因为不带二进制，只会剩资源名 ——
 这一点在预检报告里明写，不靠用户自己发现。
+
+Remotion 的边界更硬一点：**只读源码、不执行**，也只认结构（JSX 元素、字面量、常量表、
+`interpolate`/`spring` 的参数）。`useContext` 里的数据、`fetch` 的返回、循环里算出来的坐标一律不猜 ——
+猜错会让用户以为导进来的是原片。拆不出来的组件整块保留，双击是**只读**源码查看器，
+时间轴上只画静态首帧卡片。细节见 [代码视频集成](docs/04-code-video-integration.md)。
 
 ### 每一层都记得自己从哪来
 
@@ -269,10 +276,31 @@ ai.inspectImport   { stageId | text, name?, format? }        → { report, impor
 ai.importProject   { stageId | text, mode? }                 → { projectId, format, fidelity, counts… }
 ai.exportProject   { projectId?, includeCode?, download? }   → { filename, text, bytes, layers… }
 ai.queryCodeLayer  { layerId?, includeCode? }                → 代码层摘要（不拉整份场景）
+ai.exportRemotionKit { projectId?, download? }               → remotion-kit ZIP（可 npx remotion render）
 ```
 
-阶段 B（Remotion 静态解析 + `remotion-component` 引擎）与阶段 C（HTML/GSAP 结构化提取）
-还没做，README 与 `docs/01-known-limitations.md` 都按「没做」写。
+### remotion-kit：把代码带出去出片
+
+Kinelayer 不在浏览器里跑渲染管线，所以 `remotion-component` 层只能静态预览。
+想拿到成片，用 `ai.exportRemotionKit` 导出一份外部工程：
+
+```
+remotion-kit/
+├── package.json      只有 remotion / react / react-dom / @remotion/cli
+├── src/index.ts      registerRoot
+├── src/Root.tsx      每个 remotion 层一个 <Composition>
+├── src/layers/<Name>/entry.tsx   该层组件源码（缺 default export 时补一行）
+├── src/original/**   原工程源码树（相对 import 靠它才不断）
+├── public/assets/**  引用的媒体
+└── README.md         npx remotion render 的命令
+```
+
+```bash
+npm install && npx remotion render src/index.ts kly-01 out/kly-01.mp4
+```
+
+阶段 C（HTML/GSAP 的 DOM 结构提取 + postMessage 时间同步）还没做，
+README 与 `docs/01-known-limitations.md` 都按「没做」写。
 
 ---
 
@@ -382,6 +410,7 @@ VITE_BASE=/Kinelayer/ npm run build   # 项目页需要这个前缀
 - [参考项目提取报告](docs/00-reference-notes.md) —— 第十四章逐项说明「借什么 / 为什么不搬 / 差异在哪」
 - [已知限制与扩展点](docs/01-known-limitations.md) —— 导出格式、沙箱边界、多窗口降级链、性能账本
 - [工程包格式](docs/02-bundle-format.md) —— `.kly` 的 ZIP 布局、manifest 字段、五道敌意输入闸门、错误码
+- [代码视频集成](docs/04-code-video-integration.md) —— Remotion 能解析到什么程度、`remotion-component` 的边界、remotion-kit 怎么出片
 
 ## 许可
 

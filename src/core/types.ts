@@ -31,9 +31,9 @@ export const BLEND_MODES: BlendMode[] = [
 
 export type FitMode = 'cover' | 'contain' | 'fill';
 
-export type CodeEngine = 'canvas2d' | 'glsl' | 'html';
+export type CodeEngine = 'canvas2d' | 'glsl' | 'html' | 'remotion-component';
 
-export const CODE_ENGINES: CodeEngine[] = ['canvas2d', 'glsl', 'html'];
+export const CODE_ENGINES: CodeEngine[] = ['canvas2d', 'glsl', 'html', 'remotion-component'];
 
 export type EasingName =
   | 'linear'
@@ -315,6 +315,40 @@ export interface CodeSpec {
   engine: CodeEngine;
   source: string;
   params: Record<string, string | number | boolean>;
+  /**
+   * `remotion-component` 的运行时元信息。别的引擎没有这一段。
+   *
+   * 它不是「在浏览器里跑 Remotion」—— 浏览器执行不了 TSX，也没有逐帧截图能力。
+   * 这段只记录「这一层原本是一个 Remotion 组件」，于是它有一个诚实的落脚点：
+   * 静态首帧占位（或用户自己渲染的代理视频）作预览，源码原样进工程包与 remotion-kit。
+   */
+  runtime?: RemotionRuntime;
+}
+
+export interface RemotionRuntime {
+  kind: 'remotion-component';
+  /** AI 生成的 Remotion 组件源码（TSX），原样保存，不在浏览器里执行 */
+  entryCode: string;
+  compositionId: string;
+  durationInFrames: number;
+  fps: number;
+  width: number;
+  height: number;
+  /** static-first-frame：只画占位卡；proxy-video：画代理视频（仅编辑期参考，不参与导出） */
+  previewMode: 'static-first-frame' | 'proxy-video';
+  /** 代理视频的资源 id（as_xxx）。走资源池，和普通视频层同一套解码/缓存 */
+  proxyAssetId?: string;
+  /** 这一层为什么没被解析成结构化图层（给用户看的原始原因，展示时再翻译） */
+  reason?: string;
+  /**
+   * 原工程源码树（按 zip 内相对路径）。
+   *
+   * 只挂在**第一个** remotion 层上，避免每个组件都存一份。
+   * 用途单一：导出 remotion-kit 时原样落盘，让外部 `npx remotion render` 真能跑起来 ——
+   * 只存被解析出来的那一个组件源码是不够的，原工程里的相对 import 会全部断掉。
+   * 超过体积上限就不存（宁可不导出整树，也不让 project.json 变成几 MB）。
+   */
+  sources?: { path: string; code: string }[];
 }
 
 export interface CodeLayer extends BaseLayer {

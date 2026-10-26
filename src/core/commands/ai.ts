@@ -16,6 +16,7 @@ import { normalizeProject } from '../defaults';
 import { unpackProject } from '../projectFile';
 import { uid } from '../ids';
 import { buildAiScene, aiSceneToJson, describeCode } from '../aiScene';
+import { buildRemotionKit, type KitAsset } from '../remotionKit';
 import {
   detectImportFormat,
   inspectImport,
@@ -23,13 +24,16 @@ import {
   mapAiScene,
   mapHtml,
   mapMedia,
+  mapRemotion,
   mapScene,
   ImportError,
+  type AssetJob,
   type ImportFormat,
   type ImportInput,
   type ImportMode,
   type ImportReport,
 } from '../importPipeline';
+import { bytesToBase64 } from '../bundle';
 import { loadProjectRecord } from '@/persist/projects';
 import type { Project } from '../types';
 import { installAsCurrentProject } from './project';
@@ -112,7 +116,7 @@ function mimeOfDataUrl(dataUrl: string): string {
  * 把映射器留下的「待物化资源」写进资源库，并把 layerId 换成真的 assetId。
  * data URL 是映射器唯一能带过来的形态（外部路径它拿不到字节），所以这里只管解码。
  */
-async function materializeAssets(project: Project, jobs: { layerId: string; name: string; dataUrl: string }[], ctx: CommandContext): Promise<number> {
+async function materializeAssets(project: Project, jobs: AssetJob[], ctx: CommandContext): Promise<number> {
   if (!jobs.length) return 0;
   const byLayer = new Map(jobs.map((job) => [job.layerId, job]));
   let written = 0;
@@ -121,7 +125,20 @@ async function materializeAssets(project: Project, jobs: { layerId: string; name
     if (!job) continue;
     try {
       const meta = await ctx.services.importAsset({ name: job.name, mime: mimeOfDataUrl(job.dataUrl), dataUrl: job.dataUrl });
-      (layer as { assetId: string | null }).assetId = meta.id;
+      if (job.slot === 'proxy') {
+        /*
+         * 代理视频不是层的 asset，是「这层怎么显示」—— 写进 runtime 而不是 assetId。
+         * 顺手把 previewMode 也升级掉，免得 runtime 里出现「有 proxyAssetId 但还写着静态首帧」。
+         */
+        if (layer.type === 'code' && layer.code.runtime) {
+          layer.code = {
+            ...layer.code,
+            runtime: { ...layer.code.runtime, proxyAssetId: meta.id, previewMode: 'proxy-video' },
+          };
+        }
+      } else {
+        (layer as { assetId: string | null }).assetId = meta.id;
+      }
       project.assets = [...project.assets.filter((a) => a.id !== meta.id), meta];
       written += 1;
     } catch (err) {
@@ -163,7 +180,7 @@ export const aiCommands = [
     example: { text: '{"width":1080,"height":1080,"duration":5,"layers":[{"type":"text","text":"Hello"}]}' },
     handler: async (_draft, payload, ctx) => {
       const input = await resolveInput(payload, ctx);
-      const { report } = inspectImport(input);
+      const { report } = await inspectImport(input);
       return { report, importable: report.supported && report.blockers.length === 0 };
     },
   }),
@@ -175,7 +192,7 @@ export const aiCommands = [
     resetsHistory: true,
     asyncHandler: true,
     description:
-      '把外部工程/场景导入成一份**新**工程并打开（不覆盖同名工程）。支持 scene JSON（Rendervid/cadence 风格）、scene.ai.json、HTML 片段、图片/视频、原生 project.json；.kly 工程包请走 project.importBundle。内部会先跑一次等价于 ai.inspectImport 的预检，结果随记录一起返回；Remotion 工程会被明确拒绝，不会假装导入成功。',
+      '把外部工程/场景导入成一份**新**工程并打开（不覆盖同名工程）。支持 scene JSON（Rendervid/cadence 风格）、scene.ai.json、HTML 片段、图片/视频、原生 project.json、Remotion 工程 ZIP（静态 AST 解析）；.kly 工程包请走 project.importBundle。内部会先跑一次等价于 ai.inspectImport 的预检，结果随记录一起返回。Remotion 里能识别成文字/图片/盒子的元素变原生图层，其余组件整块保留为 remotion-component 代码层（不执行、不假装可内部编辑）。',
     schema: z.object({
       ...inputShape,
       mode: z.enum(['prefer-editable', 'preserve-code']).default('prefer-editable'),
@@ -186,7 +203,7 @@ export const aiCommands = [
       const mode = payload.mode as ImportMode;
       const format = detectImportFormat(input);
       /* 预检先跑：报告是这次导入的一部分，不是可选装饰 */
-      const { report, mapped } = inspectImport(input);
+      const { report, mapped } = await inspectImport(input);
 
       if (format === 'kly') {
         throw new CommandFailure('VALIDATION', '这是 Kinelayer 工程包（ZIP），请用 project.importBundle 以便校验 sha256', {
@@ -201,7 +218,7 @@ export const aiCommands = [
       }
 
       let project: Project;
-      let jobs: { layerId: string; name: string; dataUrl: string }[] = [];
+      let jobs: AssetJob[] = [];
       let assetsWritten = 0;
 
       try {
@@ -224,6 +241,19 @@ export const aiCommands = [
           }
         } else if (format === 'html') {
           project = mapHtml(input).project;
+        } else if (format === 'remotion') {
+          /*
+           * Remotion 的预检只跑 dryRun（拿到报告，不建工程），
+           * 这里要按用户实际选的 mode 重跑一遍才有 project。
+           */
+          const result = await mapRemotion(input, mode, ctx.dryRun);
+          if (!result.mapped) {
+            throw new CommandFailure('VALIDATION', result.report.blockers.map(renderNote).join('；') || 'Remotion 解析没有产出工程', {
+              report: result.report,
+            });
+          }
+          project = result.mapped.project;
+          jobs = result.mapped.assetJobs;
         } else if (format === 'ai-scene') {
           const result = mapped ?? mapAiScene(input, mode, ctx.dryRun);
           project = result.project;
@@ -300,6 +330,69 @@ export const aiCommands = [
   }),
 
   defineCommand({
+    type: 'ai.exportRemotionKit',
+    category: 'AI',
+    mutating: false,
+    undoable: false,
+    asyncHandler: true,
+    description:
+      '导出 remotion-kit（ZIP）：把工程里的 remotion-component 层还原成一个能 `npx remotion render` 的外部工程（package.json + src/Root.tsx + 每层 entry.tsx + 原工程源码树 + public/assets + README）。没有 remotion 层时会明确报错；download=true 时触发下载。',
+    schema: z.object({
+      projectId: z.string().min(1).max(80).optional(),
+      download: z.boolean().default(false),
+    }),
+    example: { download: false },
+    handler: async (draft, payload, ctx) => {
+      const sourceId = payload.projectId ?? draft.id;
+      const source = sourceId === draft.id ? draft : await loadProjectRecord(sourceId);
+      if (!source) throw new CommandFailure('NOT_FOUND', `工程不存在：${sourceId}`);
+
+      const remotionLayers = source.layers.filter((l) => l.type === 'code' && l.code.engine === 'remotion-component');
+      if (!remotionLayers.length) {
+        throw new CommandFailure('VALIDATION', '这个工程里没有 remotion 组件层，没有可导出的 kit（原生图层请走 ai.exportProject 或 project.exportBundle）');
+      }
+
+      /* kit 的 public/assets 只放工程里还在用的媒体：原件按 basename 落盘，和 staticFile('assets/x.png') 对得上 */
+      const assets: KitAsset[] = [];
+      const missingAssets: string[] = [];
+      if (!ctx.dryRun) {
+        for (const meta of source.assets) {
+          const rec = await ctx.services.readAsset(meta.id);
+          if (!rec) {
+            missingAssets.push(meta.name);
+            continue;
+          }
+          assets.push({ name: rec.name || meta.name, bytes: rec.bytes });
+        }
+      }
+
+      const kit = buildRemotionKit({ project: source, assets });
+      if (!kit.compositions.length) {
+        throw new CommandFailure(
+          'VALIDATION',
+          `没有可导出的 remotion 组件：${kit.skipped.map((s) => `${s.layer}（${s.reason}）`).join('；') || '源码为空'}`,
+        );
+      }
+
+      const filename = `${fileStem(source.name)}.remotion-kit.zip`;
+      if (payload.download && !ctx.dryRun) {
+        await ctx.services.saveBinaryFile(filename, kit.bytes, 'application/zip');
+      }
+
+      return {
+        filename,
+        bytes: kit.bytes.length,
+        files: kit.files,
+        compositions: kit.compositions,
+        hasOriginalTree: kit.hasOriginalTree,
+        skipped: kit.skipped,
+        missingAssets,
+        layers: remotionLayers.length,
+      };
+    },
+  }),
+
+  defineCommand({
     type: 'ai.queryCodeLayer',
     category: 'AI',
     mutating: false,
@@ -338,12 +431,3 @@ export const aiCommands = [
     },
   }),
 ];
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = '';
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  return btoa(binary);
-}

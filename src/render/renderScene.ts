@@ -1,4 +1,4 @@
-import { getBackground, type CodeLayer, type ImageLayer, type Layer, type Project, type VideoLayer } from '@/core/types';
+import { getBackground, type CodeLayer, type ImageLayer, type Layer, type Project, type RemotionRuntime, type VideoLayer } from '@/core/types';
 import { computeLayerFrame, type FrameTransform } from './animation';
 import { getImage, getVideo, isAssetMissing, syncVideoTime, type Drawable } from './assets';
 import { runCodeLayer } from './codeEngine';
@@ -154,6 +154,98 @@ function drawVideoLayer(ctx: CanvasRenderingContext2D, layer: VideoLayer, frame:
   });
 }
 
+/**
+ * `remotion-component` 层的预览。
+ *
+ * 这里**绝不执行** entryCode —— 它是 TSX，浏览器里既跑不了也没有逐帧渲染能力。
+ * 所以只有两种画法，两种都如实说明自己是「代替品」：
+ *   · 代理视频（用户/外部 CLI 先渲过一版）：画它的当前帧，编辑期当参考；
+ *   · 都没有：画一张技术卡片，写清 composition / 尺寸 / 帧率 / 时长。
+ * 卡片上的字刻意用 ASCII 技术词（remotion / static preview），不做翻译 ——
+ * 它不是 UI 文案，是这一层的身份标签，换语言反而不好认。
+ */
+function drawRemotionLayer(ctx: CanvasRenderingContext2D, layer: CodeLayer, frame: FrameTransform): void {
+  const rt = layer.code.runtime;
+  withTransform(ctx, frame, () => {
+    const w = layer.width;
+    const h = layer.height;
+    ctx.save();
+    if (rt?.previewMode === 'proxy-video' && rt.proxyAssetId) {
+      const video = getVideo(rt.proxyAssetId);
+      if (video && video.readyState >= 2) {
+        drawFit(ctx, video, w, h, 'cover');
+        ctx.restore();
+        return;
+      }
+    }
+    drawRemotionCard(ctx, w, h, rt);
+    ctx.restore();
+  });
+}
+
+function drawRemotionCard(ctx: CanvasRenderingContext2D, w: number, h: number, rt?: RemotionRuntime): void {
+  const unit = Math.max(1, Math.min(w, h) / 100);
+  /*
+   * 半透明而不是实心：这类层经常铺满画布盖在最上面，
+   * 一块 94% 不透明的底板会把下面所有可编辑图层全遮掉 —— 用户会以为「导入把内容吃了」。
+   * 现在它读起来就是一张「占位卡」：能看到底下构图，也一眼知道这块还没渲。
+   */
+  const bg = ctx.createLinearGradient(0, 0, w, h);
+  bg.addColorStop(0, 'rgba(18,20,30,0.42)');
+  bg.addColorStop(1, 'rgba(32,26,54,0.42)');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, w, h);
+
+  ctx.strokeStyle = 'rgba(124,92,255,0.55)';
+  ctx.lineWidth = Math.max(1, unit * 0.6);
+  ctx.setLineDash([unit * 3, unit * 3]);
+  ctx.strokeRect(unit, unit, Math.max(0, w - unit * 2), Math.max(0, h - unit * 2));
+  ctx.setLineDash([]);
+
+  const mono = `${Math.max(9, unit * 3.4)}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+  const sans = `600 ${Math.max(11, unit * 4.6)}px ${FONT_STACK_FALLBACK}`;
+
+  /* 底板透出来了，字得自带阴影才在亮画面上站得住 */
+  ctx.shadowColor = 'rgba(0,0,0,0.85)';
+  ctx.shadowBlur = unit * 2.2;
+
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'top';
+  ctx.fillStyle = 'rgba(155,131,255,0.95)';
+  ctx.font = mono;
+  ctx.fillText('remotion', unit * 4, unit * 4);
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillStyle = 'rgba(236,238,248,0.92)';
+  ctx.font = sans;
+  const title = rt?.compositionId || 'component';
+  ctx.fillText(fitText(ctx, title, w - unit * 12), w / 2, h / 2 - unit * 3);
+
+  ctx.fillStyle = 'rgba(180,186,205,0.8)';
+  ctx.font = mono;
+  const meta = rt
+    ? `${Math.round(rt.width)}×${Math.round(rt.height)} · ${rt.fps}fps · ${(rt.durationInFrames / Math.max(1, rt.fps)).toFixed(1)}s`
+    : 'no runtime info';
+  ctx.fillText(fitText(ctx, meta, w - unit * 12), w / 2, h / 2 + unit * 4);
+
+  ctx.fillStyle = 'rgba(140,146,168,0.75)';
+  ctx.font = mono;
+  const tag = rt?.previewMode === 'proxy-video' ? 'proxy video' : 'static preview · render outside';
+  ctx.fillText(fitText(ctx, tag, w - unit * 12), w / 2, h - unit * 6);
+
+  ctx.shadowBlur = 0;
+  ctx.shadowColor = 'transparent';
+}
+
+/** 画不下就截断，不要把字挤出图层边界（图层可能只有 200px 宽） */
+function fitText(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string {
+  if (ctx.measureText(text).width <= maxWidth) return text;
+  let out = text;
+  while (out.length > 4 && ctx.measureText(`${out}…`).width > maxWidth) out = out.slice(0, -1);
+  return `${out}…`;
+}
+
 function drawCodeLayer(
   ctx: CanvasRenderingContext2D,
   layer: CodeLayer,
@@ -168,6 +260,11 @@ function drawCodeLayer(
       if (bitmap) ctx.drawImage(bitmap as CanvasImageSource, 0, 0, layer.width, layer.height);
       else drawPlaceholder(ctx, layer.width, layer.height, 'HTML 层 · 编辑态为实时 DOM 叠加');
     });
+    return;
+  }
+  /* remotion 层必须走自己的分支：交给 runCodeLayer 会把 TSX 当 JS 编译，必然炸 */
+  if (layer.code.engine === 'remotion-component') {
+    drawRemotionLayer(ctx, layer, frame);
     return;
   }
   withTransform(ctx, frame, () => {

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Check, Loader2, Play, X } from 'lucide-react';
+import { AlertTriangle, Check, Code2, Loader2, Play, X } from 'lucide-react';
 import { exec } from '@/core/commandBus';
 import { pushToast, updateUi, useEditor } from '@/core/store';
 import { getRuntimeInfo } from '@/render/codeEngine';
@@ -421,6 +421,14 @@ export function CodeEditorDialog() {
 
   const info = getRuntimeInfo(layer.id);
   const isBg = layer.type === 'background';
+  /*
+   * Remotion 层是**查看器**，不是编辑器：
+   * 源码是外面那套工程的原文，Kinelayer 既不执行也不渲染它。
+   * 在这里改两行只会让「工程里存的源码」和「实际能出片的东西」悄悄分叉 ——
+   * 所以只读展示 + 明确告诉用户去哪里改、去哪里渲。
+   */
+  const isRemotion = layer.type === 'code' && layer.code.engine === 'remotion-component';
+  const rt = isRemotion && layer.type === 'code' ? layer.code.runtime : undefined;
 
   return (
     <Modal
@@ -430,54 +438,77 @@ export function CodeEditorDialog() {
       footer={
         <>
           <span className="mr-auto text-[10.5px] text-zinc-600">
-            {info.error ? <span className="text-rose-400">{info.error}</span> : t('语法错误会在关闭编辑器后逐帧捕获')}
+            {isRemotion
+              ? t('只读：Remotion 组件在外部渲染，Kinelayer 不执行这段源码')
+              : info.error
+                ? <span className="text-rose-400">{info.error}</span>
+                : t('语法错误会在关闭编辑器后逐帧捕获')}
           </span>
           <Button variant="ghost" onClick={close}>
-            {t('取消')}
+            {isRemotion ? t('关闭') : t('取消')}
           </Button>
-          <Button
-            variant="accent"
-            onClick={async () => {
-              if (isBg) await exec('background.setCode', { source: value });
-              else await exec('code.setSource', { id: layer.id, source: value });
-              setDraft(null);
-              close();
-            }}
-          >
-            {t('应用（一条命令）')}
-          </Button>
+          {!isRemotion && (
+            <Button
+              variant="accent"
+              onClick={async () => {
+                if (isBg) await exec('background.setCode', { source: value });
+                else await exec('code.setSource', { id: layer.id, source: value });
+                setDraft(null);
+                close();
+              }}
+            >
+              {t('应用（一条命令）')}
+            </Button>
+          )}
         </>
       }
     >
+      {isRemotion && (
+        <div className="mb-2 rounded-lg border border-cyan/25 bg-cyan/5 px-3 py-2 text-[11px] leading-relaxed text-zinc-300">
+          <div className="flex items-center gap-2 text-cyan">
+            <Code2 size={12} />
+            <span className="font-medium">{t('Remotion 组件层')}</span>
+            {rt ? (
+              <span className="text-zinc-500">
+                {rt.compositionId} · {rt.width}×{rt.height} · {rt.fps}fps · {rt.durationInFrames} 帧
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-1 text-zinc-400">
+            {t('这段源码原样保存，Kinelayer 不执行、不渲染它 —— 时间轴上只显示静态首帧卡片。要看到动画，请用「导出 remotion-kit」拿到可 render 的工程，在外部跑 npx remotion render。')}
+          </p>
+        </div>
+      )}
       <div className="mb-2 flex items-center gap-2">
         <Badge tone="cyan">{layer.code.engine}</Badge>
         <div className="flex-1" />
-        {[
-          { label: t('canvas2d 模板'), src: CANVAS2D_TEMPLATE, engine: 'canvas2d' as const },
-          { label: t('GLSL 模板'), src: GLSL_TEMPLATE, engine: 'glsl' as const },
-          { label: t('HTML 模板'), src: HTML_TEMPLATE, engine: 'html' as const },
-        ].map((t) => (
-          <Button
-            key={t.label}
-            size="sm"
-            variant="outline"
-            onClick={async () => {
-              if (isBg) {
-                await exec('background.setCode', { engine: t.engine, source: t.src });
-              } else {
-                await exec('code.setEngine', { id: layer.id, engine: t.engine });
-                await exec('code.setSource', { id: layer.id, source: t.src });
-              }
-              setDraft(t.src);
-              setNonce((n) => n + 1);
-            }}
-          >
-            {t.label}
-          </Button>
-        ))}
+        {!isRemotion &&
+          [
+            { label: t('canvas2d 模板'), src: CANVAS2D_TEMPLATE, engine: 'canvas2d' as const },
+            { label: t('GLSL 模板'), src: GLSL_TEMPLATE, engine: 'glsl' as const },
+            { label: t('HTML 模板'), src: HTML_TEMPLATE, engine: 'html' as const },
+          ].map((tpl) => (
+            <Button
+              key={tpl.label}
+              size="sm"
+              variant="outline"
+              onClick={async () => {
+                if (isBg) {
+                  await exec('background.setCode', { engine: tpl.engine, source: tpl.src });
+                } else {
+                  await exec('code.setEngine', { id: layer.id, engine: tpl.engine });
+                  await exec('code.setSource', { id: layer.id, source: tpl.src });
+                }
+                setDraft(tpl.src);
+                setNonce((n) => n + 1);
+              }}
+            >
+              {tpl.label}
+            </Button>
+          ))}
       </div>
       <div className="h-[52vh]">
-        <CodeEditor value={value} onChange={setDraft} />
+        <CodeEditor value={value} onChange={isRemotion ? undefined : setDraft} readOnly={isRemotion} />
       </div>
     </Modal>
   );

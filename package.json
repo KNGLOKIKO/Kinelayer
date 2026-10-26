@@ -13,6 +13,7 @@
     "mcp": "node agent-bridge/src/mcp.js"
   },
   "dependencies": {
+    "@babel/parser": "^8.0.8",
     "@codemirror/autocomplete": "^6.18.1",
     "@codemirror/commands": "^6.6.2",
     "@codemirror/lang-javascript": "^6.2.2",

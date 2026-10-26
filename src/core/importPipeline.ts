@@ -7,9 +7,10 @@
  * 降级优先级（越靠上越好编辑）：
  *   ① 场景 JSON（Rendervid / cadence 风格）→ 原生图层 + 轨道，零代码层
  *   ② HTML/GSAP 片段 → 静态可提取的部分变原生图层，剩下的整块进 html 代码层
- *   ③ 只有代码 → 整体作为代码层，打 origin 标记
- *   ④ 只有视频/图片 → VideoLayer / ImageLayer，语义全丢
- *   ⑤ Remotion 工程 → v2.5b 才有静态 AST 解析；现在**明确拒绝**，不做「导入成一坨跑不起来的代码」这种假成功
+ *   ③ Remotion 工程 → 静态 AST 解析（v2.5b）：字幕/图片/盒子变原生层，
+ *      interpolate/spring 变轨道，自定义组件留成 remotion-component 代码层
+ *   ④ 只有代码 → 整体作为代码层，打 origin 标记
+ *   ⑤ 只有视频/图片 → VideoLayer / ImageLayer，语义全丢
  *
  * 每一步降级都记 note，最后原样展示给用户 —— 「哪些能编辑、哪些只能整块预览」必须说清楚。
  */
@@ -21,6 +22,7 @@ import type {
   EasingSpec,
   Keyframe,
   Layer,
+  LayerOrigin,
   LayerOriginFormat,
   Project,
   PropertyTrack,
@@ -37,7 +39,8 @@ import {
   normalizeProject,
 } from './defaults';
 import { AI_SCENE_FORMAT, describeCode } from './aiScene';
-import { looksLikeZip, zipEntryNames } from './bundle';
+import { bytesToDataUrl, looksLikeZip, zipEntryNames } from './bundle';
+import { parseRemotionZip, RemotionParseError, type RemotionParse, type RemotionTrack } from './remotionParser';
 
 /* ------------------------------------------------------------------ 类型 */
 
@@ -144,11 +147,24 @@ export interface ImportReport {
   } | null;
 }
 
+/**
+ * 需要在落库阶段物化的资源（data URL），由命令层写进资源库。
+ *
+ * `slot` 决定落库后的 id 写到哪儿：图片/视频层写 `layer.assetId`；
+ * remotion 层的代理预览视频要写进 `code.runtime.proxyAssetId` —— 它不是这个层的 asset，
+ * 而是「这层长什么样」的一部分。
+ */
+export interface AssetJob {
+  layerId: string;
+  name: string;
+  dataUrl: string;
+  slot?: 'assetId' | 'proxy';
+}
+
 export interface MappedImport {
   project: Project;
   report: ImportReport;
-  /** 需要在落库阶段物化的资源（data URL），由命令层负责写进 IndexedDB */
-  assetJobs: { layerId: string; name: string; dataUrl: string }[];
+  assetJobs: AssetJob[];
 }
 
 /** 导入模式：prefer-editable 尽量拆成原生层；preserve-code 少拆、优先保代码 */
@@ -274,7 +290,14 @@ function looksLikeScene(o: Record<string, unknown>): boolean {
 
 /* ------------------------------------------------------------------ 预检 */
 
-export function inspectImport(input: ImportInput): { report: ImportReport; mapped?: MappedImport } {
+/**
+ * 导入预检。
+ *
+ * 本来是纯同步函数（给定字节就能算），v2.5b 起 Remotion 分支要跑 babel AST，
+ * 而 babel 是动态 import 进来的 —— 所以整个入口变成 async。
+ * 其余格式仍然是同步算完，包一层 Promise 而已：**不读库、不写库**这条没变。
+ */
+export async function inspectImport(input: ImportInput): Promise<{ report: ImportReport; mapped?: MappedImport }> {
   const format = detectImportFormat(input);
 
   switch (format) {
@@ -329,7 +352,7 @@ export function inspectImport(input: ImportInput): { report: ImportReport; mappe
     case 'media':
       return { report: mediaReport(input) };
     case 'remotion':
-      return { report: remotionReport(input) };
+      return mapRemotion(input, 'prefer-editable', true);
     default:
       return {
         report: {
@@ -340,7 +363,7 @@ export function inspectImport(input: ImportInput): { report: ImportReport; mappe
           counts: emptyCounts(),
           missingAssets: [],
           notes: [],
-          blockers: [note('支持 .kly / 场景 JSON / HTML / 图片视频；Remotion 工程需要 v2.5b')],
+          blockers: [note('支持 .kly / 场景 JSON / HTML / 图片视频 / Remotion 工程 ZIP')],
           preview: null,
         },
       };
@@ -479,7 +502,72 @@ function mediaReport(input: ImportInput): ImportReport {
   };
 }
 
-function remotionReport(input: ImportInput): ImportReport {
+/* ------------------------------------------------ Remotion 工程（v2.5b） */
+
+const MIME_BY_EXT: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  webp: 'image/webp',
+  gif: 'image/gif',
+  svg: 'image/svg+xml',
+  avif: 'image/avif',
+  bmp: 'image/bmp',
+  mp4: 'video/mp4',
+  webm: 'video/webm',
+  mov: 'video/quicktime',
+  m4v: 'video/x-m4v',
+  mp3: 'audio/mpeg',
+  wav: 'audio/wav',
+  m4a: 'audio/mp4',
+};
+
+/** Uint8Array → base64。分块拼接，避免 `...spread` 把大数组打爆调用栈 */
+const dataUrlOfPath = (bytes: Uint8Array, path: string): string => {
+  const ext = path.toLowerCase().split('.').pop() ?? '';
+  return bytesToDataUrl(bytes, MIME_BY_EXT[ext] ?? 'application/octet-stream');
+};
+
+/**
+ * 把 `staticFile('assets/a.png')` 和 zip 内的真实路径对上。
+ *
+ * Remotion 的静态资源在 zip 里可能是 `public/assets/a.png`，也可能已经被剥掉 public/，
+ * 还可能带 `./` 前缀 —— 只有后缀是可靠的。找不到就记进 missingAssets，
+ * 绝不猜「大概是这张」。
+ */
+function matchAsset(assets: { path: string; bytes: Uint8Array }[], src: string): { path: string; bytes: Uint8Array } | null {
+  const clean = src.replace(/^\.?\//, '').split('?')[0] ?? src;
+  return (
+    assets.find((a) => a.path === clean) ??
+    assets.find((a) => a.path.endsWith(`/${clean}`)) ??
+    assets.find((a) => clean.endsWith(`/${a.path}`)) ??
+    null
+  );
+}
+
+const baseName = (path: string): string => path.split('/').pop() ?? path;
+
+/** Remotion 轨道 → 原生轨道（帧 → 毫秒，相对图层 inPoint） */
+function remotionTracks(tracks: RemotionTrack[], msPerFrame: number, span: number): PropertyTrack[] {
+  const out: PropertyTrack[] = [];
+  for (const t of tracks) {
+    const keys: Keyframe[] = [];
+    for (const k of t.keyframes) {
+      keys.push({
+        id: localId('kf'),
+        time: clamp(Math.round(k.frame * msPerFrame), 0, Math.max(0, span)),
+        value: k.value,
+        easing: easing(k.easing),
+      });
+    }
+    if (!keys.length) continue;
+    keys.sort((a, b) => a.time - b.time);
+    out.push({ property: t.property, keyframes: keys });
+  }
+  return out;
+}
+
+function remotionFailure(input: ImportInput, message: string, hint?: string): ImportReport {
   const names = input.bytes ? zipEntryNames(input.bytes) : [];
   return {
     format: 'remotion',
@@ -488,13 +576,279 @@ function remotionReport(input: ImportInput): ImportReport {
     fidelity: 0,
     counts: emptyCounts(),
     missingAssets: [],
-    notes: [
-      names.length ? note('包里认出 {n} 个条目，含 TSX 组件', { n: names.length }) : note('Remotion 工程'),
-      note('Remotion 需要 Node 端渲染管线，浏览器里无法执行 TSX'),
-    ],
-    blockers: [note('Remotion 工程的静态解析排在 v2.5b（本版不做「假装导入成功」）；可先用 npx remotion render 出片，再按视频导入')],
+    notes: names.length ? [note('包里认出 {n} 个条目', { n: names.length })] : [],
+    blockers: [note(message), ...(hint ? [note(hint)] : [])],
     preview: { name: input.name ?? 'Remotion 工程', width: 0, height: 0, duration: 0, fps: 0, sample: names.slice(0, 6) },
   };
+}
+
+/**
+ * Remotion 工程 → 工程。
+ *
+ * 三档结果，必须分开说：
+ *   · 结构化层（text / image / box）→ 原生图层，位置尺寸透明度时长都能改
+ *   · 轨道 → 原生关键帧（interpolate / spring 抽出来的）
+ *   · leftovers → `remotion-component` 代码层，源码原样存着，内部关键帧不假装能编辑
+ *
+ * `mode === 'preserve-code'` 时不拆：整个 Composition 保持成一个代码层。
+ * 这是给「我就想原样带着走」的用户留的路 —— 但默认不这么干，因为拆开才有编辑价值。
+ */
+export async function mapRemotion(
+  input: ImportInput,
+  mode: ImportMode = 'prefer-editable',
+  dryRun = false,
+): Promise<{ report: ImportReport; mapped?: MappedImport }> {
+  if (!input.bytes) {
+    return { report: remotionFailure(input, 'Remotion 工程要传 ZIP：源码在压缩包里，纯文本给不出组件结构') };
+  }
+
+  let parsed: RemotionParse;
+  try {
+    parsed = await parseRemotionZip(input.bytes, input.name);
+  } catch (err) {
+    return { report: remotionFailure(input, (err as Error).message || 'Remotion 解析失败') };
+  }
+
+  const comp = parsed.composition;
+  const fps = Math.max(1, Math.round(comp.fps) || 30);
+  const width = Math.max(1, Math.round(comp.width) || 1080);
+  const height = Math.max(1, Math.round(comp.height) || 1080);
+  const frames = Math.max(1, Math.round(comp.durationInFrames) || 1);
+  const durationMs = Math.max(1, Math.round((frames / fps) * 1000));
+  const msPerFrame = 1000 / fps;
+  const span = durationMs;
+
+  /*
+   * 来源标成「AI 生成」：Remotion 代码视频在本产品里几乎只由 AI Agent 产出，
+   * 规格也要求图层树给出这个徽标。悬浮说明里能核对的仍然是 remotion + 包名 + 时间，
+   * 不靠这个字段撒谎。
+   */
+  const origin: LayerOrigin = {
+    generator: 'ai',
+    sourceFormat: 'remotion',
+    sourceBundle: input.name,
+    importedAt: Date.now(),
+  };
+
+  const layers: Layer[] = [createBackground({ width, height, kind: 'solid', color: '#0b0b10' })];
+  const jobs: AssetJob[] = [];
+  const missing: string[] = [];
+  const notes: ImportNote[] = parsed.notes.map((n) => note(n.key, n.params));
+  const counts = emptyCounts();
+
+  const pushNote = (key: string, params?: Record<string, string | number>) => notes.push(note(key, params));
+
+  /* preserve-code：整份 Composition 当一个代码层，不拆 */
+  const keepWhole = mode === 'preserve-code';
+  const entrySource = parsed.files.find((f) => f.path === comp.entryFile)?.code ?? '';
+
+  if (!keepWhole) {
+    for (const spec of parsed.layers) {
+      const inPoint = clamp(Math.round(spec.from * msPerFrame), 0, Math.max(0, span - 1));
+      const outPoint = clamp(inPoint + Math.round(spec.durationInFrames * msPerFrame), inPoint + 1, span);
+      const box = {
+        x: Math.round(spec.box.x),
+        y: Math.round(spec.box.y),
+        width: Math.max(1, Math.round(spec.box.width)),
+        height: Math.max(1, Math.round(spec.box.height)),
+      };
+      const opacity = clamp(spec.opacity, 0, 1);
+      let layer: Layer | null = null;
+
+      if (spec.kind === 'text') {
+        const base = createTextLayer({ width: box.width, height: box.height });
+        layer = {
+          ...base,
+          name: (spec.name || '文本').slice(0, 60),
+          text: spec.text ?? '',
+          x: box.x,
+          y: box.y,
+          opacity,
+          inPoint,
+          outPoint,
+          style: {
+            ...base.style,
+            fontSize: spec.style.fontSize ?? base.style.fontSize,
+            fontWeight: spec.style.fontWeight ?? base.style.fontWeight,
+            color: spec.style.color ?? base.style.color,
+            align: spec.style.align ?? base.style.align,
+            lineHeight: spec.style.lineHeight ?? base.style.lineHeight,
+            letterSpacing: spec.style.letterSpacing ?? base.style.letterSpacing,
+          },
+          origin,
+        };
+        counts.structured += 1;
+      } else if (spec.kind === 'image') {
+        const base = createImageLayer({ width: box.width, height: box.height });
+        const src = spec.src;
+        if (src?.startsWith('data:')) {
+          /* 内联 data URL 直接进资源池，不留在 layer 上（scene.ai.json 也不许塞 base64） */
+          jobs.push({ layerId: base.id, name: `${spec.name || 'image'}.png`, dataUrl: src });
+        } else if (src) {
+          const hit = matchAsset(parsed.assets, src);
+          if (hit) jobs.push({ layerId: base.id, name: baseName(hit.path), dataUrl: dataUrlOfPath(hit.bytes, hit.path) });
+          else missing.push(src);
+        }
+        layer = {
+          ...base,
+          name: (spec.name || '图片').slice(0, 60),
+          x: box.x,
+          y: box.y,
+          opacity,
+          inPoint,
+          outPoint,
+          radius: spec.style.radius ?? 0,
+          origin,
+        };
+        counts.structured += 1;
+        counts.media += 1;
+      } else {
+        /* box：没有原生形状层，用生成的 canvas2d 兜住（可改代码，位置/尺寸/透明度能打点） */
+        const base = createCodeLayer({ width: box.width, height: box.height });
+        layer = {
+          ...base,
+          name: (spec.name || '盒子').slice(0, 60),
+          x: box.x,
+          y: box.y,
+          opacity,
+          inPoint,
+          outPoint,
+          code: {
+            ...base.code,
+            engine: 'canvas2d',
+            source: shapeSnippet(false, spec.style.background ?? 'rgba(255,255,255,0.12)', spec.style.radius ?? 0),
+            params: {},
+          },
+          origin,
+        };
+        counts.code += 1;
+        pushNote('（Remotion）<{name}> 是带背景的容器，已生成 canvas2d 代码层', { name: spec.name });
+      }
+
+      if (!layer) continue;
+      const tracks = remotionTracks(spec.tracks, msPerFrame, span);
+      if (tracks.length) {
+        layer.animation = { ...layer.animation, tracks };
+        counts.tracks += tracks.length;
+        for (const t of tracks) counts.keyframes += t.keyframes.length;
+      }
+      layers.push(layer);
+    }
+  } else {
+    pushNote('preserve-code 模式：整个 Composition 保留为一个 Remotion 代码层，没有拆成原生图层');
+  }
+
+  /* leftovers → remotion-component 层。它们共用一份源码结构，但各自带自己的入口源码 */
+  const leftovers = keepWhole
+    ? [{ name: comp.componentName || comp.id, code: entrySource, reason: 'preserve-code', sourcePath: comp.entryFile }]
+    : parsed.leftovers;
+
+  const proxy = parsed.proxy;
+  /*
+   * 原工程源码树只挂第一层，且限体积：它的唯一用途是导出 remotion-kit 时原样落盘，
+   * 让外部 render 有相对 import 可解。超限就不存 —— 宁可少导出整树，也不让工程 JSON 变成几 MB。
+   */
+  const sourceTree = parsed.files.filter((f) => !/node_modules|\.min\./i.test(f.path));
+  const treeBytes = sourceTree.reduce((n, f) => n + f.code.length, 0);
+  const keepTree = treeBytes <= 600_000 ? sourceTree : undefined;
+  if (leftovers.length && !keepTree) {
+    pushNote('原工程源码共 {n} 个文件，超过 600KB 上限没有随工程保存：remotion-kit 只能导出解析出来的组件', {
+      n: sourceTree.length,
+    });
+  }
+  let proxyLayerId: string | null = null;
+  for (const left of leftovers) {
+    const base = createCodeLayer({ width, height });
+    const layer: Layer = {
+      ...base,
+      name: left.name.slice(0, 60) || 'Remotion 组件',
+      x: 0,
+      y: 0,
+      inPoint: 0,
+      outPoint: durationMs,
+      code: {
+        engine: 'remotion-component',
+        source: left.code,
+        params: {},
+        runtime: {
+          kind: 'remotion-component',
+          entryCode: left.code,
+          compositionId: comp.id,
+          durationInFrames: frames,
+          fps,
+          width,
+          height,
+          previewMode: proxy ? 'proxy-video' : 'static-first-frame',
+          reason: left.reason,
+          ...(proxyLayerId ? {} : keepTree ? { sources: keepTree } : {}),
+        },
+      },
+      origin,
+    };
+    layers.push(layer);
+    counts.code += 1;
+    if (!proxyLayerId) proxyLayerId = layer.id;
+  }
+
+  /* 代理视频只挂一份，所有 remotion 层共享同一个 assetId */
+  if (proxy && proxyLayerId) {
+    jobs.push({ layerId: proxyLayerId, name: baseName(proxy.path), dataUrl: dataUrlOfPath(proxy.bytes, proxy.path), slot: 'proxy' });
+    pushNote('找到代理视频「{name}」，remotion 层按它预览（不再是静态首帧）', { name: baseName(proxy.path) });
+  } else if (leftovers.length) {
+    pushNote('remotion 层没有代理视频：时间轴上显示静态首帧卡片，要看到动画得在外部 `npx remotion render`');
+  }
+
+  if (leftovers.length) {
+    pushNote('{n} 个组件整块保留为 Remotion 代码层（内部关键帧不展示，双击看源码）', { n: leftovers.length });
+  }
+
+  /* ---- 保真度：能编辑的东西越多越高，缺资源扣分 ---- */
+  const editable = counts.structured * 2 + counts.code; // 结构化层更值钱
+  const totalWeight = parsed.layers.length * 2 + parsed.leftovers.length;
+  const baseScore = totalWeight > 0 ? (editable / totalWeight) * 100 : 0;
+  const penalty = Math.min(20, missing.length * 5);
+  const fidelity = keepWhole ? 25 : clamp(Math.round(baseScore - penalty), 5, 95);
+
+  const blockers: ImportNote[] = [];
+  if (!parsed.layers.length && !parsed.leftovers.length) {
+    blockers.push(note('这个 Composition 里没有可识别的元素，也没有可保留的组件'));
+  }
+
+  const report: ImportReport = {
+    format: 'remotion',
+    supported: blockers.length === 0,
+    label: 'Remotion 工程（静态解析）',
+    fidelity,
+    counts,
+    missingAssets: missing,
+    notes: dedupeNotes(notes),
+    blockers: dedupeNotes(blockers),
+    preview: {
+      name: input.name ?? comp.id,
+      width,
+      height,
+      duration: durationMs,
+      fps,
+      sample: comp.id ? [comp.id, comp.componentName, comp.entryFile].filter(Boolean) : parsed.files.slice(0, 4).map((f) => f.path),
+    },
+  };
+
+  if (!report.supported || dryRun) return { report };
+
+  const project = normalizeProject({
+    ...createEmptyProject(input.name ?? comp.id ?? 'Remotion 导入'),
+    name: (input.name ?? comp.id ?? 'Remotion 导入').replace(/\.[^.]+$/, ''),
+    width,
+    height,
+    duration: durationMs,
+    fps,
+    loop: true,
+    layers,
+    assets: [],
+    fonts: [],
+  });
+
+  return { report, mapped: { project, report, assetJobs: jobs } };
 }
 
 /* ------------------------------------------------------------------ 时间单位 */

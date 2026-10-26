@@ -7,7 +7,7 @@
  *   3. 媒体缺资源要如实记账（missingAssets），不许静默吞掉
  *   4. 每一层带来源元信息（origin），图层树才能标「导入」
  *   5. 导出 scene.ai.json：秒为单位、不含 base64、代码层给摘要
- *   6. Remotion 明确拒绝，不假装导入成功
+ *   6. Remotion 没给 ZIP 时明确挡下（真实解析在 remotion-check.mjs 里验）
  *   7. UI 上真的能看到降级报告，确认后才写库
  *
  * 需要 dev server 跑在 5273。
@@ -197,7 +197,11 @@ const main = async () => {
       const r = await window.__kly.dispatch('ai.inspectImport', { text: 'x', format: 'remotion', name: 'clip.zip' });
       return { ok: r.ok, supported: r.data?.report?.supported, blockers: r.data?.report?.blockers ?? [] };
     })()`);
-    check('Remotion 预检就说明白「不支持」（不假装能导）', remotion.ok && remotion.supported === false && remotion.blockers.length > 0, JSON.stringify(remotion.blockers));
+    check(
+      'Remotion 没给 ZIP 时说清楚「要 ZIP」（不假装能导）',
+      remotion.ok && remotion.supported === false && remotion.blockers.some((b) => b.key.includes('ZIP')),
+      JSON.stringify(remotion.blockers),
+    );
 
     const curId = await cdp.ev(`window.__kly.state().project.id`);
     const refused = await cdp.ev(`(async () => {

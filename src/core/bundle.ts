@@ -122,13 +122,18 @@ export function blobOf(bytes: Uint8Array, type: string): Blob {
   return new Blob([bytes as unknown as BlobPart], { type });
 }
 
-export function bytesToDataUrl(bytes: Uint8Array, mime: string): string {
+/** Uint8Array → base64。分块拼接，避免 `...spread` 把大数组打爆调用栈 */
+export function bytesToBase64(bytes: Uint8Array): string {
   let bin = '';
   const chunk = 0x8000;
   for (let i = 0; i < bytes.length; i += chunk) {
     bin += String.fromCharCode(...bytes.subarray(i, i + chunk));
   }
-  return `data:${mime};base64,${btoa(bin)}`;
+  return btoa(bin);
+}
+
+export function bytesToDataUrl(bytes: Uint8Array, mime: string): string {
+  return `data:${mime};base64,${bytesToBase64(bytes)}`;
 }
 
 export function dataUrlToBytes(dataUrl: string): { bytes: Uint8Array; mime: string } {

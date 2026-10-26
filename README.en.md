@@ -56,7 +56,7 @@ Kinelayer/
 │  │  ├─ temporal.ts           Hand-rolled undo: immer patches / inverse patches / 700ms coalescing
 │  │  ├─ store.ts              Zustand in three slices: project (persisted) / ui / runtime (never persisted)
 │  │  ├─ defaults.ts           Factories + normalizeProject (lenient read, strict write) + demo project
-│  │  ├─ commands/*.ts         78 commands, one file per domain (layer/text/code/background/project/asset/font/timeline/animation/selection/history/window/export/query/AI/batch)
+│  │  ├─ commands/*.ts         79 commands, one file per domain (layer/text/code/background/project/asset/font/timeline/animation/selection/history/window/export/query/AI/batch)
 │  │  ├─ bundle.ts             Project package (.kly): ZIP packing/unpacking, per-file sha256, five unzip gates
 │  │  ├─ importPipeline.ts     [v2.5] Import pipeline, pure functions: sniff → inspect report → map to layers/tracks
 │  │  ├─ aiScene.ts            [v2.5] `scene.ai.json`: the semantic projection agents read (seconds, no base64, code digest)
@@ -94,12 +94,14 @@ Kinelayer/
 │  ├─ agent-panel-check.mjs    16 · desktop-agent prompt panel
 │  ├─ bundle-check.mjs         20 · .kly real download / real import / hostile package rejection
 │  ├─ launcher-check.mjs       22 · launcher routing, new-project dialog, unit conversion, thumbnails, English mode
-│  └─ ai-check.mjs             33 · [v2.5] import inspect, degradation mapping, scene.ai.json round trip, Remotion refusal
+│  ├─ ai-check.mjs             34 · [v2.5a] import inspect, degradation mapping, scene.ai.json round trip
+│  └─ remotion-check.mjs       37 · [v2.5b] Remotion static parse, remotion-component, kit export
 └─ docs/
    ├─ 00-reference-notes.md    Reference-project extraction report (chapter 14)
    ├─ 01-known-limitations.md  Known limits and extension points
    ├─ 02-bundle-format.md      Project package format (.kly = ZIP) spec and hostile-input gates
-   └─ 03-agent-integration.md  Agent integration guide (Chinese + this English sibling, .en.md)
+   ├─ 03-agent-integration.md  Agent integration guide (Chinese + this English sibling, .en.md)
+   └─ 04-code-video-integration.md  AI code video: Remotion static parsing and remotion-kit export
 ```
 
 **Layering rules**: `ui/` may not mutate `project` directly; `render/` may not import `store`;
@@ -108,7 +110,7 @@ injected through `services.ts`.
 
 ---
 
-## Commands at a glance (78)
+## Commands at a glance (79)
 
 | Category | Count | Representative commands |
 | --- | --- | --- |
@@ -127,7 +129,7 @@ injected through `services.ts`.
 | Window | 4 | `window.openLayer` `window.closeLayer` `window.focusLayer` `window.setMode` |
 | Export | 4 | `export.png` `export.webm` `export.json` `export.commands` |
 | Query | 4 | `query.project` `query.layer` `query.registry` `query.capture` |
-| AI | 4 | `ai.inspectImport` `ai.importProject` `ai.exportProject` `ai.queryCodeLayer` |
+| AI | 5 | `ai.inspectImport` `ai.importProject` `ai.exportProject` `ai.queryCodeLayer` `ai.exportRemotionKit` |
 | Batch | 1 | `command.batch` (many commands collapsed into one undo point, atomic rollback on failure) |
 
 Every command carries a zod schema, a description, a runnable `example`, and metadata such as
@@ -238,11 +240,17 @@ The job of this phase is to let AI-generated projects come in and go out, under 
 | scene JSON (Rendervid / cadence style) | text→text layer, media→media layer, box/timing→layer props, `tracks`→property tracks; rect/circle→canvas2d code layer | 70–96 |
 | HTML / GSAP snippet | whole snippet as an `html` code layer | 55 |
 | image / video | canvas + media layer | 30 |
-| Remotion project | **refused on purpose** (no TSX execution in the browser; no pretending), until phase B adds static parsing | — |
+| Remotion project ZIP | static AST parse: `<Sequence>` timing, text/image/container→native layers, `interpolate`/`spring`→property tracks; custom components stay whole as `remotion-component` code layers | 25–90 |
 
 `scene.ai.json` round-trips: re-importing the semantic projection keeps layer count, text and keyframes;
 media layers keep only the asset name because the export carries no binary, and the report says so instead of
 letting users discover it themselves.
+
+Remotion is stricter: **source is read, never executed**, and only structure is parsed (JSX elements, literals,
+constant tables, `interpolate`/`spring` arguments). Data from `useContext`, `fetch` results and coordinates
+computed in loops are never guessed — a wrong guess makes people believe they imported the original film.
+Components that cannot be split stay whole, double-clicking opens a **read-only** source viewer, and the
+timeline draws a static first-frame card. Details: [code video integration](docs/04-code-video-integration.md).
 
 Every layer remembers where it came from — `LayerOrigin = { generator, sourceFormat, sourceBundle, importedAt }` —
 which drives the `AI` / `Import` badge in the layer tree, the audit trail for degradation decisions, and the
@@ -253,10 +261,31 @@ ai.inspectImport   { stageId | text, name?, format? }        → { report, impor
 ai.importProject   { stageId | text, mode? }                 → { projectId, format, fidelity, counts… }
 ai.exportProject   { projectId?, includeCode?, download? }   → { filename, text, bytes, layers… }
 ai.queryCodeLayer  { layerId?, includeCode? }                → code-layer digests (no full scene)
+ai.exportRemotionKit { projectId?, download? }               → remotion-kit ZIP (renderable with npx remotion render)
 ```
 
-Phase B (Remotion static parsing + a `remotion-component` engine) and phase C (structured HTML/GSAP extraction)
-are not implemented; both READMEs and `docs/01-known-limitations.md` say so.
+### remotion-kit: take the code out to render
+
+Kinelayer never runs a render pipeline in the browser, so `remotion-component` layers only preview statically.
+`ai.exportRemotionKit` writes a standalone project you can render outside:
+
+```
+remotion-kit/
+├── package.json      remotion / react / react-dom / @remotion/cli only
+├── src/index.ts      registerRoot
+├── src/Root.tsx      one <Composition> per Remotion layer
+├── src/layers/<Name>/entry.tsx   that layer's component source (adds a default export if missing)
+├── src/original/**   the original source tree (relative imports keep working)
+├── public/assets/**  referenced media
+└── README.md         the npx remotion render command
+```
+
+```bash
+npm install && npx remotion render src/index.ts kly-01 out/kly-01.mp4
+```
+
+Phase C (structured HTML/GSAP DOM extraction + postMessage time sync) is not implemented;
+both READMEs and `docs/01-known-limitations.md` say so.
 
 ---
 
@@ -369,6 +398,7 @@ all three flavours grow at once.
 - [Reference-project extraction report](docs/00-reference-notes.md) — chapter 14, item by item: what was borrowed, what was deliberately not ported, where the differences are
 - [Known limitations and extension points](docs/01-known-limitations.md) — export formats, sandbox boundaries, multi-window fallback chain, performance ledger
 - [Project package format](docs/02-bundle-format.md) — `.kly` ZIP layout, manifest fields, the five hostile-input gates, error codes
+- [Code video integration](docs/04-code-video-integration.md) — how far Remotion parsing goes, the `remotion-component` boundary, rendering a remotion-kit
 
 ## License
 
