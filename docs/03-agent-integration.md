@@ -80,7 +80,8 @@ MCP 暴露的东西：
 
 - **工具**：每条命令一个工具，名字是命令类型把 `.` 换成 `__`，例如 `layer.create` → `layer__create`。
   入参就是该命令的 `payload`，schema 由注册表生成。
-- **资源**：`kinelayer://project`（项目摘要：画布、时长、图层 id/类型/文本）、
+- **资源**：`kinelayer://project`（项目摘要：画布、时长、图层 id/类型/文本，
+  导入来的层还带 `origin` 的 `parser` / `external` / `sourceRef` —— 见 `06-after-import.md` 6.1）、
   `kinelayer://registry`（全量命令清单）。
 - 工具清单随编辑器版本变化，客户端刷新即可，不需要改配置。
 

@@ -95,7 +95,7 @@ Kinelayer/
 │  ├─ agent-panel-check.mjs    16 · desktop-agent prompt panel
 │  ├─ bundle-check.mjs         20 · .kly real download / real import / hostile package rejection
 │  ├─ launcher-check.mjs       22 · launcher routing, new-project dialog, unit conversion, thumbnails, English mode
-│  ├─ ai-check.mjs             34 · [v2.5a] import inspect, degradation mapping, scene.ai.json round trip
+│  ├─ ai-check.mjs             38 · [v2.5a] import inspect, degradation mapping, scene.ai.json round trip + origin in summary
 │  └─ remotion-check.mjs       37 · [v2.5b] Remotion static parse, remotion-component, kit export
 └─ docs/
    ├─ 00-reference-notes.md    Reference-project extraction report (chapter 14)

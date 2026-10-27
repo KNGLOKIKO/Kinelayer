@@ -141,6 +141,38 @@ const main = async () => {
     check('每一层都带来源元信息（图层树才能标「导入」）', JSON.stringify(imported.origins) === JSON.stringify(['scene-json']), JSON.stringify(imported.origins));
     check('画布/时长/帧率按场景还原', imported.width === 1920 && imported.duration === 6000 && imported.fps === 30, JSON.stringify({ w: imported.width, d: imported.duration, f: imported.fps }));
 
+    /* ── 2b. 摘要投影：origin 必须跟着过河 ───────────────────
+       AI 读到的是 summarizeProject 的白名单投影（不是整份 project），
+       这一项不查的话，模型看到的就是一堆没有来历的图层：不知道哪层是解析器
+       产的、哪层依赖远程 CDN、哪层原本要引用的图根本没落地成资源。 */
+    const projected = await cdp.ev(`(async () => {
+      const r = await window.__kly.dispatch('query.project', {});
+      const ls = r.data?.layers ?? [];
+      const img = ls.find((l) => l.type === 'image');
+      const bg = ls.find((l) => l.type === 'background');
+      return {
+        ok: r.ok,
+        total: ls.length,
+        withOrigin: ls.filter((l) => l.origin).length,
+        formats: [...new Set(ls.filter((l) => l.origin).map((l) => l.origin.sourceFormat))],
+        generators: [...new Set(ls.filter((l) => l.origin).map((l) => l.origin.generator))],
+        imgRef: img?.origin?.sourceRef ?? null,
+        bgHasOrigin: 'origin' in (bg ?? {}),
+      };
+    })()`);
+    check(
+      '摘要投影里带着 origin（除背景外每层都有）',
+      projected.ok && projected.withOrigin === projected.total - 1,
+      JSON.stringify({ with: projected.withOrigin, total: projected.total }),
+    );
+    check('投影里看得出「这层是哪个解析器产的、谁生成的」', JSON.stringify(projected.formats) === JSON.stringify(['scene-json']) && JSON.stringify(projected.generators) === JSON.stringify(['import']), JSON.stringify({ f: projected.formats, g: projected.generators }));
+    check(
+      '没落地的那张图把原地址带进摘要（模型才知道本来要什么）',
+      /^https?:\/\//.test(projected.imgRef ?? ''),
+      String(projected.imgRef),
+    );
+    check('手搓的层不长出空 origin（缺省就是用户自己做的）', projected.bgHasOrigin === false);
+
     const saved = await cdp.ev(`(async () => {
       const open = () => new Promise((res, rej) => { const r = indexedDB.open('kinelayer'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
       const db = await open();

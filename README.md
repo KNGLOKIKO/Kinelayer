@@ -99,7 +99,7 @@ Kinelayer/
 │  ├─ agent-panel-check.mjs    16 项 · 桌面 Agent 提示词面板
 │  ├─ bundle-check.mjs         20 项 · .kly 真下载/真导入/敌意包拒绝
 │  ├─ launcher-check.mjs       22 项 · 启动页路由/新建对话框/单位换算/缩略图/删除/英文模式
-│  ├─ ai-check.mjs             34 项 · v2.5a 导入预检/降级映射/scene.ai.json 往返
+│  ├─ ai-check.mjs             38 项 · v2.5a 导入预检/降级映射/scene.ai.json 往返 + 摘要投影带 origin
 │  ├─ remotion-check.mjs       37 项 · v2.5b Remotion 静态解析/remotion-component/kit 导出
 │  ├─ html-check.mjs           43 项 · v2.5c HTML/GSAP 静态解析/postMessage 时间同步/origin 元信息
 │  ├─ import-edit-check.mjs    30 项 · v2.6 导入之后：sourceRef/缺资源总账/asset.assign/来源区块

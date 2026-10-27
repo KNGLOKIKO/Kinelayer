@@ -160,6 +160,30 @@ export function sameRefLayers(project: Project, layer: Layer): Layer[]
 `parser` 让 Agent 能判断「这层是旧规则拆的，可能少东西」；
 `sourceRef` + `external` 让它知道这层为什么缺图 —— 而不是笼统地建议「重新导入一次」。
 
+### 6.1 运行时摘要同样要带（v2.9 补）
+
+`scene.ai.json` 是**导出物**，只有「文件换手」的时候才用得上。Agent 平时看的是另一条路：
+通道 A 的每次请求、以及 `query.project` 的返回值，都走 `summarizeProject()` 的白名单投影。
+这个投影只挑字段（不传 base64、不传完整代码），`origin` 原来不在名单里 —— 于是
+导出物里有线索、对话里反而没有，模型照样会建议「把这张图换成别的」。
+
+现在摘要会给带 `origin` 的层附上一小段：
+
+```json
+{ "index": 3, "type": "image", "assetId": null,
+  "origin": { "generator": "import", "sourceFormat": "scene-json",
+              "sourceRef": "https://example.com/bg.png" } }
+```
+
+三条边界：
+
+- **只给带了 `origin` 的层**。手搓的层没有这个字段，缺省就是「用户自己做的」；
+  给每层补一个 `{ generator: 'user' }` 会把真正有信息量的那几层淹掉。
+- **不放 `sourceBundle` / `importedAt`**。包名与时间对人有用（审计、回查），
+  对写代码没用，进了上下文只是噪声。
+- **`sourceRef` 截到 200 字符，`external` 只留前 8 条**。它可能是整段 `data:` 或超长 URL，
+  原样塞进去会把真正要改的几何信息挤出窗口。
+
 ---
 
 ## 七、故意没做的
@@ -184,6 +208,10 @@ HTML 样例，覆盖：
 - 命令：`asset.assign` 单个/批量、不动几何、类型冲突整批拒绝、空 ids 被 schema 挡
 - 补完之后：标记与总账自动消失
 - 词条：新增文案全有英文；英文模式下「来源」区块零中文
+
+`scripts/ai-check.mjs`（38 项）里另有四条针对**摘要投影**的断言（2b 区块）：
+除背景外每层都带 `origin`、`sourceFormat` / `generator` 读得出、缺资源那层的
+`sourceRef` 是原地址、手搓的层不长出空 `origin`。
 
 ```bash
 npm run dev                      # 端口 5273

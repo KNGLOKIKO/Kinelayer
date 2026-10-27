@@ -24,6 +24,21 @@ export interface LayerSummary {
   codeError?: string | null;
   /** 音频层专有：响什么、多响 */
   audio?: { preset: string; root: number; bpm: number; volume: number; muted: boolean };
+  /**
+   * 来源溯源（只给「不是手搓的」那些层）。
+   *
+   * 不带这一项时，模型看到的是一堆没有来历的图层：它不知道这层是 HTML 解析出来的、
+   * 依赖着一个远程 GSAP、或者本来要引用的那张图没落地成资源 —— 于是会给出
+   * 「把这张图换成别的」这种根本没图可换的建议。三项都只放「能改变建议」的信息，
+   * 原始工程包名和导入时间不放（对写代码没有帮助，只是噪声）。
+   */
+  origin?: {
+    generator: string;
+    sourceFormat?: string;
+    parser?: string;
+    external?: string[];
+    sourceRef?: string;
+  };
 }
 
 function truncate(s: string, n: number): string {
@@ -56,6 +71,22 @@ export function summarizeProject(project: Project): Record<string, unknown> {
       .map(([k, v]) => [k, `${(v as { preset: string }).preset}/${(v as { duration: number }).duration}ms`]);
     if (anim.length) base.animation = Object.fromEntries(anim);
     if (Object.keys(layer.bindings ?? {}).length) base.bindings = layer.bindings as Record<string, string>;
+
+    /*
+     * 只有带 origin 的层才写 origin。手搓的层没有这个字段，缺省就是「用户自己做的」——
+     * 给它补一个 { generator: 'user' } 会让每层都长出一段同样的内容，反而吃掉真正有信息量的那几层。
+     */
+    if (layer.origin) {
+      const { generator, sourceFormat, parser, external, sourceRef } = layer.origin;
+      base.origin = {
+        generator,
+        ...(sourceFormat ? { sourceFormat } : {}),
+        ...(parser ? { parser } : {}),
+        ...(external?.length ? { external: external.slice(0, 8) } : {}),
+        /* sourceRef 可能是一整段 data: 或超长 URL，摘要里只留能认出来源的头部 */
+        ...(sourceRef ? { sourceRef: truncate(sourceRef, 200) } : {}),
+      };
+    }
 
     if (layer.type === 'text') {
       base.text = truncate(layer.text, 120);
