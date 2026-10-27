@@ -20,6 +20,7 @@ import { launch, reporter, sleep, AUTO_CONFIRM } from './_cdp.mjs';
 const base = 'http://localhost:5273/';
 const ORIGIN = 'http://localhost:5273';
 const SAMPLE_ID = 'prj_sample_start';
+const REVISION_ID = 'prj_sample_revision';
 const { check, finish } = reporter();
 
 const READ_LAUNCHER = `(() => {
@@ -65,7 +66,7 @@ const READ_SAMPLE_VERSION = `(async () => {
     q.onsuccess = () => res(q.result?.value ?? {});
   });
   db.close();
-  return row.sampleVersion ?? null;
+  return (row.sampleVersions && row.sampleVersions['prj_sample_start']) ?? row.sampleVersion ?? null;
 })()`;
 
 /**
@@ -93,6 +94,11 @@ const REWIND_SAMPLE = (mode) => `(async () => {
   };
   const nextPrefs = { ...prefs, sampleSeeded: true };
   delete nextPrefs.sampleVersion;
+  /* v2.11 起版本号是逐份的：地图里那一格也得清掉，否则「已经是最新」会先命中 */
+  if (nextPrefs.sampleVersions) {
+    nextPrefs.sampleVersions = { ...nextPrefs.sampleVersions };
+    delete nextPrefs.sampleVersions['prj_sample_start'];
+  }
   await new Promise((res, rej) => {
     const tx = db.transaction(['meta', 'prefs'], 'readwrite');
     tx.oncomplete = res;
@@ -116,7 +122,11 @@ const main = async () => {  const cdp = await launch({ url: base, width: 1440, h
 
     /* ── 1. 首屏：示例已经在库里 ─────────────────────── */
     const first = await cdp.ev(READ_LAUNCHER);
-    check('首次打开就有一条示例工程', first.cards.length === 1 && first.cards[0].id === SAMPLE_ID, JSON.stringify(first.cards.map((c) => c.id)));
+    check(
+      '首次打开就有两份示例（极限样片 + 再改一版）',
+      first.cards.length === 2 && first.cards.some((c) => c.id === SAMPLE_ID) && first.cards.some((c) => c.id === REVISION_ID),
+      JSON.stringify(first.cards.map((c) => c.id)),
+    );
     /*
      * 缩略图不能用一个「字节数够大」的阈值糊过去：这支片子的第 0 帧本来就是几乎全黑的，
      * 一张纯黑 JPEG 只有一千多字节，而一张真的暗场画面也只有三千多 —— 阈值设 5000
@@ -135,8 +145,13 @@ const main = async () => {  const cdp = await launch({ url: base, width: 1440, h
       return seen.size;
     })()`);
     check('示例缩略图是真的画面（不是灰块）', thumbColors >= 24, `${thumbColors} 种颜色`);
-    check('示例卡片带「示例」徽标', first.cards[0].badge === true);
-    check('卡片刻出了尺寸与图层数', /1920×1080/.test(first.cards[0].text) && /16 图层/.test(first.cards[0].text), first.cards[0].text.slice(0, 80));
+    const primaryCard = first.cards.find((c) => c.id === SAMPLE_ID);
+    check('示例卡片带「示例」徽标', primaryCard?.badge === true);
+    check(
+      '卡片刻出了尺寸与图层数',
+      /1920×1080/.test(primaryCard?.text ?? '') && /16 图层/.test(primaryCard?.text ?? ''),
+      String(primaryCard?.text).slice(0, 80),
+    );
     check(
       '引导条说明了刚才发生了什么（时长 / 代码层 / 音轨）',
       !!first.banner && /64 秒/.test(first.banner) && /条音轨/.test(first.banner) && /个代码层/.test(first.banner),
@@ -169,7 +184,7 @@ const main = async () => {  const cdp = await launch({ url: base, width: 1440, h
 
     /* ── 4. 刷新：不重复创建、引导条只出现一次 ────────── */
     const again = await cdp.ev(READ_LAUNCHER);
-    check('刷新不会重复创建示例', again.cards.length === 1, String(again.cards.length));
+    check('刷新不会重复创建示例（还是两份）', again.cards.length === 2, String(again.cards.length));
     check('引导条只出现一次（刷新后消失）', again.banner === null);
 
     /* ── 5. 打开它：内容完整、可正常使用 ─────────────── */
@@ -250,8 +265,24 @@ const main = async () => {  const cdp = await launch({ url: base, width: 1440, h
     })()`);
     await sleep(900);
     const afterDelete = await cdp.ev(READ_LAUNCHER);
-    check('删除示例后列表清空', removed && afterDelete.cards.length === 0, String(afterDelete.cards.length));
-    check('清空后回落到空状态文案', afterDelete.empty === true);
+    check(
+      '只删一份时另一份还在（两份各自独立）',
+      removed && afterDelete.cards.length === 1 && afterDelete.cards[0].id === REVISION_ID,
+      JSON.stringify(afterDelete.cards.map((c) => c.id)),
+    );
+    check('少一份示例时页头仍然留着「放回示例」', await cdp.ev(`!!document.querySelector('[data-testid="sample-restore"]')`));
+
+    const removed2 = await cdp.ev(`(() => {
+      const card = document.querySelector('[data-project-id="${REVISION_ID}"]');
+      const btn = card?.querySelector('button[title="删除"]');
+      if (!btn) return false;
+      btn.click();
+      return true;
+    })()`);
+    await sleep(900);
+    const emptyNow = await cdp.ev(READ_LAUNCHER);
+    check('两份都删掉之后列表清空', removed2 && emptyNow.cards.length === 0, String(emptyNow.cards.length));
+    check('清空后回落到空状态文案', emptyNow.empty === true);
 
     await cdp.conn.call('Page.reload');
     await sleep(1000);
@@ -266,9 +297,13 @@ const main = async () => {  const cdp = await launch({ url: base, width: 1440, h
       b.click();
       return true;
     })()`);
-    await sleep(1200);
+    await sleep(1800);
     const back = await cdp.ev(READ_LAUNCHER);
-    check('空状态里能一键放回示例', restored && back.cards.length === 1 && back.cards[0].id === SAMPLE_ID, JSON.stringify(back.cards.map((c) => c.id)));
+    check(
+      '一键能把两份示例都放回来',
+      restored && back.cards.length === 2 && back.cards.some((c) => c.id === SAMPLE_ID) && back.cards.some((c) => c.id === REVISION_ID),
+      JSON.stringify(back.cards.map((c) => c.id)),
+    );
 
     /* ── 6b. 版本升级：v2.8 的老用户必须拿到新版 ──────────
        这条是真踩到的坑：seedSample 原来只记「塞过没有」，于是 v2.9 换成 96 秒
@@ -282,8 +317,8 @@ const main = async () => {  const cdp = await launch({ url: base, width: 1440, h
     const up = await cdp.ev(READ_LAUNCHER);
     check(
       '库里留着旧版时会换成新版（不是一直停在旧海报）',
-      rw === 'ok' && /极限样片（64 秒）/.test(up.cards[0]?.text ?? ''),
-      `${rw} · ${String(up.cards[0]?.text).slice(0, 48)}`,
+      rw === 'ok' && /极限样片（64 秒）/.test(up.cards.find((c) => c.id === SAMPLE_ID)?.text ?? ''),
+      `${rw} · ${String(up.cards.find((c) => c.id === SAMPLE_ID)?.text).slice(0, 48)}`,
     );
     const noticeUp = await cdp.ev(READ_NOTICE);
     check('换新之后明说「示例已换成新版」', noticeUp?.reason === 'upgraded' && /换成新版/.test(noticeUp.text), JSON.stringify(noticeUp).slice(0, 90));
@@ -294,7 +329,11 @@ const main = async () => {  const cdp = await launch({ url: base, width: 1440, h
     await sleep(1200);
     await cdp.waitFor(`!!document.querySelector('[data-testid="launcher"]')`, 12000);
     const kept = await cdp.ev(READ_LAUNCHER);
-    check('改过的示例不会被静静覆盖', rw2 === 'ok' && /从这里开始/.test(kept.cards[0]?.text ?? ''), `${rw2} · ${String(kept.cards[0]?.text).slice(0, 48)}`);
+    check(
+      '改过的示例不会被静静覆盖',
+      rw2 === 'ok' && /从这里开始/.test(kept.cards.find((c) => c.id === SAMPLE_ID)?.text ?? ''),
+      `${rw2} · ${String(kept.cards.find((c) => c.id === SAMPLE_ID)?.text).slice(0, 48)}`,
+    );
     const noticeMod = await cdp.ev(READ_NOTICE);
     check('但会明说「有新版、没动你的」', noticeMod?.reason === 'modified' && /没动它/.test(noticeMod.text), JSON.stringify(noticeMod).slice(0, 90));
 
@@ -308,10 +347,97 @@ const main = async () => {  const cdp = await launch({ url: base, width: 1440, h
     })()`);
     await sleep(1600);
     const replaced = await cdp.ev(READ_LAUNCHER);
-    check('点「换成新版」才真的换掉', clickedReplace && /极限样片（64 秒）/.test(replaced.cards[0]?.text ?? ''), String(replaced.cards[0]?.text).slice(0, 48));
-    check('版本标记落进 prefs（下次不再来回换）', (await cdp.ev(READ_SAMPLE_VERSION)) === 3, String(await cdp.ev(READ_SAMPLE_VERSION)));
+    check(
+      '点「换成新版」才真的换掉',
+      clickedReplace && /极限样片（64 秒）/.test(replaced.cards.find((c) => c.id === SAMPLE_ID)?.text ?? ''),
+      String(replaced.cards.find((c) => c.id === SAMPLE_ID)?.text).slice(0, 48),
+    );
+    check('版本标记落进 prefs（下次不再来回换）', (await cdp.ev(READ_SAMPLE_VERSION)) === 4, String(await cdp.ev(READ_SAMPLE_VERSION)));
 
-    /* ── 7. 英文模式：介绍区零中文 ───────────────────── */
+    /* ── 7. 第二份示例：再改一版（速度网格 + 逐字时间） ──────────
+       两份片子是对照组：第一份把**渲染**压到上限，这一份把**叙事**压到上限。
+       引擎为它补了两样东西 —— project.tempo（速度网格）与 project.lyrics（词级时间），
+       所以这里的断言不查「好不好看」，只查「数据与查询是否自洽」——
+       那些才是下次改片时会真的踩到的东西。 */
+    await cdp.conn.call('Page.navigate', { url: `${base}?view=editor&projectId=${REVISION_ID}` });
+    await sleep(1400);
+    const inRev = await cdp.waitFor(`!!window.__kly && window.__kly.state().project.id === '${REVISION_ID}'`, 15000);
+    check('第二份示例能单独打开', inRev);
+
+    const rev = await cdp.ev(`(() => {
+      const p = window.__kly.state().project;
+      const code = p.layers.filter((l) => l.type === 'code');
+      const lines = p.lyrics || [];
+      const prefix = (l) => Number(String(l.name).slice(0, 2));
+      const secs = [...new Set(code.map(prefix).filter((n) => Number.isFinite(n) && n > 0))];
+      return {
+        id: p.id, duration: p.duration, layers: p.layers.length, tempo: p.tempo,
+        lyrics: lines.length,
+        firstLyric: lines[0] && lines[0].start,
+        sorted: lines.every((l, i) => i === 0 || l.start >= lines[i - 1].start),
+        inside: lines.every((l) => l.start >= 0 && l.end <= p.duration && l.end > l.start),
+        glsl: code.filter((l) => l.code.engine === 'glsl').length,
+        blurred: code.filter((l) => l.code.motionBlur).map((l) => l.code.motionBlur.samples),
+        halfRes: code.filter((l) => (l.code.renderScale ?? 1) < 1).length,
+        sections: secs.length,
+        tracks: p.layers.reduce((n, l) => n + (l.animation?.tracks?.length ?? 0), 0),
+        bound: p.layers.filter((l) => Object.keys(l.bindings || {}).length > 0).length,
+        audio: p.layers.filter((l) => l.type === 'audio').length,
+        assets: p.assets.length + p.fonts.length,
+      };
+    })()`);
+    check('是 60 秒 / 128 BPM 的第二支片', rev.duration === 60000 && rev.tempo?.bpm === 128 && rev.tempo?.meter === 4, `${rev.duration}ms ${JSON.stringify(rev.tempo)}`);
+    check('九段分镜（01…09 各一段）', rev.sections === 9, String(rev.sections));
+    check('21 行歌词，全部落在片长内且按时间排序', rev.lyrics === 21 && rev.sorted && rev.inside, `${rev.lyrics} 行`);
+    check('冷开那四秒里没有词（先给画面）', rev.firstLyric >= 4000, String(rev.firstLyric));
+    check('一个逐像素层（半分辨率）+ 一个子帧超采样层', rev.glsl === 1 && rev.halfRes === 1 && rev.blurred.length === 1 && rev.blurred[0] >= 2, JSON.stringify({ glsl: rev.glsl, halfRes: rev.halfRes, blurred: rev.blurred }));
+    check('原生图层也在用引擎：关键帧轨道 + 绑定表达式', rev.tracks >= 2 && rev.bound === 1, `${rev.tracks} 轨道 / ${rev.bound} 绑定`);
+    check('五条合成音轨，仍然零外部资源', rev.audio === 5 && rev.assets === 0, `${rev.audio} 音轨 / ${rev.assets} 资源`);
+
+    /* 九个时刻各渲一遍：跨段跑完不炸，才说明「每帧都是纯函数」这件事没破 */
+    const runtimeErrs = await cdp.ev(`(async () => {
+      for (const ms of [1500, 6400, 16200, 25600, 29800, 39000, 41270, 46900, 53900]) await window.__kly.frame(ms);
+      const out = [];
+      for (const l of window.__kly.state().project.layers.filter((x) => x.type === 'code')) {
+        const r = await window.__kly.dispatch('query.layer', { id: l.id });
+        const e = r.data && r.data.runtime && r.data.runtime.error;
+        if (e) out.push(l.name + ' -> ' + e);
+      }
+      return JSON.stringify(out);
+    })()`);
+    check('九个时刻跨段渲染，代码层零异常', runtimeErrs === '[]', runtimeErrs.slice(0, 200));
+
+    /*
+     * 谱面自洽：这一条比「听着像」重要得多。
+     * 128 BPM / 4/4 → 一拍 468.75ms、一小节 1875ms；4250ms 是第 9.07 拍、
+     * 距上一个整拍 31ms、强拍在第 8 拍（3750ms）。数字对不上就是引擎算错了。
+     */
+    const score = await cdp.ev(`(async () => {
+      const at = async (ms) => (await window.__kly.dispatch('query.score', { at: ms, ahead: 2 })).data;
+      return JSON.stringify({ on: await at(4250), down: await at(3750), lyric: await at(5000) });
+    })()`);
+    const sc = JSON.parse(score);
+    check('一拍 = 468.75ms，4250ms 落在第 9 拍后 31ms', sc.on.sinceBeatMs === 31 && Math.abs(sc.on.beat - 9.067) < 0.01, JSON.stringify({ since: sc.on.sinceBeatMs, beat: sc.on.beat }));
+    check('3750ms 是强拍，且下一个强拍在 5625ms', sc.down.downbeat === true && sc.down.nextDownbeats[0] === 5625, JSON.stringify(sc.down.nextDownbeats));
+    /*
+     * 逐字读数必须是**时间**的映射，不是「差不多就行」：
+     * 这一行 4060..5810 里五个字各占 350ms，5000ms 时唱完两个字、第三个唱到 68.6%，
+     * 所以是 2.686 个字。以前这里报 5（旧实现每两个单元之间硬加 1 当词间空格，
+     * 中文没有空格，于是半分处就报「唱完」）。
+     */
+    check(
+      '5000ms 正在唱「先画一条线」，唱了 2.69 个字',
+      sc.lyric.lyric?.text === '先画一条线' && Math.abs(sc.lyric.lyric.sungChars - 2.69) < 0.06,
+      JSON.stringify(sc.lyric.lyric),
+    );
+
+    const revAudio = await cdp.ev(`window.__kly.audio.measure().then((m) => JSON.stringify({ peak: m.peak, rms: m.rms, ms: m.duration }))`);
+    check('第二支片的音轨真的有声音', JSON.parse(revAudio).peak > 0.01, revAudio);
+
+    /* ── 8. 英文模式：介绍区零中文 ───────────────────── */
+    await cdp.conn.call('Page.navigate', { url: base });
+    await sleep(1400);
+    await cdp.waitFor(`!!document.querySelector('[data-testid="launcher"]')`, 15000);
     await cdp.ev(`(() => {
       const b = [...document.querySelectorAll('button')].find((x) => x.textContent.trim() === 'EN');
       if (b) b.click();

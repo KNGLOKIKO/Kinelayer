@@ -1,7 +1,7 @@
 import { getBackground, type CodeLayer, type ImageLayer, type Layer, type Project, type RemotionRuntime, type VideoLayer } from '@/core/types';
 import { computeLayerFrame, type FrameTransform } from './animation';
 import { getImage, getVideo, isAssetMissing, syncVideoTime, type Drawable } from './assets';
-import { runCodeLayer } from './codeEngine';
+import { codeEnvOf, runCodeLayer, type CodeEnv } from './codeEngine';
 import { buildGradient, drawTextLayer } from './text';
 import { FONT_STACK_FALLBACK } from '@/core/defaults';
 
@@ -261,6 +261,7 @@ function drawCodeLayer(
   time: number,
   scale: number,
   opts: RenderOptions,
+  env: CodeEnv,
 ): void {
   const htmlBitmaps = opts.htmlBitmaps;  if (layer.code.engine === 'html') {
     const bitmap = htmlBitmaps?.get(layer.id);
@@ -283,7 +284,7 @@ function drawCodeLayer(
     return;
   }
   withTransform(ctx, frame, () => {
-    const result = runCodeLayer(ctx, layer, time, Math.round(time / 16.67), scale);
+    const result = runCodeLayer(ctx, layer, time, Math.round(time / 16.67), scale, env);
     if (!result.ok) {
       drawPlaceholder(ctx, layer.width, layer.height, '代码层异常 · 见右侧面板');
     }
@@ -296,6 +297,7 @@ function drawBackground(
   time: number,
   scale: number,
   transparent: boolean,
+  env: CodeEnv,
 ): void {
   const bg = getBackground(project);
   if (!transparent) {
@@ -319,7 +321,7 @@ function drawBackground(
           type: 'code',
           code: bg.code,
         } as unknown as CodeLayer;
-        runCodeLayer(ctx, bgCode, time, Math.round(time / 16.67), scale);
+        runCodeLayer(ctx, bgCode, time, Math.round(time / 16.67), scale, env);
       } else {
         ctx.fillStyle = bg.color;
         ctx.fillRect(0, 0, project.width, project.height);
@@ -336,7 +338,9 @@ function drawBackground(
 export function renderScene(ctx: CanvasRenderingContext2D, project: Project, opts: RenderOptions): void {
   const time = opts.time;
   const scale = opts.scale ?? 1;
-  drawBackground(ctx, project, time, scale, opts.transparent ?? false);
+  /* 一帧一份谱面：九个代码层读到的拍号必须是同一个数 */
+  const env = codeEnvOf(project);
+  drawBackground(ctx, project, time, scale, opts.transparent ?? false, env);
 
   const layers = project.layers;
   for (let i = 1; i < layers.length; i++) {
@@ -370,7 +374,7 @@ export function renderScene(ctx: CanvasRenderingContext2D, project: Project, opt
         drawVideoLayer(ctx, layer, frame);
         break;
       case 'code':
-        if (!opts.skipCode) drawCodeLayer(ctx, layer, frame, time, scale, opts);
+        if (!opts.skipCode) drawCodeLayer(ctx, layer, frame, time, scale, opts, env);
         break;
       default:
         break;

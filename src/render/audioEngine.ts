@@ -21,7 +21,7 @@
  * 后从 inPoint 播放」的分支即可 —— 主时钟、导出、波形这三条链路一行都不用改。
  */
 
-import type { AudioLayer, Layer, Project } from '../core/types';
+import type { AudioLayer, Layer, Project, Tempo } from '../core/types';
 
 /** 每次 tick 往后排多远（秒）。后台被节流到 1 秒一次也不至于断音 */
 const LOOKAHEAD = 1.2;
@@ -38,6 +38,12 @@ const MASTER_GAIN = 0.9;
 export interface AudioHost {
   duration: number;
   layers: Layer[];
+  /**
+   * 工程的速度网格。有它的时候，pulse 的网格原点用工程的第 0 拍，
+   * 而不是「图层自己的起点」—— 否则图层往前挪 200ms，鼓就整体跟着挪 200ms，
+   * 画面还在原来的拍上切。没有它（试听单层）就退回旧行为。
+   */
+  tempo?: Tempo;
 }
 
 /** 一条音频链需要的全部上下文。实时预览与离线渲染共用同一套合成代码 */
@@ -169,18 +175,18 @@ function emitPad(m: Mixer, layer: AudioLayer, atCtx: number, localMs: number, le
   track(lfo);
 }
 
-/** 低频鼓点：正弦扫频 + 指数衰减，128 → 46Hz 那一下就是「咚」 */
-function kick(m: Mixer, at: number, level: number): void {
+/** 低频鼓点：正弦扫频 + 指数衰减，128 → 46Hz 那一下就是「咚」。强拍起点更低、尾巴更长 */
+function kick(m: Mixer, at: number, level: number, down = false): void {
   if (level <= 0) return;
   const { ctx, master } = m;
   const osc = ctx.createOscillator();
   const gain = ctx.createGain();
   osc.type = 'sine';
-  osc.frequency.setValueAtTime(128, at);
-  osc.frequency.exponentialRampToValueAtTime(46, at + 0.16);
+  osc.frequency.setValueAtTime(down ? 150 : 128, at);
+  osc.frequency.exponentialRampToValueAtTime(down ? 38 : 46, at + (down ? 0.22 : 0.16));
   gain.gain.setValueAtTime(0.0001, at);
-  gain.gain.exponentialRampToValueAtTime(0.28 * level, at + 0.012);
-  gain.gain.exponentialRampToValueAtTime(0.0001, at + 0.26);
+  gain.gain.exponentialRampToValueAtTime((down ? 0.34 : 0.28) * level, at + 0.012);
+  gain.gain.exponentialRampToValueAtTime(0.0001, at + (down ? 0.34 : 0.26));
   osc.connect(gain).connect(master);
   osc.start(at);
   osc.stop(at + 0.3);
@@ -247,16 +253,25 @@ function scheduleRange(m: Mixer, hostProject: AudioHost, s: Session, fromMs: num
 
     if (layer.tone.preset === 'pulse') {
       const beat = 60_000 / Math.max(20, layer.tone.bpm);
+      /*
+       * 网格原点：有工程速度就用工程的第 0 拍，否则退回图层起点。
+       * 有原点的网格才能保证「画面在哪切、鼓就在哪响」——
+       * 图层挪位时画面切点是绝对时间，鼓若不跟着原点走就会整体偏掉。
+       */
+      const origin = hostProject.tempo ? hostProject.tempo.offsetMs : start;
+      const tempo = hostProject.tempo;
       const scanFrom = Math.max(fromMs, start);
-      /* 对齐到「图层起点 + 整数拍」，否则 seek 之后拍子会飘在半拍上 */
-      const first = Math.ceil((scanFrom - start) / beat) * beat;
-      for (let local = first; start + local < limit; local += beat) {
-        const absolute = start + local;
-        if (absolute < fromMs) continue;
+      let idx = Math.ceil((scanFrom - origin) / beat);
+      for (let absolute = origin + idx * beat; absolute < limit; absolute += beat, idx += 1) {
+        if (absolute < start || absolute < fromMs) continue;
+        const local = absolute - start;
         const level = levelAt(local);
         const at = toCtx(absolute);
-        kick(m, at, level);
-        hat(m, at + beat / 2000, level * 0.55);
+        /* 落在工程强拍上的那一下加重：这是「小节」听得出来的唯一线索 */
+        const strong = tempo ? idx % Math.max(1, tempo.meter) === 0 : false;
+        kick(m, at, level * (strong ? 1 : 0.86), strong);
+        hat(m, at + beat / 2000, level * (strong ? 0.7 : 0.55));
+        if (strong) bell(m, at, layer.tone.root * 8, level * 0.25);
       }
       continue;
     }

@@ -116,6 +116,23 @@
   一支 64 秒九层样片在这条规则下的实测账见 [10-performance.md](10-performance.md) ——
   p95 从 155ms 压到 20.5ms，全片 320 个采样点无一超出 30fps 预算。
   需要注意这是**软件光栅化**（无 GPU）下的数字；有显卡时 WebGL 那一段会低一到两个数量级。
+- **`motionBlur` 花的是绘制次数，不是像素。** 它和 `renderScale` 是两条独立的杠杆：
+  `samples: 5` 就是同一层画五遍再平均，耗时长约 5 倍（仅那一层）；`renderScale: 0.5` 则是把
+  像素砍到四分之一。两者可以叠加，但要乘起来算。一帧的预算只有 33.3ms，所以它只适合
+  用在**一两层**需要方向感的元素上（落版叠字、甩入的标题），不要给整片每一层都开。
+- **`shutter` 是一帧曝光，不是重影次数。** 30fps 下一帧 33.3ms，给 110ms 会得到三次离散重影
+  （长曝光效果），给 44ms 才是真正的运动模糊。
+- **速度网格是全局恒定的。** `project.tempo` 只有一个 bpm，没有变速曲线（accelerando、
+  半拍切换都没建模）。`meter` 只影响强拍位置，表达不了 7/8 里的 3+2+2 细分。
+- **逐字时间不是从人声测出来的。** 本工程的音轨是合成的，所以词级时间是「行区间按字符权重切」。
+  接了真人声需要先做 forced alignment 再写进 `project.lyrics` —— 数据结构够用，对齐工具没做。
+- **`u_resolution` 的语义容易写错**：它必须是**绘图缓冲区**的像素尺寸，不是图层设计尺寸。
+  两者在 `renderScale = 1` 时相等，所以这个错误只在降分辨率的那一层上暴露，而且只在
+  以画面中心为原点的效果上暴露（噪声看不出来，放射状画面一眼穿帮）。见 [11-score.md](11-score.md)。
+- **示例演示不了「外部资源」这条路。** 两支示例都是零外部资源的，所以**图片层、视频层、
+  HTML 层、Remotion 组件层**在示例里看不到 —— 那不是没做，是「零外部资源」这条约束的代价。
+  这四种层各自的入口：资源面板上传 / 导入 `.kly` 工程包 / 拖入 HTML 片段 / 导入 Remotion 工程，
+  说明分别在 [06-after-import.md](06-after-import.md) 与 [04-code-video-integration.md](04-code-video-integration.md)。
 - 舞台的 HTML 代码层用 `<iframe>` 叠加预览，滚动/缩放时靠 CSS transform 跟随，极端缩放下可能有 1px 抖动。
 - 推荐 Chrome / Edge 116+。Safari 缺 `documentPictureInPicture`、`navigator.fonts`，
   且 `ctx.letterSpacing` 支持较晚，字距会退化。

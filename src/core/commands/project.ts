@@ -1,9 +1,11 @@
 import { z } from 'zod';
 import { defineCommand, CommandFailure, type CommandContext } from '../registry';
 import { createEmptyProject, normalizeProject } from '../defaults';
-import { SAMPLE_DURATION, SAMPLE_PROJECT_ID, SAMPLE_VERSION, createSampleProject, sampleHighlights } from '../sampleProject';
+import { SAMPLE_PACK_VERSION, SAMPLES, sampleHighlights, type SampleDef } from '../sampleProject';
 import { unpackProject } from '../projectFile';
 import { LIMITS, getBackground, type Project } from '../types';
+import { beatMs, clampTempo, normalizeLyrics } from '../score';
+import { zLyrics } from '../schemas';
 import { clamp } from '../geometry';
 import { BundleError, blobOf, buildBundle, bytesToDataUrl, parseBundle } from '../bundle';
 import { uid } from '../ids';
@@ -11,20 +13,123 @@ import { idbGetAsset, idbPutAsset } from '@/persist/idb';
 import { listStoredFonts, registerFontFace } from '@/persist/fonts';
 import {
   createProjectRecord,
+  markSampleVersion,
+  seededVersionOf,
   deleteProjectRecord,
   detachProject,
   duplicateProjectRecord,
   getLastProjectId,
   getProjectMeta,
   isDetached,
-  markSampleSeeded,
-  seededSampleVersion,
   listRecentProjects,
   loadProjectRecord,
   renameProjectRecord,
   saveProject,
   setLastProjectId,
 } from '@/persist/projects';
+
+/* ------------------------------------------------------------------ 示例 */
+
+export interface SeededSample {
+  created: boolean;
+  /** seeded = 已经是最新；removed = 用户删过；open = 正开在编辑器里；modified = 被改过 */
+  reason?: 'seeded' | 'removed' | 'open' | 'modified' | 'upgraded';
+  projectId: string;
+  name: string;
+  version: number;
+  upgradedFrom?: number;
+  replaced?: boolean;
+  thumbnail?: boolean;
+  seconds?: number;
+  layers?: number;
+  tracks?: number;
+  codeLayers?: number;
+  audioLayers?: number;
+  lyrics?: number;
+  tempo?: number;
+}
+
+/**
+ * 塞一份示例。逐份判定，五条规矩：
+ *
+ * 1. 已经是最新版 → 一次 prefs 读就回去（绝大多数情况走这条）；
+ * 2. 库里没有、但标记说塞过 → 用户自己删的，只把版本标记跟上，**不塞回来**；
+ * 3. 这一份正开在编辑器里 → 先不动（内存里还是旧内容，下一次自动保存会盖回来）；
+ * 4. 被改过（updatedAt > createdAt）→ 只报「有新版」，不覆盖，也不写版本标记；
+ * 5. 没动过 → 原地换新，同一个 id，列表里的位置与「当前」标记都不变。
+ */
+async function seedOne(def: SampleDef, currentId: string, force: boolean): Promise<SeededSample> {
+  const seeded = await seededVersionOf(def.id);
+  const existing = await getProjectMeta(def.id);
+  const wanted = SAMPLE_PACK_VERSION;
+
+  if (force) {
+    const project = await def.load();
+    const meta = await createProjectRecord(project);
+    await markSampleVersion(def.id, wanted);
+    return {
+      created: true,
+      replaced: !!existing,
+      projectId: meta.id,
+      name: meta.name,
+      version: wanted,
+      thumbnail: !!meta.thumbnail,
+      ...sampleHighlights(project),
+    };
+  }
+
+  if (seeded >= wanted) {
+    return { created: false, reason: 'seeded', projectId: def.id, name: existing?.name ?? def.name, version: seeded };
+  }
+
+  if (!existing) {
+    if (seeded > 0) {
+      await markSampleVersion(def.id, wanted);
+      return { created: false, reason: 'removed', projectId: def.id, name: def.name, version: seeded };
+    }
+    const project = await def.load();
+    const meta = await createProjectRecord(project);
+    await markSampleVersion(def.id, wanted);
+    return {
+      created: true,
+      projectId: meta.id,
+      name: meta.name,
+      version: wanted,
+      thumbnail: !!meta.thumbnail,
+      ...sampleHighlights(project),
+    };
+  }
+
+  /* 判据是「当前文档 id」，不是「上次打开的 id」：启动页里内存中是一份空工程 */
+  if (currentId === def.id) {
+    return { created: false, reason: 'open', projectId: existing.id, name: existing.name, version: seeded };
+  }
+
+  if (existing.updatedAt > existing.createdAt) {
+    return {
+      created: false,
+      reason: 'modified',
+      projectId: existing.id,
+      name: existing.name,
+      version: seeded,
+      seconds: Math.round(def.duration / 1000),
+    };
+  }
+
+  const project = await def.load();
+  const meta = await createProjectRecord(project);
+  await markSampleVersion(def.id, wanted);
+  return {
+    created: false,
+    reason: 'upgraded',
+    upgradedFrom: seeded,
+    projectId: meta.id,
+    name: meta.name,
+    version: wanted,
+    thumbnail: !!meta.thumbnail,
+    ...sampleHighlights(project),
+  };
+}
 
 /* ---------------------------------------------------------------- 切换工程 */
 
@@ -180,96 +285,24 @@ export const projectCommands = [
     mutating: false,
     undoable: false,
     description:
-      '把示例工程写进本地工程库（按版本幂等）。示例是一支 64 秒、九段的极限样片（1920×1080 / 30fps）：冷开、点名、等轴城市、HUD 锁定、液态 shader、技术账、风格墙、落版，配六条参数化合成的音轨。全部图形与声音都由代码算出来，没有任何外部资源依赖，打开就能播、能改、能导出。同一版本塞过就直接返回；库里的还是旧版本时，没被动过就原地换新、被改过只回报「有新版」不覆盖；用户删掉之后不会自己冒回来。不改动当前打开的文档。',
+      '把内置示例写进本地工程库（逐份、按版本幂等）。现在有两份：① 64 秒极限样片，九段、九个代码层，把引擎压到性能上限；② 60 秒「再改一版」，128 BPM、逐字卡拉 OK、下拍硬切、一条贯穿母题与一个逐级递增的数字，复刻自 mexicat/pdoom-video 的叙事手法。两份都是 1920×1080 / 30fps，图形与声音全部由代码算出来，没有任何外部资源。同一版本塞过就直接返回；库里的还是旧版时，没被动过就原地换新、被改过只回报「有新版」不覆盖；用户删掉之后不会自己冒回来。不改动当前打开的文档。',
     schema: z.object({ force: z.boolean().default(false) }),
     example: {},
     handler: async (draft, payload, ctx) => {
       if (ctx.dryRun) return { created: false, reason: 'dryRun' };
 
-      const seeded = await seededSampleVersion();
-      const existing = await getProjectMeta(SAMPLE_PROJECT_ID);
-
-      /* 用户明确点名要放回/换新：原地覆盖同一个 id，不在列表里再造一条 */
-      if (payload.force) {
-        const project = await createSampleProject();
-        const meta = await createProjectRecord(project);
-        await markSampleSeeded(SAMPLE_VERSION);
-        return {
-          created: true,
-          replaced: !!existing,
-          projectId: meta.id,
-          name: meta.name,
-          version: SAMPLE_VERSION,
-          ...sampleHighlights(project),
-          thumbnail: !!meta.thumbnail,
-        };
+      const samples: SeededSample[] = [];
+      for (const def of SAMPLES) {
+        samples.push(await seedOne(def, draft.id, payload.force));
       }
 
-      /* 已经是最新版：一次 prefs 读就回去，不碰工程本体 */
-      if (seeded >= SAMPLE_VERSION) return { created: false, reason: 'seeded', version: seeded };
-
-      if (!existing) {
-        /*
-         * 标记说塞过、库里却没有 —— 用户自己删的。承诺过「删掉就不会再出现」，
-         * 换版本也不能把它塞回来，只把版本标记跟上。
-         */
-        if (seeded > 0) {
-          await markSampleSeeded(SAMPLE_VERSION);
-          return { created: false, reason: 'removed' };
-        }
-      } else {
-        /*
-         * 这份示例正开在编辑器里时先不动：覆盖期间内存里还是旧内容，
-         * 下一次自动保存会把旧内容又写回来。
-         *
-         * 判据是「当前文档 id」，不是「上次打开的 id」—— 启动页（page 形态）里
-         * 内存中是一份空工程，用 lastProjectId 会把「上次看过示例」的人永远卡在旧版上。
-         */
-        if (draft.id === SAMPLE_PROJECT_ID) {
-          return { created: false, reason: 'open', projectId: existing.id, version: seeded };
-        }
-        /*
-         * 改过就是用户的稿子，不能悄悄盖掉。只把「有新版」报上去，换不换由人决定；
-         * 版本标记先不写 —— 否则下次刷新连这个提示都不会再出现。
-         */
-        if (existing.updatedAt > existing.createdAt) {
-          return {
-            created: false,
-            reason: 'modified',
-            projectId: existing.id,
-            name: existing.name,
-            version: seeded,
-            /* 只报「新版有多长」，不报图层数：那要把整份示例建出来才数得清，为一句提示不值得 */
-            seconds: Math.round(SAMPLE_DURATION / 1000),
-          };
-        }
-        /* 没动过：原地换新。同一个 id，卡片位置、「当前」标记都不变 */
-        const project = await createSampleProject();
-        const meta = await createProjectRecord(project);
-        await markSampleSeeded(SAMPLE_VERSION);
-        return {
-          created: false,
-          reason: 'upgraded',
-          upgradedFrom: seeded,
-          projectId: meta.id,
-          name: meta.name,
-          version: SAMPLE_VERSION,
-          ...sampleHighlights(project),
-          thumbnail: !!meta.thumbnail,
-        };
-      }
-
-      const project = await createSampleProject();
-      const meta = await createProjectRecord(project);
-      await markSampleSeeded(SAMPLE_VERSION);
+      /* 顶层字段描述「第一份」，启动页的引导卡只讲它；其余一份在 samples 里 */
+      const primary = samples[0]!;
       return {
-        created: true,
-        projectId: meta.id,
-        name: meta.name,
-        version: SAMPLE_VERSION,
-        ...sampleHighlights(project),
-        /* 缩略图是异步渲染的，成不成都不该让「塞示例」失败 */
-        thumbnail: !!meta.thumbnail,
+        ...primary,
+        version: SAMPLE_PACK_VERSION,
+        samples,
+        created: samples.some((s) => s.created),
       };
     },
   }),
@@ -356,6 +389,63 @@ export const projectCommands = [
       await ctx.services.preloadProjectAssets(next);
       sessionReset(ctx, next);
       return { projectId: next.id, name: next.name, layerCount: next.layers.length, version: next.version };
+    },
+  }),
+
+  defineCommand({
+    type: 'project.setTempo',
+    category: '项目',
+    mutating: true,
+    description:
+      '设置工程的速度网格（BPM / 第 0 拍偏移 / 每小节拍数）。这是画面与声音共用的那一份时间真理：代码层通过 api.tempo 读它，鼓点也按它落点 —— 改一次，切镜与鼓一起走，不会一边改了一边忘。省略的字段保持不变；偏移可以是负数（从半拍处切进来）。',
+    schema: z
+      .object({
+        bpm: z.number().min(20).max(300).optional(),
+        offsetMs: z.number().min(-60_000).max(600_000).optional(),
+        meter: z.number().int().min(1).max(16).optional(),
+      })
+      .refine((v) => v.bpm !== undefined || v.offsetMs !== undefined || v.meter !== undefined, {
+        message: '至少要给一个字段',
+      }),
+    example: { bpm: 132, offsetMs: 0, meter: 4 },
+    handler: (draft, payload) => {
+      const next = clampTempo({ ...clampTempo(draft.tempo), ...payload });
+      draft.tempo = next;
+      return {
+        ...next,
+        /** 一拍多少毫秒 —— 调用方（AI / 人）真正要算的东西 */
+        beatMs: Math.round(beatMs(next) * 10) / 10,
+        barMs: Math.round(beatMs(next) * next.meter * 10) / 10,
+      };
+    },
+  }),
+
+  defineCommand({
+    type: 'project.setLyrics',
+    category: '项目',
+    mutating: true,
+    description:
+      '写入/替换工程的词级时间（逐行歌词）。每行给 text 与绝对毫秒区间 [start, end)；行内的逐字时间由引擎按字符权重切分，所以**不需要手工排每一个字**。代码层用 api.lyrics 查询：at/before/after/units/progress/chars —— chars 就是逐字擦除要的那个「已唱几个字」。append 模式用于分章写入，replace 覆盖全部。',
+    schema: z.object({
+      lines: zLyrics,
+      mode: z.enum(['replace', 'append']).default('replace'),
+    }),
+    example: {
+      lines: [
+        { text: '先画一条线', start: 4000, end: 6800 },
+        { text: '就有了时间', start: 6900, end: 9600 },
+      ],
+    },
+    handler: (draft, payload) => {
+      const merged = payload.mode === 'append' ? [...(draft.lyrics ?? []), ...payload.lines] : payload.lines;
+      const lines = normalizeLyrics(merged, draft.duration);
+      draft.lyrics = lines;
+      return {
+        count: lines.length,
+        /* 报一下「讲到什么时候」，方便调用方接下一段 */
+        coverageMs: lines.reduce((n, l) => n + (l.end - l.start), 0),
+        lastEnd: lines.length ? lines[lines.length - 1]!.end : 0,
+      };
     },
   }),
 

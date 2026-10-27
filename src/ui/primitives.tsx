@@ -325,6 +325,7 @@ export function IconButton({
   disabled,
   className,
   size = 28,
+  testId,
 }: {
   children: ReactNode;
   onClick?: () => void;
@@ -333,12 +334,14 @@ export function IconButton({
   disabled?: boolean;
   className?: string;
   size?: number;
+  testId?: string;
 }) {
   return (
     <button
       type="button"
       title={title}
       aria-label={title}
+      data-testid={testId}
       disabled={disabled}
       onClick={onClick}
       style={{ width: size, height: size }}

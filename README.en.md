@@ -56,7 +56,7 @@ Kinelayer/
 │  │  ├─ temporal.ts           Hand-rolled undo: immer patches / inverse patches / 700ms coalescing
 │  │  ├─ store.ts              Zustand in three slices: project (persisted) / ui / runtime (never persisted)
 │  │  ├─ defaults.ts           Factories + normalizeProject (lenient read, strict write) + demo project
-│  │  ├─ commands/*.ts         86 commands, one file per domain (layer/text/code/background/project/asset/font/timeline/animation/selection/history/window/export/query/AI/custom/audio/batch)
+│  │  ├─ commands/*.ts         91 commands, one file per domain (layer/text/code/background/project/asset/font/timeline/animation/selection/history/window/export/query/AI/custom/audio/batch)
 │  │  ├─ customCommands.ts     [v2.7] Macro logic, pure: placeholder substitution, param coercion, pre-save validation, forbidden commands, step expansion
 │  │  ├─ bundle.ts             Project package (.kly): ZIP packing/unpacking, per-file sha256, five unzip gates
 │  │  ├─ importPipeline.ts     [v2.5] Import pipeline, pure functions: sniff → inspect report → map to layers/tracks
@@ -111,7 +111,7 @@ injected through `services.ts`.
 
 ---
 
-## Commands at a glance (86)
+## Commands at a glance (91)
 
 | Category | Count | Representative commands |
 | --- | --- | --- |
@@ -377,6 +377,70 @@ hash stayed in the code because it is more portable across devices, not because 
 nobody mistakes it for an optimisation next time.
 
 Details in [docs/10-performance.md](docs/10-performance.md).
+
+---
+
+## v2.11 · A second film: the score, word timing, and motion blur
+
+This one was learned from somebody else's film ([pdoom-video](https://github.com/mexicat/pdoom-video)).
+What came across is the **method**, not the material — not one byte of theirs is in this repo.
+What did come across is in the table below.
+
+| Borrowed method | Where it landed |
+| --- | --- |
+| Every frame is a pure function of song time | `api.tempo` / `api.lyrics` evaluate from `time` alone, no state |
+| Word-by-word karaoke that never runs ahead of the sound | `project.lyrics` + `api.lyrics.chars()`, split by character weight |
+| Beat-grid snapping, hard cuts on downbeats | `api.tempo.snap()` / `downbeat` / `query.score` |
+| One motif carried through the whole piece | a single vertical line: cursor → background column → playhead → layer column → fuse → final signal dot |
+| One escalating numeric arc | `VERSION 1→11→041→∞`, `P(SHIP TODAY) 0.02→0.99→NaN`, `UNDO DEPTH 3→118` |
+| A multi-voice type system over a restricted palette | three fonts with distinct jobs, five colours total, the acid green appears for 110ms |
+
+The result is a second sample, **`One more revision (60s)`**: 128 BPM, nine segments, 19 layers,
+21 lyric lines, five synthesised audio tracks, **zero external assets**. It sits next to the first
+"extreme reel" on the launcher, each with its own version stamp and its own upgrade path.
+
+### What the engine had to grow
+
+- **`project.tempo`** (the tempo grid) — cuts happen in the picture but must land on the beat of the sound.
+  If both sides compute BPM separately, one of them will be forgotten when the tempo changes. So there is
+  exactly one source of truth, shared by code layers, audio, the UI and `query.score` through the pure
+  functions in `src/core/score.ts`.
+- **`project.lyrics` + `api.lyrics`** — word-level timing. With no syllable data and no vocal to align to,
+  the contract is: *split the line's range by character weight; each slice is that unit's sounding interval.*
+  It does not pretend to be exact; it just never runs ahead of the sound.
+- **`code.motionBlur`** — five sub-frames over a 44ms shutter, averaged into one frame. Incremental averaging,
+  not repeated translucent passes (those weight front-heavy and the streak looks wrong).
+- **The `u_resolution` fix** — it must carry the **drawing buffer's** pixel size. Passing the layer's design
+  size sends any centre-origin effect to the bottom-right corner once `renderScale` is on. Invisible in noise,
+  obvious in an explosion.
+- **`query.score`** — one command that answers "which beat, what phase, is this a downbeat, how many characters
+  have been sung, where are the next downbeats". It exists for the AI and for the self-checks: if it can be
+  verified with an equation, do not verify it by eye.
+
+### A real bug fixed along the way
+
+`api.lyrics.chars()` used to add 1 between every pair of units, as "the space between words". Correct for
+English, disastrous for Chinese: a five-character line reported "fully sung" at 54%, so the karaoke lit the
+whole line early. Counting the actually skipped characters from the `offset` difference gives `2.686` at
+`5000ms` on `先画一条线`, exactly `53.7% × 5`. The `sample-check` assertion was tightened from
+"between 3 and 6" to `2.69 ± 0.06`.
+
+### The UI: actually editable
+
+With nothing selected, the inspector now carries two more blocks:
+
+- **Tempo grid** — BPM, first-beat offset, beats per bar, plus a live readout (bar, beat, phase, which lyric
+  is being sung, how many characters in) and a **tap** button: tap along with the drums three times or more and
+  the median interval sets the BPM while the last tap sets the phase. While paused it only changes the BPM and
+  leaves the phase alone, which is the honest thing to do. `÷2 / ×2` and two snap buttons (playhead becomes a
+  beat / becomes a downbeat) round it out.
+- **Lyrics / word timing** — all 21 lines editable (text and range), each with "set start to playhead", plus
+  **LRC import/export** that understands both `[mm:ss.mmm]` and `[mm:ss.mmm-mm:ss.mmm]`. The second form is an
+  extension: our lyrics *have gaps* — a line lingers on screen after it is sung — and that gap is composition,
+  not something to lose when the data becomes text. Untimed lines are appended in order: get them in first,
+  get them right second.
+
+Details in [docs/11-score.md](docs/11-score.md) (Chinese).
 
 ---
 

@@ -9,6 +9,7 @@ import { peaksFor } from '@/render/audioEngine';
 import { IconButton, Toggle, cx } from './primitives';
 import { useLayoutTier } from './layout';
 import { t } from '@/i18n';
+import { beatMs, tempoOf } from '@/core/score';
 
 /** remotion 组件层：内部不可编辑，时间轴只表示「这段时间它可见」 */
 function isRemotionLayer(layer: Layer): boolean {
@@ -178,6 +179,16 @@ export function Timeline() {
 
   if (!show) return null;
   const ticks = Array.from({ length: 7 }, (_, i) => (project.duration / 6) * i);
+  /*
+   * 拍线：把速度网格画在标尺上。
+   *
+   * 只在「每拍至少占 0.4% 宽」时才画 —— 60 秒的片子 128 BPM 有 128 拍，
+   * 挤在一起就是一片灰，反而看不清。太密就不画，读数区里还有一份精确的。
+   */
+  const tempo = tempoOf(project);
+  const beat = beatMs(tempo);
+  const beatCount = Math.floor((project.duration - tempo.offsetMs) / beat) + 1;
+  const showBeats = beatCount > 1 && beatCount <= 240 && (beat / project.duration) * 100 >= 0.4;
   const selectedLayer = project.layers.find((l) => l.id === selectedIds[0]);
   const overflow = project.layers.slice(1).filter((l) => l.inPoint > project.duration || (l.outPoint > 0 && l.outPoint > project.duration));
 
@@ -408,6 +419,17 @@ export function Timeline() {
               seek(e.clientX);
             }}
           >
+            {showBeats &&
+              Array.from({ length: beatCount }, (_, i) => tempo.offsetMs + i * beat)
+                .filter((ms) => ms >= 0 && ms <= project.duration)
+                .map((ms, i) => (
+                  <div
+                    key={`b${i}`}
+                    data-beat={i % tempo.meter === 0 ? 'bar' : 'beat'}
+                    className={cx('absolute top-0 bottom-0 w-px', i % tempo.meter === 0 ? 'bg-accent/40' : 'bg-ink-600/70')}
+                    style={{ left: `${(ms / project.duration) * 100}%` }}
+                  />
+                ))}
             {ticks.map((tk, i) => (
               <div key={i} className="absolute top-0 bottom-0" style={{ left: `${(tk / project.duration) * 100}%` }}>
                 <div className="bg-ink-600 h-1.5 w-px" />

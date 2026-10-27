@@ -1013,6 +1013,52 @@ export const en: Record<string, string> = {
     'Audio follows the master clock: pausing or scrubbing re-anchors it. WebM export renders the mix offline and muxes it into the file.',
   '是不是要先点一下播放才有声音':
     'Play once to unlock audio',
+
+  内部分辨率: 'Internal resolution',
+  运动模糊: 'Motion blur',
+  开: 'On',
+  关: 'Off',
+  子帧: 'Sub-frames',
+  快门: 'Shutter',
+  '快门是一帧曝光，不是重影次数：30fps 下一帧 33ms。给 110ms 会得到三次离散重影。代价是这一层多画 N 遍。':
+    'Shutter is one frame of exposure, not a ghost count — a frame at 30fps is 33ms. 110ms gives three discrete ghosts. The cost is N extra draws of this layer.',
+
+  // ── 速度网格 / 歌词 ──────────────────────────────────────
+  速度网格: 'Tempo grid',
+  '{n} BPM': '{n} BPM',
+  偏移: 'Offset',
+  '拍 / 小节': 'Beats / bar',
+  小节: 'bar',
+  拍: 'beat',
+  强拍: 'downbeat',
+  '打拍': 'Tap',
+  '速度减半（隔拍打拍时用）': 'Halve the tempo (when tapping every other beat)',
+  '速度加倍（半速打拍时用）': 'Double the tempo (when tapping at half speed)',
+  '把播放头当作拍点': 'Snap a beat to the playhead',
+  '把播放头当作小节头（强拍）': 'Snap a downbeat to the playhead',
+  '已按 {n} 下 · 间隔 {ms}ms · 敲得最散的一下偏 {spread}ms':
+    '{n} taps · {ms}ms apart · worst tap is {spread}ms off the grid',
+  '已按 {n} 下 · 间隔 {ms}ms（暂停中只改 BPM，不碰相位）':
+    '{n} taps · {ms}ms apart (paused, so only BPM changes — the phase is left alone)',
+  '跟着鼓点连按三下以上。播放中打拍会顺带把相位对齐；按的是隔拍就点 ×2。':
+    'Tap along with the drums three times or more. Tapping during playback also aligns the phase; if you tap every other beat, hit ×2.',
+  '此刻没有歌词': 'No lyric at this moment',
+  '下一句 {ms}ms 后：{text}': 'Next line in {ms}ms: {text}',
+  '歌词 / 逐字时间': 'Lyrics / word timing',
+  '每行给一个毫秒区间；行内的逐字时间由引擎按字符权重切分，不用手排每一个字。代码层用 api.lyrics.chars 取「已唱几个字」。':
+    'Each line carries a millisecond range; word timing inside the line is split by character weight, so you never place individual words by hand. Code layers read api.lyrics.chars for "how many characters have been sung".',
+  起点改成播放头: 'Set start to playhead',
+  删掉这一行: 'Delete this line',
+  '还有 {n} 行没列出来（用命令改更快）': '{n} more lines not listed (a command edit is faster)',
+  在播放头加一行: 'Add a line at the playhead',
+  '复制为 LRC': 'Copy as LRC',
+  '已复制 {n} 行 LRC': 'Copied {n} LRC lines',
+  读进歌词: 'Import lyrics',
+  '读进 {n} 行': 'Imported {n} lines',
+  '这段文本里没有可用的歌词行': 'No usable lyric lines in that text',
+  '认 [分:秒.毫秒] 和 [分:秒-分:秒] 两种写法；没带时间戳的行会按顺序接在后面，先有再准。':
+    'Accepts [mm:ss.mmm] and [mm:ss-mm:ss]. Lines without a timestamp are appended in order — first get them in, then get them right.',
+  新的一行: 'New line',
 };
 
 export type EnDict = typeof en;

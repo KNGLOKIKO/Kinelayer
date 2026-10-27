@@ -213,6 +213,29 @@ export async function markSampleSeeded(version: number): Promise<void> {
   await idbSetPrefs({ sampleSeeded: true, sampleVersion: version } satisfies AppPrefs);
 }
 
+/*
+ * 逐份示例的版本号。
+ *
+ * 旧库只有一个全局 `sampleVersion`，它描述的一直是 v2.8/2.9/2.10 那**一份**示例
+ * （id 从没变过）。所以升级时把它算到那一份头上，其余示例按 0 处理（= 没塞过）。
+ */
+const LEGACY_SAMPLE_ID = 'prj_sample_start';
+
+export async function seededVersionOf(id: string): Promise<number> {
+  const prefs = await idbGetPrefs();
+  const map = prefs.sampleVersions;
+  if (map && typeof map[id] === 'number') return map[id]!;
+  if (id !== LEGACY_SAMPLE_ID) return 0;
+  if (typeof prefs.sampleVersion === 'number') return prefs.sampleVersion;
+  return prefs.sampleSeeded === true ? 1 : 0;
+}
+
+export async function markSampleVersion(id: string, version: number): Promise<void> {
+  const prefs = await idbGetPrefs();
+  const map = { ...(prefs.sampleVersions ?? {}), [id]: version };
+  await idbSetPrefs({ sampleSeeded: true, sampleVersion: version, sampleVersions: map } satisfies AppPrefs);
+}
+
 export async function getLastProjectId(): Promise<string | null> {
   return (await idbGetPrefs()).lastProjectId ?? null;
 }

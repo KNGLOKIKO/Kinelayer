@@ -147,7 +147,27 @@ export const zCodeSpec = z.object({
   params: z.record(z.union([z.string(), z.number(), z.boolean()])),
   /** 内部分辨率倍率（0.25–1）。低频画面降它换帧率，文字层不要降 */
   renderScale: z.number().min(0.25).max(1).optional(),
+  /** 子帧超采样：samples 次绘制叠成一张，shutter 是快门时长（毫秒） */
+  motionBlur: z
+    .object({ samples: z.number().int().min(2).max(8), shutter: z.number().min(1).max(200) })
+    .optional(),
 });
+
+/** 速度网格（工程级）：画面与声音共用的那一份时间真理 */
+export const zTempo = z.object({
+  bpm: z.number().min(20).max(300),
+  offsetMs: z.number().min(-60_000).max(600_000),
+  meter: z.number().int().min(1).max(16),
+});
+
+/** 一行歌词：绝对毫秒区间。逐字时间由 core/score.ts 按字符权重切 */
+export const zLyricLine = z.object({
+  text: z.string().min(1).max(400),
+  start: z.number().min(0).max(3_600_000),
+  end: z.number().min(0).max(3_600_000),
+});
+
+export const zLyrics = z.array(zLyricLine).max(512);
 
 /** 程序化音源。marks 是「相对图层起点」的毫秒数组，chime 用它标章节切换 */
 export const zToneSpec = z.object({

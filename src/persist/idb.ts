@@ -196,6 +196,14 @@ export interface AppPrefs {
    * 有版本号之后才能判断「是不是该换成新版」。
    */
   sampleVersion?: number;
+  /**
+   * 每一份示例各自塞到了第几版（键 = 工程 id）。
+   *
+   * v2.11 起示例不再只有一份（极限样片 + 再改一版），一个全局版本号表达不了
+   * 「这一份换新了、那一份被改过所以留着」。分开记之后，
+   * 一份停在旧版不会拖住另一份，也不会每次刷新都把没动过的那份重建一遍。
+   */
+  sampleVersions?: Record<string, number>;
 }
 
 /** 从裸 Project 抽元信息。idb 层不做 normalize，字段缺失就给保守默认值 */

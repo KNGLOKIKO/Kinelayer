@@ -24,7 +24,7 @@ import { pickImportFile } from './importFlow';
 import { NewProjectDialog, SIZE_PRESETS, type NewProjectValues } from './NewProjectDialog';
 import { editorUrl, go } from './routes';
 import { IntroDemo } from './IntroDemo';
-import { SAMPLE_PROJECT_ID } from '@/core/sampleProject';
+import { SAMPLE_PROJECT_ID, SAMPLES } from '@/core/sampleProject';
 import { applyLocale } from '@/i18n/apply';
 import { t } from '@/i18n';
 
@@ -206,7 +206,7 @@ export function Launcher({ mode = 'overlay' }: { mode?: 'overlay' | 'page' }) {
   /* 有新版但那份被改过：只在用户点名要换时才覆盖 —— 这一下会丢掉他的改动，先问一句 */
   const replaceSample = () =>
     wrap(async () => {
-      if (!window.confirm(t('换成新版示例？你在这份示例上做过的改动会丢掉。'))) return;
+      if (!window.confirm(t('换成新版示例？你在内置示例上做过的改动会丢掉。'))) return;
       const res = await exec<SeedInfo>('project.seedSample', { force: true });
       if (!res.ok) {
         pushToast('error', res.error?.message ?? t('放入失败'), 6000);
@@ -260,6 +260,24 @@ export function Launcher({ mode = 'overlay' }: { mode?: 'overlay' | 'page' }) {
         </div>
 
         <div className="flex-1" />
+
+        {/*
+          示例是两份（极限样片 + 再改一版）。只删掉其中一份时，列表并不空，
+          但「放回示例」这条路不能因此消失 —— 所以它挂在页头上，按「缺了几份」出现。
+        */}
+        {list !== null && SAMPLES.some((s) => !list.some((c) => c.id === s.id)) && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void restoreSample()}
+            data-testid="sample-restore"
+            title={t('把内置示例放回工程库')}
+            className="border-ink-700 text-zinc-400 hover:border-ink-600 hover:text-zinc-100 flex h-7 items-center gap-1 rounded-md border px-2 text-[11px] transition disabled:opacity-40"
+          >
+            <Sparkles size={12} />
+            {t('放回示例')}
+          </button>
+        )}
 
         <button
           type="button"
@@ -490,15 +508,7 @@ export function Launcher({ mode = 'overlay' }: { mode?: 'overlay' | 'page' }) {
               <div className="max-w-[360px] text-[10.5px] leading-relaxed text-zinc-600">
                 {t('左边选一个预设，或者用「自定义尺寸」自己定；也可以直接打开之前导出的 .kly。')}
               </div>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => void restoreSample()}
-                data-testid="sample-restore"
-                className="text-zinc-500 hover:text-accent-soft mt-1 inline-flex items-center gap-1 text-[10.5px] transition disabled:opacity-40"
-              >
-                <Sparkles size={11} /> {t('放回示例工程')}
-              </button>
+              <div className="text-zinc-600 mt-1 text-[10.5px]">{t('想找回内置示例，点右上角的「放回示例」。')}</div>
             </div>
           )}
 

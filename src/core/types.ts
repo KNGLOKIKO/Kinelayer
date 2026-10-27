@@ -355,6 +355,18 @@ export interface CodeSpec {
    */
   renderScale?: number;
   /**
+   * 子帧超采样（运动模糊）。省略即关。
+   *
+   * 一帧内取 `samples` 个时刻（从 `time` 往回铺 `shutter` 毫秒）各画一次，
+   * 再按 1/n 叠起来 —— 这是把「快门」这件摄影上的事搬进渲染器，
+   * 也是甩镜、抖机位、频闪这类画面唯一靠谱的做法（单帧里画多条残影是假模糊，
+   * 它不会随速度变化，也不算在正确的时刻上）。
+   *
+   * 代价是线性涨：`samples: 4` 就是四倍绘制。所以它只该出现在
+   * 「便宜但高速」的层上，贵的逐像素层请先降 `renderScale` 再谈模糊。
+   */
+  motionBlur?: { samples: number; shutter: number };
+  /**
    * `remotion-component` 的运行时元信息。别的引擎没有这一段。
    *
    * 它不是「在浏览器里跑 Remotion」—— 浏览器执行不了 TSX，也没有逐帧截图能力。
@@ -462,6 +474,50 @@ export interface FontMeta {
  */
 export const PROJECT_SCHEMA_VERSION = 2;
 
+/**
+ * 速度网格：这支片子「第几拍在第几毫秒」的唯一真理。
+ *
+ * 为什么它是工程级而不是音频层级的：切镜、盖章、复制、抖机位这些事发生在**画面**上，
+ * 而它们必须落在**声音**的拍子上。两边各自算一遍 bpm，改速度时一定有一边忘掉。
+ * 音频层自己的 `tone.bpm` 保留 —— 那是「这一条音轨的律动」，
+ * 它可以故意跟工程速度错开（半速铺底、三连音脉冲），这正是音乐上的常规手法。
+ */
+export interface Tempo {
+  /** 每分钟拍数 */
+  bpm: number;
+  /** 第 0 拍落在第几毫秒（相对工程起点）。负数表示片子从半拍处切进来 */
+  offsetMs: number;
+  /** 每小节几拍。只用来定强拍（下拍）位置，不限制你能数到几 */
+  meter: number;
+}
+
+/**
+ * 一行歌词。
+ *
+ * 与 pdoom-video 那类「先唱、再强制对齐」的项目不同，这里的词级时间**不来自音频分析**
+ * —— 本工程的音轨是现场合成的，没有可供对齐的人声。所以时间由这里给的行区间
+ * 按字符权重分配（见 `core/score.ts`），并且**绝不让高亮跑到声音前面**：
+ * 一个字的高亮区间就是它自己的发声区间，这是唯一能保证「看起来在唱」的定义。
+ *
+ * `start`/`end` 是**绝对毫秒**（相对工程起点）。允许重叠（和声、叠句），
+ * 也允许中间有空白（换气、纯音乐段）。
+ */
+export interface LyricLine {
+  /** 显示文本。分词规则与文字层一致：拉丁按词、CJK 按字（见 render/text.ts 的 tokenize） */
+  text: string;
+  start: number;
+  end: number;
+}
+
+/** 逐字时间表里的一项：一个可高亮的单元（拉丁词 / 一个汉字 / 一串标点） */
+export interface LyricUnit {
+  text: string;
+  start: number;
+  end: number;
+  /** 在整行里的字符偏移，用来算「已唱多少字」 */
+  offset: number;
+}
+
 export interface Project {
   /** 缺省视为 1（v1 的工程文件没有这个字段） */
   schemaVersion: number;
@@ -476,6 +532,10 @@ export interface Project {
   layers: Layer[];
   assets: AssetMeta[];
   fonts: FontMeta[];
+  /** 速度网格。缺省是 120 BPM、第 0 拍在 0ms、4/4（读入时由 normalizeProject 补齐） */
+  tempo?: Tempo;
+  /** 词级时间（可为空）。缺省 = 这支片子没有歌词，代码层的 api.lyrics 会返回空结构 */
+  lyrics?: LyricLine[];
   version: number;
   createdAt: number;
   updatedAt: number;

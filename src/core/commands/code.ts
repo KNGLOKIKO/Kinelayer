@@ -73,6 +73,30 @@ export const codeCommands = [
   }),
 
   defineCommand({
+    type: 'code.setMotionBlur',
+    category: '代码',
+    mutating: true,
+    description:
+      '设置代码层的子帧运动模糊。samples 是同一帧内取几个子帧（2–8），shutter 是快门时长（毫秒）—— 注意它是一帧曝光，不是重影次数：30fps 下一帧 33ms，给 110ms 会得到三次离散重影（长曝光），给 44ms 才是真正的运动模糊。代价是绘制次数线性上涨（只影响这一层），所以给一两层需要方向感的元素用，不要整片都开。传 null 关闭。',
+    schema: z.object({
+      id: zId,
+      motionBlur: z
+        .object({
+          samples: z.number().int().min(2).max(8),
+          shutter: z.number().min(1).max(200),
+        })
+        .nullable(),
+    }),
+    example: { id: 'ly_abc', motionBlur: { samples: 5, shutter: 44 } },
+    handler: (draft, payload) => {
+      const layer = requireCode(draft, payload.id);
+      if (payload.motionBlur === null) delete layer.code.motionBlur;
+      else layer.code.motionBlur = payload.motionBlur;
+      return { id: layer.id, motionBlur: layer.code.motionBlur ?? null };
+    },
+  }),
+
+  defineCommand({
     type: 'code.resetRuntime',
     category: '代码',
     mutating: false,

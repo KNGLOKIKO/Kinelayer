@@ -1,5 +1,6 @@
 import { uid } from './ids';
 import { clamp } from './geometry';
+import { DEFAULT_TEMPO, clampTempo, normalizeLyrics } from './score';
 import {
   ANIMATABLE_PROPERTIES,
   BLEND_MODES,
@@ -19,6 +20,7 @@ import {
   type PropertyTrack,
   type TextLayer,
   type TextStyle,
+  type Tempo,
   type ToneSpec,
   type VideoLayer,
   type BlendMode,
@@ -292,6 +294,8 @@ export function createEmptyProject(name = '未命名织层项目'): Project {
     layers: [createBackground({ width: 1080, height: 1440 })],
     assets: [],
     fonts: [],
+    tempo: { ...DEFAULT_TEMPO },
+    lyrics: [],
     version: 1,
     createdAt: now,
     updatedAt: now,
@@ -553,18 +557,27 @@ export function normalizeProject(raw: unknown): Project {
   }
   background.animation = normalizeAnimation(background.animation);
 
+  const duration = num(r.duration, base.duration, LIMITS.duration.min, LIMITS.duration.max);
+
   return {
     schemaVersion: PROJECT_SCHEMA_VERSION,
     id: str(r.id, base.id),
     name: str(r.name, base.name),
     width,
     height,
-    duration: num(r.duration, base.duration, LIMITS.duration.min, LIMITS.duration.max),
+    duration,
     fps: Math.round(num(r.fps, base.fps, LIMITS.fps.min, LIMITS.fps.max)),
     loop: bool(r.loop, true),
     layers: [background, ...rest],
     assets,
     fonts,
+    /*
+     * v2.11 · 速度网格与歌词是**可选**字段（老工程没有）。
+     * 读入时补成缺省值、而不是留 undefined：代码层的 `api.tempo` 与音频引擎
+     * 都直接读它，留一个 undefined 会在渲染循环最里层炸，而不是在这里炸。
+     */
+    tempo: clampTempo(r.tempo as Partial<Tempo> | undefined),
+    lyrics: normalizeLyrics(r.lyrics, duration),
     version: Math.max(1, Math.round(num(r.version, 1, 1, Number.MAX_SAFE_INTEGER))),
     createdAt: num(r.createdAt, Date.now(), 0, Number.MAX_SAFE_INTEGER),
     updatedAt: Date.now(),

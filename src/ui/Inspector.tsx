@@ -49,6 +49,7 @@ import {
   cx,
 } from './primitives';
 import { isAssetMissing, sameRefLayers } from './assetGaps';
+import { LyricsSection, TempoSection } from './ScorePanel';
 import { uploadAsset } from './uploadAsset';
 
 import { t } from '@/i18n';
@@ -241,6 +242,9 @@ function CanvasInspector() {
             )}
           </Section>
         )}
+
+        <TempoSection />
+        <LyricsSection />
 
         <Section title={t('操作提示')} defaultOpen>
           <ul className="space-y-1 text-[10.5px] leading-relaxed text-zinc-500">
@@ -919,6 +923,65 @@ function CodeSection({ layer }: { layer: Extract<Layer, { type: 'code' }> }) {
           <Code2 size={11} /> {isRemotion ? t('查看源码') : t('打开编辑器')}
         </Button>
       </div>
+
+      {!isRemotion && (
+        <>
+          <div className="grid grid-cols-2 gap-1.5">
+            <Field label={t('内部分辨率')}>
+              <Select
+                value={String(layer.code.renderScale ?? 1)}
+                options={[1, 0.75, 0.5, 0.35, 0.25].map((v) => ({ value: String(v), label: `${Math.round(v * 100)}%` }))}
+                onChange={(v) =>
+                  /* 1 就是默认值：写 null 让工程里不留冗余字段 */
+                  void exec('code.setRenderScale', { id: layer.id, renderScale: Number(v) === 1 ? null : Number(v) })
+                }
+              />
+            </Field>
+            <Field label={t('运动模糊')}>
+              <Select
+                value={layer.code.motionBlur ? 'on' : 'off'}
+                options={[
+                  { value: 'off', label: t('关') },
+                  { value: 'on', label: t('开') },
+                ]}
+                onChange={(v) =>
+                  void exec('code.setMotionBlur', {
+                    id: layer.id,
+                    motionBlur: v === 'on' ? { samples: 5, shutter: 44 } : null,
+                  })
+                }
+              />
+            </Field>
+          </div>
+          {layer.code.motionBlur && (
+            <>
+              <div className="grid grid-cols-2 gap-1.5">
+                <Field label={t('子帧')}>
+                  <NumberInput
+                    value={layer.code.motionBlur.samples}
+                    onCommit={(samples) => void exec('code.setMotionBlur', { id: layer.id, motionBlur: { ...layer.code.motionBlur!, samples } })}
+                    min={2}
+                    max={8}
+                  />
+                </Field>
+                <Field label={t('快门')}>
+                  <NumberInput
+                    value={layer.code.motionBlur.shutter}
+                    onCommit={(shutter) => void exec('code.setMotionBlur', { id: layer.id, motionBlur: { ...layer.code.motionBlur!, shutter } })}
+                    min={1}
+                    max={200}
+                    suffix="ms"
+                  />
+                </Field>
+              </div>
+              <p className="text-[10px] leading-relaxed text-zinc-600">
+                {t('快门是一帧曝光，不是重影次数：30fps 下一帧 33ms。给 110ms 会得到三次离散重影。代价是这一层多画 N 遍。')}
+              </p>
+            </>
+          )}
+        </>
+      )}
+
       <Field label={t('参数 params（JSON）')}>
         <textarea
           defaultValue={paramsJson}

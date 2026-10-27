@@ -5,6 +5,23 @@ import { findLayer } from './_helpers';
 import { summarizeLayer, summarizeProject } from '../summary';
 import { describeRegistry } from '../registry';
 import { getRuntimeInfo } from '@/render/codeEngine';
+import {
+  barAt,
+  barPhase,
+  beatAt,
+  beatPhase,
+  hit,
+  isDownbeat,
+  lineAt,
+  lineCharProgress,
+  lineProgress,
+  lyricsOf,
+  nearestBeat,
+  nextLine,
+  sinceBeat,
+  tempoOf,
+  timeOfBeat,
+} from '../score';
 import type { CodeLayer } from '../types';
 
 export const queryCommands = [
@@ -32,6 +49,55 @@ export const queryCommands = [
         data.runtime = getRuntimeInfo((layer as CodeLayer).id);
       }
       return data;
+    },
+  }),
+
+  defineCommand({
+    type: 'query.score',
+    category: '查询',
+    mutating: false,
+    description:
+      '读取「谱面」在某一毫秒的推导结果：第几拍 / 第几小节 / 拍内相位 / 是否强拍 / 敲击包络 / 离上一下多久，外加此刻唱到哪一行、唱了几个字，以及接下来的强拍时刻。想「把这一刀切在下一个强拍上」就先问它 —— 不要自己用 bpm 再算一遍，那一定会和音频层算出来的鼓点差几毫秒。',
+    schema: z.object({
+      at: z.number().min(0).max(3_600_000),
+      /** 往后列几个强拍（0 = 不列） */
+      ahead: z.number().int().min(0).max(16).default(4),
+    }),
+    example: { at: 4000, ahead: 3 },
+    handler: (draft, payload) => {
+      const tempo = tempoOf(draft);
+      const at = payload.at;
+      const barIndex = Math.floor(barAt(tempo, at));
+      const ahead: number[] = [];
+      for (let i = 1; i <= payload.ahead; i += 1) {
+        ahead.push(Math.round(timeOfBeat(tempo, (barIndex + i) * tempo.meter)));
+      }
+      const line = lineAt(lyricsOf(draft), at);
+      const next = nextLine(lyricsOf(draft), at);
+      return {
+        tempo,
+        beat: +beatAt(tempo, at).toFixed(3),
+        bar: +barAt(tempo, at).toFixed(3),
+        beatInBar: Math.floor(beatAt(tempo, at)) % tempo.meter,
+        beatPhase: +beatPhase(tempo, at).toFixed(3),
+        barPhase: +barPhase(tempo, at).toFixed(3),
+        sinceBeatMs: Math.round(sinceBeat(tempo, at)),
+        downbeat: isDownbeat(tempo, at),
+        hit: +hit(tempo, at).toFixed(3),
+        nearestBeatMs: Math.round(nearestBeat(tempo, at)),
+        nextDownbeats: ahead,
+        lyric: line
+          ? {
+              text: line.text,
+              start: line.start,
+              end: line.end,
+              sungChars: +lineCharProgress(line, at).toFixed(2),
+              totalChars: [...line.text].length,
+              progress: +lineProgress(line, at).toFixed(3),
+            }
+          : null,
+        nextLyric: next ? { text: next.text, start: next.start } : null,
+      };
     },
   }),
 
