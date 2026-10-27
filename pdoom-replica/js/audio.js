@@ -6,10 +6,7 @@
  */
 (function () {
   const D = window.PD_DATA;
-  const CHORDS = [
-    [0, 3, 7, 12], [-4, 0, 7, 12], [3, 7, 12, 16], [-2, 2, 7, 14], // Am F C G（半音，根音 A2=110Hz）
-  ];
-  const ROOT = 110;
+  const ROOT = 110; // A2 —— Am–F–C–G 宪法的根音
 
   class SynthPlayer {
     constructor(duration) {
@@ -64,12 +61,12 @@
       src.start(t0); src.stop(t0 + dur);
       this._nodes.push(src);
     }
-    _kick(t0) {
+    _kick(t0, vol = 1) {
       const o = this.ctx.createOscillator(), g = this.ctx.createGain();
       o.type = 'sine';
       o.frequency.setValueAtTime(150, t0);
       o.frequency.exponentialRampToValueAtTime(42, t0 + 0.12);
-      g.gain.setValueAtTime(0.9, t0);
+      g.gain.setValueAtTime(0.9 * vol, t0);
       g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.28);
       o.connect(g); g.connect(this.master);
       o.start(t0); o.stop(t0 + 0.3);
@@ -84,19 +81,43 @@
       this._t = this.currentTime; // 冻结起点
       const from = this._t;
       const end = Math.min(this.duration, from + this.duration);
+      /* 段落 → 和声进行与力度（Am–F–C–G 宪法不变，段落决定开多大声） */
+      const PROG = {
+        intro: [[0], [-4]], verse1: [[0, 3, 7, 12], [-4, 0, 7, 12]], pre1: [[3, 7, 12, 16], [-2, 2, 7, 14]],
+        chorus1: null, break1: [[-4, 0, 7]], verse2: [[0, 3, 7, 12], [-4, 0, 7, 12]], pre2: [[3, 7, 12, 16], [-2, 2, 7, 14]],
+        chorus2: null, verse3: [[0, 3, 7, 12], [-4, 0, 7, 12]], pre3: [[3, 7, 12, 16], [-2, 2, 7, 14]],
+        chorus3: null, bridge: [[0, 3, 7, 12], [-2, 2, 7, 14]], chorus4: null, outro: [[0], [-4]],
+      };
+      const FULL = [[0, 3, 7, 12], [-4, 0, 7, 12], [3, 7, 12, 16], [-2, 2, 7, 14]]; // Am F C G
+      const sectionName = (t) => D.sections.find((s) => t >= s.start && t < s.end)?.name ?? 'outro';
+      const energy = (name) => ({ intro: 0.028, break1: 0.03, outro: 0.02, pre3: 0.034 }[name] ?? 0.05);
       for (let bar = 0; bar < D.BARS; bar++) {
         const bt = bar * 4 * D.SPB;
         if (bt < from - 2 || bt > end) continue;
-        const chord = CHORDS[Math.floor(bar / 2) % CHORDS.length];
-        for (const semi of chord) this._tone('sawtooth', ROOT * Math.pow(2, semi / 12), t0 + bt, 3.4, 0.05, 900);
+        const name = sectionName(bt);
+        const prog = PROG[name] ?? FULL;
+        const chord = prog[Math.floor(bar / 2) % prog.length];
+        for (const semi of chord) this._tone('sawtooth', ROOT * Math.pow(2, semi / 12), t0 + bt, 3.4, energy(name), 900);
+        if (name.startsWith('chorus') || name === 'bridge') {
+          /* 低音在每小节头补一层根音 —— 全开段落的重量 */
+          this._tone('triangle', ROOT / 2 * Math.pow(2, chord[0] / 12), t0 + bt, 1.7, 0.09, 400);
+        }
+        if (name.startsWith('pre') && bar % 2 === 1) {
+          /* pre 段的上行提示：每两小节爬一个音，顶到下拍进 chorus */
+          const step = 12 + ((bar >> 1) % 4) * 2;
+          this._tone('triangle', ROOT * Math.pow(2, step / 12), t0 + bt + 2 * D.SPB, 0.9, 0.07, 1600);
+        }
       }
+      const drumVol = (name) => (name === 'intro' || name === 'break1' || name === 'outro' ? 0.4 : name === 'pre3' ? 0.7 : 1);
       for (let i = 0; i < D.BARS * 4; i++) {
         const t = i * D.SPB;
         if (t < from || t > end) continue;
         const at = t0 + (t - from);
-        if (i >= 8) this._kick(at);
-        if (i >= 8 && i % 4 === 1) this._noise(at, 0.16, 0.35, 1800);
-        if (i >= 4) this._noise(at + D.SPB / 2, 0.05, 0.12, 6000);
+        const name = sectionName(t);
+        const v = drumVol(name);
+        if (D.DRUM.kick.includes(t)) this._kick(at, v);
+        if (D.DRUM.snare.includes(t)) this._noise(at, 0.16, 0.35 * v, 1800);
+        if (D.DRUM.hat.includes(t)) this._noise(at, 0.05, 0.12 * v, 6000);
       }
       for (const s of D.sections) if (s.start >= from && s.start <= end) this._tone('triangle', ROOT * 4, t0 + s.start, 0.5, 0.12);
     }

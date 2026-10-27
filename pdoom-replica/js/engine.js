@@ -64,6 +64,9 @@
   const hash = (n) => { let x = Math.imul(n ^ 0x9e3779b9, 0x85ebca6b); x ^= x >>> 13; x = Math.imul(x, 0xc2b2ae35); return ((x ^ (x >>> 16)) >>> 0) / 4294967296; };
 
   /* ------------------------------------------------------------ 后处理 */
+  /* bloom 的 LDR 近似：brightness 提亮 + 1/4 分辨率 blur + screen 回叠 —— 没有真阈值
+   * （原版 HalfFloat HDR 里 signal/ember 线性值 >1 才亮；这里只能靠 bloom 强度调手感，
+   * bone 大字的锐利由各场景把 bloom 压低来保证，见 Hook）。 */
   const DEFAULT_POST = { exposure: 1, bloom: 0.5, bloomThreshold: 0.85, bloomRadius: 24, halation: 0.25, ca: 0, grain: 0.12, vignette: 0.3, hud: 1, fade: 0, flash: 0, shake: [0, 0], zoom: 1, invert: 0, pdoom: 0 };
 
   class Engine {
@@ -273,28 +276,43 @@
       const a = post.hud;
       out.save();
       out.globalAlpha = a;
-      out.strokeStyle = rgba('ash', 0.55);
-      out.lineWidth = 2;
-      const m = 26, L = 34;
-      for (const [cx, cy, dx, dy] of [[m, m, 1, 1], [PW - m, m, -1, 1], [m, PH - m, 1, -1], [PW - m, PH - m, -1, -1]]) {
-        out.beginPath();
-        out.moveTo(cx + dx * L, cy); out.lineTo(cx, cy); out.lineTo(cx, cy + dy * L);
-        out.stroke();
+      /* 裁切标记只在书挡出现（原片 revision 4）：开场飞出、片尾收回来 —— 首尾帧相接可循环 */
+      const lossStart = this.timeline.find((e) => e.id === 'loss')?.start ?? 9;
+      const outroStart = this.timeline.find((e) => e.id === 'outro')?.start ?? this.duration - 16;
+      let mark = 0;
+      if (t < lossStart) mark = t > lossStart - 0.5 ? (lossStart - t) / 0.5 : 1;      // 飞出
+      else if (t >= outroStart) mark = Math.min(1, (t - outroStart) / 1.2);          // 收回
+      if (mark > 0.01) {
+        out.globalAlpha = a * mark;
+        out.strokeStyle = rgba('ash', 0.55);
+        out.lineWidth = 2;
+        const m = 26, L = 34;
+        for (const [cx, cy, dx, dy] of [[m, m, 1, 1], [PW - m, m, -1, 1], [m, PH - m, 1, -1], [PW - m, PH - m, -1, -1]]) {
+          out.beginPath();
+          out.moveTo(cx + dx * L, cy); out.lineTo(cx, cy); out.lineTo(cx, cy + dy * L);
+          out.stroke();
+        }
       }
       if (post.pdoom > 0) {
-        const v = this.hudPdoom(t);
         out.font = '500 30px ui-monospace, Menlo, monospace';
         out.fillStyle = rgba('ash', 0.9);
-        out.fillText(`P(doom)`, 56, PH - 64);
+        out.fillText('图层数', 56, PH - 64);
+        out.font = '700 38px ui-monospace, Menlo, monospace';
         out.fillStyle = rgba('signal', 0.95);
-        out.fillText(`${v.toFixed(2)}`, 56, PH - 30);
+        out.fillText(Math.round(this.hudLayers(t)).toLocaleString('en-US'), 56, PH - 30);
       }
       out.restore();
     }
-    /** P(doom)：随整片单调上升的读数（分段平台 + 引爆跳变），只供 HUD 显示 */
-    hudPdoom(t) {
-      const p = t / this.duration;
-      return Math.min(0.99, 0.02 + 0.97 * Math.pow(p, 1.6) + (p > 0.92 ? 0.05 : 0));
+    /** 图层数读数：随整片沿段落阶梯几何爬升（3 → … → 4096），hook 处正好落在钩子值上 */
+    hudLayers(t) {
+      const A = [[0, 3], [9.5, 8], [16.6, 12], [22.05, 15], [36.6, 32], [52.96, 48], [58.42, 64], [74.78, 128], [89.32, 256], [94.78, 384], [109.32, 512], [123.87, 2048], [140.23, 4096]];
+      let v = A[0][1];
+      for (let i = 0; i < A.length - 1; i++) {
+        const [t0, v0] = A[i], [t1, v1] = A[i + 1];
+        if (t >= t0 && t < t1) { v = v0 * Math.pow(v1 / v0, (t - t0) / (t1 - t0)); break; }
+        if (t >= t1) v = v1;
+      }
+      return Math.max(3, v);
     }
 
     reload() {}

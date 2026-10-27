@@ -23,16 +23,17 @@
       if (t >= word.end) return 1;
       return (t - word.start) / (word.end - word.start);
     },
-    /** 行内已唱字符数（用于逐字形 wipe） */
+    /** 行内已唱字符数（用于逐字形 wipe）。汉字没有词后空格，+0；拉丁文 +1 */
     lineCharProgress(line, t) {
       let n = 0;
       for (const w of line.words) {
-        if (t >= w.end) { n += w.w.length + 1; continue; }
+        const gap = /[\u2e80-\u9fff\uf900-\ufaff\uff00-\uffef「」『』]/.test(w.w) ? 0 : 1;
+        if (t >= w.end) { n += w.w.length + gap; continue; }
         if (t <= w.start) break;
         n += Math.round(w.w.length * this.wordProgress(w, t));
         break;
       }
-      return Math.max(0, Math.min(line.text.length, n));
+      return Math.max(0, Math.min(Array.from(line.text).length, n));
     },
     lineAt(t) {
       return D.lines.find((l) => t >= l.start && t < l.end) ?? null;
@@ -40,17 +41,9 @@
   };
 
   /* ------------------------------------------------------------ AudioData */
-  // 鼓的排程是确定性的（四踩 + 2/4 军鼓 + 八分踩镲），env 用解析衰减，不需要 FFT ——
-  // 因此 export 的子帧也是纯函数。
-  const schedule = { kick: [], snare: [], hat: [] };
-  for (let bar = 0; bar < D.BARS; bar++) {
-    for (let b = 0; b < 4; b++) {
-      const t = (bar * 4 + b) * D.SPB;
-      if (bar >= 2) schedule.kick.push(t);
-      if (bar >= 2 && (b === 1 || b === 3)) schedule.snare.push(t);
-      for (const half of [0, 0.5]) if (bar >= 1) schedule.hat.push(t + half * D.SPB);
-    }
-  }
+  // 鼓的排程由 data.js 按段落生成（四踩 + 2/4 军鼓 + 镲，intro/break/outro 稀出），
+  // env 用解析衰减，不需要 FFT —— 因此 export 的子帧仍是纯函数。
+  const schedule = D.DRUM;
   const hitAt = (list, t) => {
     // 最近的、不晚于 t 的那次敲击
     let lo = 0, hi = list.length - 1, ans = -1;
