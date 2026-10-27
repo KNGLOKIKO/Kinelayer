@@ -84,6 +84,22 @@ if (!booted) {
   process.exit(r.finish() || 1);
 }
 
+/*
+ * 首屏要等「列表落定」再采集。
+ * v2.8 起启动时会先跑一次 project.seedSample（首次运行会塞一份示例工程），
+ * 这期间工程列表还是 null、界面显示「正在读取…」—— 既没有卡片也没有空状态文案，
+ * 这时候去断言文案会随机失败。
+ */
+await safeWait(
+  `(() => {
+    const root = document.querySelector('[data-testid="launcher"]');
+    const text = root?.textContent ?? '';
+    const cards = root?.querySelectorAll('[data-project-id]').length ?? 0;
+    return cards > 0 || (!text.includes('正在读取') && text.includes('还没有项目'));
+  })()`,
+  15000,
+);
+
 const shell = await b.ev(`(() => {
   const q = (s) => document.querySelector(s);
   const root = q('[data-testid="launcher"]');
@@ -98,6 +114,7 @@ const shell = await b.ev(`(() => {
     hasOpenLocal: !!q('[data-testid="open-local"]'),
     presets: document.querySelectorAll('[data-testid^="preset-"]').length,
     hasLocaleToggle: [...document.querySelectorAll('button')].some((el) => /切换语言/.test(el.getAttribute('title') ?? '')),
+    cards: root?.querySelectorAll('[data-project-id]').length ?? 0,
     text,
   };
 })()`);
@@ -113,8 +130,16 @@ r.check('尺寸预设齐全（≥4）', shell.presets >= 4, `${shell.presets} �
 r.check('语言切换按钮在', shell.hasLocaleToggle);
 r.check(
   '中文词条完整（无漏翻成 key 的裸中文）',
-  /工程库 · 最近打开的工程都在这里/.test(shell.text) && /还没有项目/.test(shell.text),
-  shell.text.slice(0, 50),
+  /*
+   * 三件事一起看：标题文案在、列表落定（有卡片 或 明确空状态）、没有漏翻的 key。
+   * 原来只认「还没有项目」空状态 —— v2.8 起新环境首屏会落一份示例工程，
+   * 有卡片才是正常的，所以空状态改成「二者其一」，把真正的意图（不漏翻）留下。
+   * 漏翻的形态是界面上直接出现 launcher.xxx 这类点号 key。
+   */
+  /工程库 · 最近打开的工程都在这里/.test(shell.text) &&
+    (shell.cards > 0 || /还没有项目/.test(shell.text)) &&
+    !/\b(launcher|common|editor|menu|props|timeline)\.[a-zA-Z]/.test(shell.text),
+  `cards=${shell.cards} · ${shell.text.slice(0, 50)}`,
 );
 
 // ── 2. 生产包没有泄漏调试口 ───────────────────────────────────
