@@ -21,6 +21,7 @@ const base = 'http://localhost:5273/';
 const ORIGIN = 'http://localhost:5273';
 const SAMPLE_ID = 'prj_sample_start';
 const REVISION_ID = 'prj_sample_revision';
+const ANTHEM_ID = 'prj_sample_anthem';
 const { check, finish } = reporter();
 
 const READ_LAUNCHER = `(() => {
@@ -123,8 +124,8 @@ const main = async () => {  const cdp = await launch({ url: base, width: 1440, h
     /* ── 1. 首屏：示例已经在库里 ─────────────────────── */
     const first = await cdp.ev(READ_LAUNCHER);
     check(
-      '首次打开就有两份示例（极限样片 + 再改一版）',
-      first.cards.length === 2 && first.cards.some((c) => c.id === SAMPLE_ID) && first.cards.some((c) => c.id === REVISION_ID),
+      '首次打开就有三份示例（极限样片 + 再改一版 + 我在加我的图层数）',
+      first.cards.length === 3 && first.cards.some((c) => c.id === SAMPLE_ID) && first.cards.some((c) => c.id === REVISION_ID) && first.cards.some((c) => c.id === ANTHEM_ID),
       JSON.stringify(first.cards.map((c) => c.id)),
     );
     /*
@@ -184,7 +185,7 @@ const main = async () => {  const cdp = await launch({ url: base, width: 1440, h
 
     /* ── 4. 刷新：不重复创建、引导条只出现一次 ────────── */
     const again = await cdp.ev(READ_LAUNCHER);
-    check('刷新不会重复创建示例（还是两份）', again.cards.length === 2, String(again.cards.length));
+    check('刷新不会重复创建示例（还是三份）', again.cards.length === 3, String(again.cards.length));
     check('引导条只出现一次（刷新后消失）', again.banner === null);
 
     /* ── 5. 打开它：内容完整、可正常使用 ─────────────── */
@@ -266,8 +267,8 @@ const main = async () => {  const cdp = await launch({ url: base, width: 1440, h
     await sleep(900);
     const afterDelete = await cdp.ev(READ_LAUNCHER);
     check(
-      '只删一份时另一份还在（两份各自独立）',
-      removed && afterDelete.cards.length === 1 && afterDelete.cards[0].id === REVISION_ID,
+      '只删一份时另外两份还在（三份各自独立）',
+      removed && afterDelete.cards.length === 2 && afterDelete.cards.some((c) => c.id === REVISION_ID) && afterDelete.cards.some((c) => c.id === ANTHEM_ID),
       JSON.stringify(afterDelete.cards.map((c) => c.id)),
     );
     check('少一份示例时页头仍然留着「放回示例」', await cdp.ev(`!!document.querySelector('[data-testid="sample-restore"]')`));
@@ -280,8 +281,16 @@ const main = async () => {  const cdp = await launch({ url: base, width: 1440, h
       return true;
     })()`);
     await sleep(900);
+    const removed3 = await cdp.ev(`(() => {
+      const card = document.querySelector('[data-project-id="${ANTHEM_ID}"]');
+      const btn = card?.querySelector('button[title="删除"]');
+      if (!btn) return false;
+      btn.click();
+      return true;
+    })()`);
+    await sleep(900);
     const emptyNow = await cdp.ev(READ_LAUNCHER);
-    check('两份都删掉之后列表清空', removed2 && emptyNow.cards.length === 0, String(emptyNow.cards.length));
+    check('三份都删掉之后列表清空', removed2 && removed3 && emptyNow.cards.length === 0, String(emptyNow.cards.length));
     check('清空后回落到空状态文案', emptyNow.empty === true);
 
     await cdp.conn.call('Page.reload');
@@ -297,11 +306,11 @@ const main = async () => {  const cdp = await launch({ url: base, width: 1440, h
       b.click();
       return true;
     })()`);
-    await sleep(1800);
+    await sleep(2400);
     const back = await cdp.ev(READ_LAUNCHER);
     check(
-      '一键能把两份示例都放回来',
-      restored && back.cards.length === 2 && back.cards.some((c) => c.id === SAMPLE_ID) && back.cards.some((c) => c.id === REVISION_ID),
+      '一键能把三份示例都放回来',
+      restored && back.cards.length === 3 && back.cards.some((c) => c.id === SAMPLE_ID) && back.cards.some((c) => c.id === REVISION_ID) && back.cards.some((c) => c.id === ANTHEM_ID),
       JSON.stringify(back.cards.map((c) => c.id)),
     );
 
@@ -352,7 +361,7 @@ const main = async () => {  const cdp = await launch({ url: base, width: 1440, h
       clickedReplace && /极限样片（64 秒）/.test(replaced.cards.find((c) => c.id === SAMPLE_ID)?.text ?? ''),
       String(replaced.cards.find((c) => c.id === SAMPLE_ID)?.text).slice(0, 48),
     );
-    check('版本标记落进 prefs（下次不再来回换）', (await cdp.ev(READ_SAMPLE_VERSION)) === 5, String(await cdp.ev(READ_SAMPLE_VERSION)));
+    check('版本标记落进 prefs（下次不再来回换）', (await cdp.ev(READ_SAMPLE_VERSION)) === 6, String(await cdp.ev(READ_SAMPLE_VERSION)));
 
     /* ── 7. 第二份示例：再改一版（速度网格 + 逐字时间） ──────────
        两份片子是对照组：第一份把**渲染**压到上限，这一份把**叙事**压到上限。
@@ -433,6 +442,52 @@ const main = async () => {  const cdp = await launch({ url: base, width: 1440, h
 
     const revAudio = await cdp.ev(`window.__kly.audio.measure().then((m) => JSON.stringify({ peak: m.peak, rms: m.rms, ms: m.duration }))`);
     check('第二支片的音轨真的有声音', JSON.parse(revAudio).peak > 0.01, revAudio);
+
+    /* ── 7b. 第三份示例：我在加我的图层数（157 秒完整复刻骨架） ──
+       与第二支同一套断言思路：不查「好不好看」，查「结构与数据是否自洽」。
+       这一支的重点是 22 窗口 / 46 行词 / params 共源码变奏 / HUD 全片连续。 */
+    await cdp.conn.call('Page.navigate', { url: `${base}?view=editor&projectId=${ANTHEM_ID}` });
+    await sleep(1600);
+    const inAnthem = await cdp.waitFor(`!!window.__kly && window.__kly.state().project.id === '${ANTHEM_ID}'`, 15000);
+    check('第三支示例能单独打开', inAnthem);
+
+    const ant = await cdp.ev(`(() => {
+      const p = window.__kly.state().project;
+      const code = p.layers.filter((l) => l.type === 'code');
+      const lines = p.lyrics || [];
+      const named = code.filter((l) => /^\\d\\d · /.test(l.name));
+      return {
+        id: p.id, duration: p.duration, tempo: p.tempo,
+        lyrics: lines.length,
+        sorted: lines.every((l, i) => i === 0 || l.start >= lines[i - 1].start),
+        inside: lines.every((l) => l.start >= 0 && l.end <= p.duration && l.end > l.start),
+        codeLayers: code.length,
+        hud: code.filter((l) => /HUD/.test(l.name) && l.inPoint === 0 && l.outPoint === p.duration).length,
+        segments: named.length,
+        promptVariants: code.filter((l) => /钩子|恳求/.test(l.name)),
+        params: code.map((l) => l.code.params || null).filter(Boolean),
+        audio: p.layers.filter((l) => l.type === 'audio').length,
+        assets: p.assets.length + p.fonts.length,
+      };
+    })()`);
+    check('是 157 秒 / 132.007 BPM 的第三支片', ant.duration === 156651 && Math.abs(ant.tempo?.bpm - 132.007) < 0.001 && ant.tempo?.meter === 4, `${ant.duration}ms ${JSON.stringify(ant.tempo)}`);
+    check('22 个窗口代码层 + 全片 1 层 HUD（共 23 个代码层）', ant.codeLayers === 23 && ant.hud === 1 && ant.segments === 22, `${ant.codeLayers} 代码层 / ${ant.segments} 段名`);
+    check('46 行歌词，全部落在片长内且按时间排序', ant.lyrics === 46 && ant.sorted && ant.inside, `${ant.lyrics} 行`);
+    check('恳求 ×3 与钩子 ×4 共用源码（params 变奏）', ant.params.filter((x) => x.variant).length === 3 && ant.params.filter((x) => x.n).length === 4, JSON.stringify(ant.params));
+    check('六条合成音轨（4 铺底 + 节拍 + 切点提示），零外部资源', ant.audio === 6 && ant.assets === 0, `${ant.audio} 音轨 / ${ant.assets} 资源`);
+
+    /* 六个代表性时刻各渲一遍（含 hook 与 outro），代码层零异常 */
+    const anthemErrs = await cdp.ev(`(async () => {
+      for (const ms of [1500, 11000, 23500, 96000, 132000, 150000]) await window.__kly.frame(ms);
+      const out = [];
+      for (const l of window.__kly.state().project.layers.filter((x) => x.type === 'code')) {
+        const r = await window.__kly.dispatch('query.layer', { id: l.id });
+        const e = r.data && r.data.runtime && r.data.runtime.error;
+        if (e) out.push(l.name + ' -> ' + e);
+      }
+      return JSON.stringify(out);
+    })()`);
+    check('六个时刻跨段渲染，代码层零异常', anthemErrs === '[]', anthemErrs.slice(0, 300));
 
     /* ── 8. 英文模式：介绍区零中文 ───────────────────── */
     await cdp.conn.call('Page.navigate', { url: base });

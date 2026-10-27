@@ -1,13 +1,15 @@
 /**
- * 「示例工程」这一层是**适配器**，现在管两份：
+ * 「示例工程」这一层是**适配器**，现在管三份：
  *
  *   1. 极限样片（64 秒 / 九段）—— 把渲染引擎压到性能上限，零外部资源；
  *   2. 再改一版（60 秒 / 九段）—— 把叙事压到上限：速度网格、逐字卡拉 OK、
  *      下拍硬切、一条贯穿母题、一个逐级递增的数字。复刻自 mexicat/pdoom-video 的手法，
- *      内容换成本工程自己的。
+ *      内容换成本工程自己的；
+ *   3. 我在加我的图层数（157 秒 / 22 窗口）—— 完整复刻 pdoom-video 的**结构骨架**
+ *      （22 个下拍切点、prompt×3 / hook×4 同构递进），内容换成 MotionLayer。
  *
- * 这里只留四件事：两份示例的 id / 名字 / 版本号，以及给启动页算数字的 `sampleHighlights`。
- * 片子本体各自在自己的目录里（`showcase/film.ts`、`showcase/revision/film.ts`）。
+ * 这里只留三件事：三份示例的 id / 名字 / 版本号，以及给启动页算数字的 `sampleHighlights`。
+ * 片子本体各自在自己的目录里（`showcase/film.ts`、`showcase/revision/film.ts`、`showcase/anthem/film.ts`）。
  *
  * 历史（换内容就要 +1，见下）：
  *   1 = v2.8「示例 · 从这里开始」—— 4 秒海报，三条关键帧轨道
@@ -16,11 +18,14 @@
  *   4 = v2.11 追加 60 秒「再改一版」—— 并给引擎补上速度网格与逐字时间
  *   5 = v2.12 「再改一版」引爆段调优 —— 4 子帧运动模糊 + renderScale 0.5，
  *       单帧 43ms → 13ms，全片 0 帧超 16.7ms 预算
+ *   6 = 追加第三支示例「我在加我的图层数」—— 157 秒 / 22 窗口 / 46 行逐字词，
+ *       完整复刻 pdoom-video 的结构骨架（cut 落下拍、prompt×3 与 hook×4 params 变奏）
  */
 
 import type { Project } from './types';
 import { SHOWCASE_DURATION, SHOWCASE_NAME, SHOWCASE_PROJECT_ID } from './showcase/meta';
 import { REVISION_DURATION, REVISION_NAME, REVISION_PROJECT_ID } from './showcase/revision/meta';
+import { ANTHEM_DURATION, ANTHEM_NAME, ANTHEM_PROJECT_ID } from './showcase/anthem/meta';
 
 export interface SampleDef {
   id: string;
@@ -38,7 +43,7 @@ export interface SampleDef {
  * 老用户永远停在第一次塞进去的那份上（v2.9 就踩过这个坑 —— 换片之后
  * 所有跑过 v2.8 的浏览器都还是旧海报，而且界面上完全看不出来）。
  */
-export const SAMPLE_PACK_VERSION = 5;
+export const SAMPLE_PACK_VERSION = 6;
 
 export const SAMPLES: SampleDef[] = [
   {
@@ -57,6 +62,15 @@ export const SAMPLES: SampleDef[] = [
     load: async () => {
       const m = await import('./showcase/revision/film');
       return m.createRevisionProject();
+    },
+  },
+  {
+    id: ANTHEM_PROJECT_ID,
+    name: ANTHEM_NAME,
+    duration: ANTHEM_DURATION,
+    load: async () => {
+      const m = await import('./showcase/anthem/film');
+      return m.createAnthemProject();
     },
   },
 ];
