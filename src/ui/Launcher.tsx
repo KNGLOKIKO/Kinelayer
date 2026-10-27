@@ -262,7 +262,11 @@ export function Launcher({ mode = 'overlay' }: { mode?: 'overlay' | 'page' }) {
             className="border-ink-700/70 bg-ink-900/50 mb-4 rounded-xl border p-4 md:flex md:items-center md:gap-6"
           >
             <div className="min-w-0 flex-1">
-              <div className="text-accent-soft text-[10px] font-medium tracking-[0.18em]">{t('第一次来 · 三十秒看懂')}</div>
+              {/*
+                这里的数字必须和右边那支动画对得上（四拍），不能写「三十秒」——
+                同屏的示例卡片会显示「01:36」，两个时长挨在一起会让人以为是同一个东西。
+              */}
+              <div className="text-accent-soft text-[10px] font-medium tracking-[0.18em]">{t('第一次来 · 四步看完')}</div>
               <h1 className="mt-1.5 text-[17px] font-semibold tracking-tight text-zinc-100">{t('可编程的动态海报工作台')}</h1>
               <p className="mt-1.5 max-w-[460px] text-[11.5px] leading-relaxed text-zinc-500">
                 {t('图层、关键帧、代码层和导出走同一条命令总线 —— 你在这里点的每一步，AI 都能用一条命令重放。')}

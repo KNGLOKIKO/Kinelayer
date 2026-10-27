@@ -949,8 +949,8 @@ export const en: Record<string, string> = {
     'Edit',
 
   /* ---- v2.8 首次运行 · 示例工程 · 介绍动画 ---- */
-  '第一次来 · 三十秒看懂':
-    'First time here · 30-second tour',
+  '第一次来 · 四步看完':
+    'First time here · four steps',
   可编程的动态海报工作台:
     'A programmable motion-poster workbench',
   '图层、关键帧、代码层和导出走同一条命令总线 —— 你在这里点的每一步，AI 都能用一条命令重放。':
