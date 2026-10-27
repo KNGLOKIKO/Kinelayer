@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { defineCommand, CommandFailure, type CommandContext } from '../registry';
 import { createEmptyProject, normalizeProject } from '../defaults';
+import { SAMPLE_PROJECT_ID, createSampleProject, sampleHighlights } from '../sampleProject';
 import { unpackProject } from '../projectFile';
 import { LIMITS, getBackground, type Project } from '../types';
 import { clamp } from '../geometry';
@@ -15,7 +16,9 @@ import {
   duplicateProjectRecord,
   getLastProjectId,
   getProjectMeta,
+  hasSeededSample,
   isDetached,
+  markSampleSeeded,
   listRecentProjects,
   loadProjectRecord,
   renameProjectRecord,
@@ -167,6 +170,48 @@ export const projectCommands = [
         count: projects.length,
         currentId: draft.id,
         lastProjectId: await getLastProjectId(),
+      };
+    },
+  }),
+
+  defineCommand({
+    type: 'project.seedSample',
+    category: '项目',
+    mutating: false,
+    undoable: false,
+    description:
+      '首次运行时把示例工程写进本地工程库（幂等）。示例没有任何外部资源依赖，打开就是一张完整海报，含三条关键帧轨道、两个代码层和一行「试试看」，可直接改、可删。已经塞过、或库里已有同一 id 时直接返回，不重复创建，也不动当前打开的文档。',
+    schema: z.object({ force: z.boolean().default(false) }),
+    example: {},
+    handler: async (_draft, payload, ctx) => {
+      if (ctx.dryRun) return { created: false, reason: 'dryRun' };
+
+      /* 绝大多数情况在这里就回去了：一次 prefs 读，不碰工程本体 */
+      if (!payload.force && (await hasSeededSample())) return { created: false, reason: 'seeded' };
+
+      /* 标记丢了但工程还在（手动清过 prefs、或者标记那次写失败）：认下它，别再建一份 */
+      const existing = await getProjectMeta(SAMPLE_PROJECT_ID);
+      if (existing && !payload.force) {
+        await markSampleSeeded();
+        return {
+          created: false,
+          reason: 'exists',
+          projectId: existing.id,
+          name: existing.name,
+          layers: existing.layerCount,
+        };
+      }
+
+      const project = createSampleProject();
+      const meta = await createProjectRecord(project);
+      await markSampleSeeded();
+      return {
+        created: true,
+        projectId: meta.id,
+        name: meta.name,
+        ...sampleHighlights(project),
+        /* 缩略图是异步渲染的，成不成都不该让「塞示例」失败 */
+        thumbnail: !!meta.thumbnail,
       };
     },
   }),

@@ -55,7 +55,7 @@ Kinelayer/
 │  │  ├─ temporal.ts           自研撤销栈：immer patches / inverse patches / 700ms 合并
 │  │  ├─ store.ts              Zustand 三段式：project（存盘）/ ui / runtime（都不存盘）
 │  │  ├─ defaults.ts           工厂 + normalizeProject（读宽容、写严格）+ 演示项目
-│  │  ├─ commands/*.ts         84 条命令，按领域分文件（图层/文本/代码/背景/项目/资源/字体/时间轴/动画/选择/历史/窗口/导出/查询/AI/自定义/批处理）
+│  │  ├─ commands/*.ts         85 条命令，按领域分文件（图层/文本/代码/背景/项目/资源/字体/时间轴/动画/选择/历史/窗口/导出/查询/AI/自定义/批处理）
 │  │  ├─ customCommands.ts     【v2.7】宏的纯逻辑：占位符替换、参数收口、保存前校验、禁区命令、展开步骤
 │  │  ├─ bundle.ts             工程包（.kly）：ZIP 打包/解包、逐文件 sha256、五道解压闸门
 │  │  ├─ importPipeline.ts     【v2.5】导入管线的纯函数部分：嗅探 → 预检报告 → 映射成图层/轨道
@@ -104,6 +104,7 @@ Kinelayer/
 │  ├─ html-check.mjs           43 项 · v2.5c HTML/GSAP 静态解析/postMessage 时间同步/origin 元信息
 │  ├─ import-edit-check.mjs    30 项 · v2.6 导入之后：sourceRef/缺资源总账/asset.assign/来源区块
 │  ├─ custom-check.mjs         39 项 · v2.7 自定义命令：存前校验/原子执行/参数类型/失败回滚/持久化/双语
+│  ├─ sample-check.mjs         28 项 · v2.8 首次运行：示例工程/介绍动画/幂等/删除不复活/双语
 │  ├─ online-smoke.mjs         31 项 · 对线上 GitHub Pages 部署的冒烟（不需 dev server）
 │  └─ push-via-api.mjs         推送兜底：github.com 这一跳被网络策略掐掉时，改走 Git Data REST API（只推已跟踪文件）
 └─ docs/
@@ -114,7 +115,8 @@ Kinelayer/
    ├─ 04-code-video-integration.md  AI 代码视频：Remotion 静态解析与 remotion-kit 导出
    ├─ 05-html-gsap-import.md    HTML/GSAP 片段：DOM 结构提取、iframe 时间同步、origin 元信息
    ├─ 06-after-import.md        导入之后：缺资源的四种状态、来源溯源、asset.assign 补回
-   └─ 07-custom-commands.md     自定义命令：为什么不做 DSL、{{x}} 两种语义、原子执行、禁区命令、跟人不跟工程
+   ├─ 07-custom-commands.md     自定义命令：为什么不做 DSL、{{x}} 两种语义、原子执行、禁区命令、跟人不跟工程
+   └─ 08-first-run.md           第一次打开：示例工程的三条约束、幂等判据、介绍页四拍动画
 ```
 
 **分层规矩**：`ui/` 不能直接改 `project`；`render/` 不能 import `store`；
@@ -123,7 +125,7 @@ Kinelayer/
 
 ---
 
-## 命令一览（84 条）
+## 命令一览（85 条）
 
 | 分类  | 条数 | 代表命令                                                                                                                                                                                                                          |
 | --- | -- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -132,7 +134,7 @@ Kinelayer/
 | 代码  | 4  | `code.setSource` `code.setEngine` `code.setParams` `code.resetRuntime`                                                                                                                                                        |
 | 背景  | 2  | `background.set` `background.setCode`                                                                                                                                                                                         |
 | 画布  | 3  | `canvas.resize` `canvas.setDuration` `canvas.setFps`                                                                                                                                                                          |
-| 项目  | 10 | `project.new` `project.load` `project.create` `project.open` `project.rename` `project.duplicate` `project.deleteLocal` `project.listRecent` `project.exportBundle` `project.importBundle` |
+| 项目  | 11 | `project.new` `project.load` `project.create` `project.open` `project.rename` `project.duplicate` `project.deleteLocal` `project.listRecent` `project.seedSample` `project.exportBundle` `project.importBundle` |
 | 资源  | 4  | `asset.import` `asset.place` `asset.assign` `asset.remove`                                                                                                                                                                    |
 | 字体  | 3  | `font.register` `font.load` `font.remove`                                                                                                                                                                                     |
 | 时间轴 | 5  | `timeline.play` `timeline.pause` `timeline.seek` `timeline.setLayerTiming` `timeline.setLoop`                                                                                                                                 |
@@ -378,6 +380,31 @@ AI 侧四条命令：`custom.list` / `custom.define` / `custom.run` / `custom.re
 
 ---
 
+## v2.8 · 第一次打开
+
+空的工作台会让新用户卡在第一个问题上：这玩意儿能做什么。所以第一次打开时，
+工程库里已经有一份做得差不多的示例，介绍页上还有一段四拍动画把主要流程走一遍。
+
+**示例是命令写的，不是启动页直接写库**：`project.seedSample` 幂等，
+只有第一次真的创建，其余时候一次偏好读就返回；Launcher 依旧只发命令、不碰 IndexedDB。
+判据两层 —— 偏好里的「已经塞过」挡掉 99% 的情况，固定 id `prj_sample_start` 兜住
+「标记丢了但工程还在」。记的是「塞过」而不是「用户没见过」：用户第一件事可能就是删掉它，
+那就该真的没了，所以空状态里另外给了一个「放回示例工程」。
+
+示例本身守三条约束：**零外部资源**（不然首次打开就是一片「图片资源缺失」）、
+**第 0 帧就是完整海报**（入场动画在 t=0 的透明度是 0，照搬演示工程会让开场变成白屏，
+所以示例只用关键帧轨道，且轨道从设计位置起步）、**看得出能改**（时间轴上有三条轨道，
+画布上有一行「试试看」，图层名写人话）。8 层 / 2 个代码层 / 3 条关键帧轨道。
+
+介绍页那段动画分四拍：画布 → 图层 → 关键帧 → 命令，每拍 2.2 秒循环，
+讲的是界面语言而不是渲染效果 —— 真正的渲染能力由旁边的示例卡片承担（那张缩略图就是渲染器的产物）。
+内部按 380×210 设计稿画好再等比缩放，任何宽度比例都不走形；
+`prefers-reduced-motion` 下停在第三拍，给一张静态但完整的说明图。
+
+细节见 [docs/08-first-run.md](docs/08-first-run.md)。
+
+---
+
 ## 快捷键
 
 | 操作            | 快捷键                                     |
@@ -491,6 +518,7 @@ VITE_BASE=/Kinelayer/ npm run build   # 项目页需要这个前缀
 - [HTML / GSAP 导入](docs/05-html-gsap-import.md) —— DOM 结构提取的取舍、iframe 白底绕不过去之后怎么办、postMessage 时间同步协议
 - [导入之后](docs/06-after-import.md) —— 媒体层的四种状态、`sourceRef` 为什么只记没拿到的、同地址多层怎么一起补
 - [自定义命令](docs/07-custom-commands.md) —— 为什么不做 DSL、`{{x}}` 的两种语义、一条宏为什么必须是一次批处理、禁区命令
+- [第一次打开](docs/08-first-run.md) —— 示例工程为什么零外部资源、第 0 帧为什么不能有入场动画、介绍动画的四拍
 
 ## 许可
 

@@ -947,6 +947,38 @@ export const en: Record<string, string> = {
     'Delete custom command 「{name}」? Changes already made to the canvas are unaffected.',
   编辑:
     'Edit',
+
+  /* ---- v2.8 首次运行 · 示例工程 · 介绍动画 ---- */
+  '第一次来 · 三十秒看懂':
+    'First time here · 30-second tour',
+  可编程的动态海报工作台:
+    'A programmable motion-poster workbench',
+  '图层、关键帧、代码层和导出走同一条命令总线 —— 你在这里点的每一步，AI 都能用一条命令重放。':
+    'Layers, keyframes, code layers and export all share one command bus — every step you take here, AI can replay as a single command.',
+  一条命令总线:
+    'one command bus',
+  '关键帧 · 图层窗口同源':
+    'keyframes · same source as layer windows',
+  '已把示例「{name}」放进工程库：{layers} 层 · {tracks} 条关键帧轨道 · {code} 个代码层 —— 打开就能改，删掉就不会再出现。':
+    'Added the sample 「{name}」 to your library: {layers} layers · {tracks} keyframe tracks · {code} code layers — open it and edit freely; once deleted it will not come back.',
+  打开示例:
+    'Open the sample',
+  关掉这条提示:
+    'Dismiss this note',
+  '尺寸 · 时长 · 帧率':
+    'size · duration · fps',
+  '位置 · 样式 · 叠放':
+    'position · style · stacking',
+  '轨道 + 播放头求值':
+    'tracks + playhead evaluation',
+  同一条命令总线:
+    'the same command bus',
+  放回示例工程:
+    'Put the sample back',
+  示例已放回工程库:
+    'Sample restored to your library',
+  放入失败:
+    'Could not add the sample',
 };
 
 export type EnDict = typeof en;

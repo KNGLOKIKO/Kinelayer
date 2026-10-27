@@ -183,6 +183,12 @@ export interface AppPrefs {
   /** null = 明确没有「上次打开的工程」，与「还没写过」区分开 */
   lastProjectId?: string | null;
   theme?: string;
+  /**
+   * 首次运行引导只做一次。
+   * 记成「已经塞过」而不是「用户没见过」，是因为用户可能第一件事就是把它删掉 ——
+   * 那就该真的没了，而不是下次刷新又冒出来。
+   */
+  sampleSeeded?: boolean;
 }
 
 /** 从裸 Project 抽元信息。idb 层不做 normalize，字段缺失就给保守默认值 */

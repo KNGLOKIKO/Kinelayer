@@ -23,8 +23,19 @@ import { cx } from './primitives';
 import { pickImportFile } from './importFlow';
 import { NewProjectDialog, SIZE_PRESETS, type NewProjectValues } from './NewProjectDialog';
 import { editorUrl, go } from './routes';
+import { IntroDemo } from './IntroDemo';
+import { SAMPLE_PROJECT_ID } from '@/core/sampleProject';
 import { applyLocale } from '@/i18n/apply';
 import { t } from '@/i18n';
+
+interface SeedInfo {
+  created: boolean;
+  projectId?: string;
+  name?: string;
+  layers?: number;
+  tracks?: number;
+  codeLayers?: number;
+}
 
 /** 最近项目最多列这么多：再多就成资料库了，这个页面只管「接着上次干」 */
 const RECENT_LIMIT = 12;
@@ -48,6 +59,11 @@ export function Launcher({ mode = 'overlay' }: { mode?: 'overlay' | 'page' }) {
   const locale = useEditor((s) => s.ui.locale);
 
   const [list, setList] = useState<ProjectMeta[] | null>(null);
+  /**
+   * 本次会话「刚塞进去的那份示例」。只在真的创建成功时非空 ——
+   * 刷新页面之后引导条就不该再出现，它是一次性的开场白，不是常驻横幅。
+   */
+  const [seed, setSeed] = useState<SeedInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [draftName, setDraftName] = useState('');
@@ -55,6 +71,13 @@ export function Launcher({ mode = 'overlay' }: { mode?: 'overlay' | 'page' }) {
   const [nonce, setNonce] = useState(0);
 
   const refresh = useCallback(async () => {
+    /*
+     * 先塞示例再列工程。这个命令是幂等的：除了第一次，其余时候都是一次 prefs 读就返回，
+     * 所以两个形态（page / overlay）每次打开都可以无脑调，不需要额外的「是不是首次」判断。
+     */
+    const seeded = await exec<SeedInfo>('project.seedSample', {});
+    if (seeded.ok && seeded.data?.created) setSeed(seeded.data);
+
     const res = await exec<{ projects: ProjectMeta[] }>('project.listRecent', { limit: RECENT_LIMIT });
     if (res.ok && res.data) setList(res.data.projects.slice(0, RECENT_LIMIT));
     else setList([]);
@@ -163,6 +186,18 @@ export function Launcher({ mode = 'overlay' }: { mode?: 'overlay' | 'page' }) {
       }
     });
 
+  /* 用户把示例删了之后，得有一条路放回来 —— 不然「示例」就成了一辈子只有一次的东西 */
+  const restoreSample = () =>
+    wrap(async () => {
+      const res = await exec<SeedInfo>('project.seedSample', { force: true });
+      if (!res.ok) {
+        pushToast('error', res.error?.message ?? t('放入失败'), 6000);
+        return;
+      }
+      if (res.data?.created) setSeed(res.data);
+      pushToast('success', t('示例已放回工程库'));
+    });
+
   const exportBundle = (id: string) =>
     wrap(async () => {
       const res = await exec<{ filename: string }>('project.exportBundle', { projectId: id });
@@ -217,7 +252,64 @@ export function Launcher({ mode = 'overlay' }: { mode?: 'overlay' | 'page' }) {
         )}
       </header>
 
-      <div className="ml-scroll grid min-h-0 flex-1 grid-cols-1 gap-6 overflow-y-auto px-5 py-5 md:grid-cols-[300px_minmax(0,1fr)]">
+      <div className="ml-scroll min-h-0 flex-1 overflow-y-auto px-5 py-5">
+        {/* 介绍页的示例动画：只在独立启动页出现（覆盖层形态下面板已经够挤了） */}
+        {mode === 'page' && (
+          <section
+            data-testid="intro-hero"
+            className="border-ink-700/70 bg-ink-900/50 mb-4 rounded-xl border p-4 md:flex md:items-center md:gap-6"
+          >
+            <div className="min-w-0 flex-1">
+              <div className="text-accent-soft text-[10px] font-medium tracking-[0.18em]">{t('第一次来 · 三十秒看懂')}</div>
+              <h1 className="mt-1.5 text-[17px] font-semibold tracking-tight text-zinc-100">{t('可编程的动态海报工作台')}</h1>
+              <p className="mt-1.5 max-w-[460px] text-[11.5px] leading-relaxed text-zinc-500">
+                {t('图层、关键帧、代码层和导出走同一条命令总线 —— 你在这里点的每一步，AI 都能用一条命令重放。')}
+              </p>
+              <div className="mt-2.5 flex flex-wrap gap-1.5">
+                {['一条命令总线', '关键帧 · 图层窗口同源', 'PNG / WebM / JSON'].map((chip) => (
+                  <span key={chip} className="border-ink-700 bg-ink-850/70 rounded-md border px-1.5 py-0.5 text-[10px] text-zinc-500">
+                    {t(chip)}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div className="mt-4 w-full md:mt-0 md:w-[440px] md:shrink-0">
+              <IntroDemo />
+            </div>
+          </section>
+        )}
+
+        {/* 首次运行：告诉用户刚才发生了什么，并给一条直达链接 */}
+        {seed?.created && seed.projectId && (
+          <div
+            data-testid="sample-banner"
+            className="border-accent/30 bg-accent/[0.07] mb-4 flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2"
+          >
+            <Sparkles size={13} className="text-accent-soft shrink-0" />
+            <span className="text-[11.5px] text-zinc-300">
+              {t('已把示例「{name}」放进工程库：{layers} 层 · {tracks} 条关键帧轨道 · {code} 个代码层 —— 打开就能改，删掉就不会再出现。', {
+                name: seed.name ?? '',
+                layers: seed.layers ?? 0,
+                tracks: seed.tracks ?? 0,
+                code: seed.codeLayers ?? 0,
+              })}
+            </span>
+            <div className="flex-1" />
+            <button
+              type="button"
+              onClick={() => void openProject(seed.projectId as string)}
+              data-testid="sample-open"
+              className="border-accent/50 text-accent-soft hover:bg-accent/15 inline-flex h-6 items-center rounded-md border px-2 text-[11px] font-medium transition"
+            >
+              {t('打开示例')}
+            </button>
+            <button type="button" onClick={() => setSeed(null)} title={t('关掉这条提示')} className="text-zinc-500 transition hover:text-zinc-200">
+              <X size={13} />
+            </button>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-[300px_minmax(0,1fr)]">
         {/* 左栏：新建 */}
         <section className="min-w-0">
           <div className="mb-2 text-[11px] font-medium tracking-wide text-zinc-500">{t('新建')}</div>
@@ -314,6 +406,15 @@ export function Launcher({ mode = 'overlay' }: { mode?: 'overlay' | 'page' }) {
               <div className="max-w-[360px] text-[10.5px] leading-relaxed text-zinc-600">
                 {t('左边选一个预设，或者用「自定义尺寸」自己定；也可以直接打开之前导出的 .kly。')}
               </div>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void restoreSample()}
+                data-testid="sample-restore"
+                className="text-zinc-500 hover:text-accent-soft mt-1 inline-flex items-center gap-1 text-[10.5px] transition disabled:opacity-40"
+              >
+                <Sparkles size={11} /> {t('放回示例工程')}
+              </button>
             </div>
           )}
 
@@ -346,6 +447,11 @@ export function Launcher({ mode = 'overlay' }: { mode?: 'overlay' | 'page' }) {
                         <span className="bg-ink-950/80 absolute bottom-1 left-1.5 rounded px-1.5 py-0.5 text-[9.5px] text-zinc-400">
                           {meta.width}×{meta.height} · {fmtLen(meta.duration)} · {meta.fps}fps
                         </span>
+                        {meta.id === SAMPLE_PROJECT_ID && (
+                          <span data-testid="sample-badge" className="bg-accent/90 absolute right-1.5 bottom-1 rounded px-1.5 py-0.5 text-[9.5px] font-medium text-white">
+                            {t('示例')}
+                          </span>
+                        )}
                         {isCurrent && (
                           <span className="bg-accent/90 absolute top-1.5 left-1.5 rounded px-1.5 py-0.5 text-[9.5px] font-medium text-white">
                             {t('当前')}
@@ -420,6 +526,7 @@ export function Launcher({ mode = 'overlay' }: { mode?: 'overlay' | 'page' }) {
             </div>
           )}
         </section>
+        </div>
       </div>
 
       <footer className="border-ink-700/70 text-[10.5px] text-zinc-600 flex h-9 shrink-0 items-center gap-2 border-t px-5">

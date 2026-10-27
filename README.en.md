@@ -56,7 +56,7 @@ Kinelayer/
 │  │  ├─ temporal.ts           Hand-rolled undo: immer patches / inverse patches / 700ms coalescing
 │  │  ├─ store.ts              Zustand in three slices: project (persisted) / ui / runtime (never persisted)
 │  │  ├─ defaults.ts           Factories + normalizeProject (lenient read, strict write) + demo project
-│  │  ├─ commands/*.ts         84 commands, one file per domain (layer/text/code/background/project/asset/font/timeline/animation/selection/history/window/export/query/AI/custom/batch)
+│  │  ├─ commands/*.ts         85 commands, one file per domain (layer/text/code/background/project/asset/font/timeline/animation/selection/history/window/export/query/AI/custom/batch)
 │  │  ├─ customCommands.ts     [v2.7] Macro logic, pure: placeholder substitution, param coercion, pre-save validation, forbidden commands, step expansion
 │  │  ├─ bundle.ts             Project package (.kly): ZIP packing/unpacking, per-file sha256, five unzip gates
 │  │  ├─ importPipeline.ts     [v2.5] Import pipeline, pure functions: sniff → inspect report → map to layers/tracks
@@ -111,7 +111,7 @@ injected through `services.ts`.
 
 ---
 
-## Commands at a glance (84)
+## Commands at a glance (85)
 
 | Category | Count | Representative commands |
 | --- | --- | --- |
@@ -120,7 +120,7 @@ injected through `services.ts`.
 | Code | 4 | `code.setSource` `code.setEngine` `code.setParams` `code.resetRuntime` |
 | Background | 2 | `background.set` `background.setCode` |
 | Canvas | 3 | `canvas.resize` `canvas.setDuration` `canvas.setFps` |
-| Project | 10 | `project.new` `project.load` `project.create` `project.open` `project.rename` `project.duplicate` `project.deleteLocal` `project.listRecent` `project.exportBundle` `project.importBundle` |
+| Project | 11 | `project.new` `project.load` `project.create` `project.open` `project.rename` `project.duplicate` `project.deleteLocal` `project.listRecent` `project.seedSample` `project.exportBundle` `project.importBundle` |
 | Asset | 4 | `asset.import` `asset.place` `asset.assign` `asset.remove` |
 | Font | 3 | `font.register` `font.load` `font.remove` |
 | Timeline | 5 | `timeline.play` `timeline.pause` `timeline.seek` `timeline.setLayerTiming` `timeline.setLoop` |
@@ -426,6 +426,7 @@ all three flavours grow at once.
 - [Code video integration](docs/04-code-video-integration.md) — how far Remotion parsing goes, the `remotion-component` boundary, rendering a remotion-kit
 - [After import](docs/06-after-import.md) — the four states of a media layer, why `sourceRef` only records what was never fetched, fixing layers that share one address
 - [Custom commands](docs/07-custom-commands.md) — why there is no DSL, the two meanings of `{{x}}`, why one macro must be one atomic batch, forbidden commands
+- [First run](docs/08-first-run.md) — why the sample ships zero external assets, why frame 0 must not carry an enter animation, the four beats of the intro animation
 
 ## License
 

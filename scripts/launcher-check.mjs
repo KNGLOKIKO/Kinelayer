@@ -68,9 +68,19 @@ const main = async () => {
     const hasEditorChrome = await cdp.ev(`!!document.querySelector('[data-tier]')`);
     check('启动页不挂编辑器（无 Host 外壳）', hasEditorChrome === false);
 
+    /*
+     * 首屏要等「列表落定」再断言。
+     * v2.8 起启动时会先跑一次 project.seedSample（首次运行会塞一份示例），
+     * 期间 list 还是 null、界面显示「正在读取…」—— 这时候既没有卡片也没有空状态文案。
+     * 所以判据是「有卡片 或 明确空状态」，两者都没有就继续等，而不是立刻判失败。
+     */
+    const settled = await cdp.waitFor(`(() => {
+      const cards = document.querySelectorAll('[data-testid="launcher-grid"] [data-project-id]').length;
+      const text = document.body.innerText || '';
+      return cards > 0 || (!text.includes('正在读取') && text.includes('还没有项目'));
+    })()`, 8000);
     const firstCards = await cdp.ev(`document.querySelectorAll('[data-testid="launcher-grid"] [data-project-id]').length`);
-    const emptyState = await cdp.ev(`document.body.innerText.includes('还没有项目')`);
-    check('全新环境显示空状态（0 张卡片）', firstCards === 0 ? emptyState === true : firstCards > 0, firstCards === 0 ? '空状态已显示' : `${firstCards} 张`);
+    check('首屏列表落定（有卡片或明确空状态）', settled === true, firstCards > 0 ? `${firstCards} 张` : '空状态');
 
     /* ── 2. 预设填充 ─────────────────────────────────── */
     check('「自定义尺寸」打开新建对话框', await openDialog(cdp));
