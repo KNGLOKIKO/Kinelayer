@@ -6,6 +6,7 @@ import { preloadFonts } from './text';
 import { rasterizeHtml } from './htmlRaster';
 import { ensureAsset, getImage } from './assets';
 import type { Drawable } from './assets';
+import { createAudioCapture } from './audioEngine';
 
 export interface PngResult {
   filename: string;
@@ -138,8 +139,19 @@ export async function exportWebm(
     throw new Error('当前浏览器不支持 captureStream(0) + requestFrame');
   }
 
+  /*
+   * 音频：离线渲染一份，然后原样放出来录进同一条 stream。
+   * 没有音频层、浏览器不支持、或者渲染失败，都只是「导出成无声视频」——不该让整个导出失败。
+   */
+  const audio = await createAudioCapture(project);
+  if (audio) for (const t of audio.stream.getAudioTracks()) stream.addTrack(t);
+
   const bitrate = Math.round(2_000_000 + (opts.quality / 100) * 10_000_000);
-  const recorder = new MediaRecorder(stream, { mimeType: pickMime(), videoBitsPerSecond: bitrate });
+  const recorder = new MediaRecorder(stream, {
+    mimeType: pickMime(),
+    videoBitsPerSecond: bitrate,
+    ...(audio ? { audioBitsPerSecond: 128_000 } : {}),
+  });
   const chunks: Blob[] = [];
   recorder.ondataavailable = (e) => {
     if (e.data && e.data.size > 0) chunks.push(e.data);
@@ -164,6 +176,7 @@ export async function exportWebm(
   await sleep(frameDelay * 2);
   recorder.stop();
   await stopped;
+  audio?.stop();
   track.stop();
 
   const blob = new Blob(chunks, { type: 'video/webm' });

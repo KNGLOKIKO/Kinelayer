@@ -12,13 +12,22 @@ import {
   zIds,
   zLayerPatch,
   zTextStylePatch,
+  zToneSpec,
 } from '../schemas';
-import { createCodeLayer, createImageLayer, createTextLayer, createVideoLayer, defaultCodeSpec } from '../defaults';
+import {
+  createAudioLayer,
+  createCodeLayer,
+  createImageLayer,
+  createTextLayer,
+  createVideoLayer,
+  defaultCodeSpec,
+  defaultToneSpec,
+} from '../defaults';
 import type { Layer } from '../types';
 import { applyAnimationPatch, enforceInvariants, findLayer, findLayerIndex, nextLayerName } from './_helpers';
 import { autoKeyframePatch } from './animation';
 
-const zCreateType = z.enum(['text', 'image', 'video', 'code']);
+const zCreateType = z.enum(['text', 'image', 'video', 'code', 'audio']);
 
 export const layerCommands = [
   defineCommand({
@@ -37,6 +46,7 @@ export const layerCommands = [
       textStyle: zTextStylePatch.optional(),
       assetId: z.string().min(1).optional().describe('图片/视频层的资源 id'),
       code: zCodeSpec.partial().optional().describe('代码层的引擎与源码'),
+      tone: zToneSpec.partial().optional().describe('音频层的音源参数'),
       atIndex: z.number().int().min(1).optional().describe('插入到第几层（0 是背景，不可占用）'),
     }),
     example: { type: 'text', text: 'Hello Kinelayer', x: 96, y: 120, width: 720, height: 160 },
@@ -60,6 +70,17 @@ export const layerCommands = [
         layer = createImageLayer({ x, y, width, height, assetId: payload.assetId ?? null });
       } else if (payload.type === 'video') {
         layer = createVideoLayer({ x, y, width, height, assetId: payload.assetId ?? null });
+      } else if (payload.type === 'audio') {
+        /*
+         * 音频层不画东西，宽高给 0：选中时舞台上不会糊出一个 520×520 的空框。
+         * 时长默认铺满全片，具体区间用户再拖。
+         */
+        layer = createAudioLayer({
+          width: 0,
+          height: 0,
+          outPoint: draft.duration,
+          tone: { ...defaultToneSpec(), ...(payload.tone ?? {}) },
+        });
       } else {
         layer = createCodeLayer({
           x,

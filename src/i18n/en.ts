@@ -959,8 +959,8 @@ export const en: Record<string, string> = {
     'one command bus',
   '关键帧 · 图层窗口同源':
     'keyframes · same source as layer windows',
-  '已把示例「{name}」放进工程库：{layers} 层 · {tracks} 条关键帧轨道 · {code} 个代码层 —— 打开就能改，删掉就不会再出现。':
-    'Added the sample 「{name}」 to your library: {layers} layers · {tracks} keyframe tracks · {code} code layers — open it and edit freely; once deleted it will not come back.',
+  '已把示例「{name}」放进工程库：{seconds} 秒 · {layers} 层 · {tracks} 条关键帧轨道 · {code} 个代码层 · {audio} 条音轨 —— 打开就能改，删掉就不会再出现。':
+    'Added the sample 「{name}」 to your library: {seconds}s · {layers} layers · {tracks} keyframe tracks · {code} code layers · {audio} audio tracks — open it and edit freely; once deleted it will not come back.',
   打开示例:
     'Open the sample',
   关掉这条提示:
@@ -979,6 +979,28 @@ export const en: Record<string, string> = {
     'Sample restored to your library',
   放入失败:
     'Could not add the sample',
+
+  /* ---- v2.9 音频层 ---- */
+  音频: 'Audio',
+  音频层: 'Audio layer',
+  长音铺底: 'Sustained pad',
+  节拍: 'Pulse',
+  提示音: 'Chime',
+  已静音: 'muted',
+  '程序化合成，不依赖任何音频文件':
+    'Synthesised from parameters — no audio file involved',
+  试听: 'Preview',
+  试听这一层:
+    'Preview this layer',
+  音源: 'Tone',
+  音量: 'Volume',
+  淡出: 'Fade out',
+  基频: 'Root',
+  每分钟拍数: 'BPM',
+  '音频跟着主时钟走：暂停、拖播放头都会重锚。导出 WebM 时会离线渲染一遍混进音轨。':
+    'Audio follows the master clock: pausing or scrubbing re-anchors it. WebM export renders the mix offline and muxes it into the file.',
+  '是不是要先点一下播放才有声音':
+    'Play once to unlock audio',
 };
 
 export type EnDict = typeof en;

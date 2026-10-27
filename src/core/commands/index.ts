@@ -2,6 +2,7 @@ import { clearRegistry, registerCommands } from '../registry';
 import { layerCommands } from './layers';
 import { textCommands } from './text';
 import { codeCommands } from './code';
+import { audioCommands } from './audio';
 import { backgroundCommands } from './background';
 import { projectCommands } from './project';
 import { assetCommands } from './assets';
@@ -28,6 +29,7 @@ export function registerAllCommands(): void {
   registerCommands(layerCommands);
   registerCommands(textCommands);
   registerCommands(codeCommands);
+  registerCommands(audioCommands);
   registerCommands(backgroundCommands);
   registerCommands(projectCommands);
   registerCommands(assetCommands);

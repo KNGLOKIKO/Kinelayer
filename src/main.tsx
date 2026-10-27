@@ -9,6 +9,7 @@ import { useEditor } from './core/store';
 import { setActiveLocale } from './i18n';
 import { dispatch } from './core/commandBus';
 import { listCommands } from './core/registry';
+import { audioStatus, createAudioCapture, describeAudioAt, measureOfflineAudio, peaksFor, type AudioCapture } from './render/audioEngine';
 
 registerAllCommands();
 // 先按浏览器语言/上次选择初始化，再渲染（避免首帧闪一下默认语言）
@@ -24,6 +25,7 @@ if (!readLayerParams().layerId) {
  * 只在 dev 构建里挂，生产 bundle 里 __kly 是 undefined——不进包、不暴露给线上用户。
  */
 if (import.meta.env.DEV) {
+  let captured: AudioCapture | null = null;
   (window as unknown as Record<string, unknown>).__kly = {
     dispatch: (type: string, payload?: unknown, opts?: { dryRun?: boolean; source?: 'user' | 'ai' }) =>
       dispatch(type, payload ?? {}, { source: opts?.source ?? 'user', dryRun: opts?.dryRun }),
@@ -37,6 +39,25 @@ if (import.meta.env.DEV) {
      * 而 CDP 里造 File 比走文件选择框稳定得多 —— 自检两条路都留着。
      */
     stage: (file: File) => getServices().stageBundle(file),
+    /**
+     * e2e 用：音频这条链路没法靠像素断言，给一个能读数的口。
+     * measure 走 OfflineAudioContext（比实时快得多），peak/rms 为 0 就是「没声音」。
+     */
+    audio: {
+      status: audioStatus,
+      measure: () => measureOfflineAudio(useEditor.getState().project),
+      peaks: (buckets?: number) => peaksFor(useEditor.getState().project, buckets ?? 320),
+      describeAt: (ms: number) => describeAudioAt(useEditor.getState().project, ms),
+      /* 导出链路同样是「读数」验证：只看这条 stream 里有没有音轨，听完就掐掉 */
+      capture: async () => {
+        captured = await createAudioCapture(useEditor.getState().project);
+        return captured ? captured.stream.getAudioTracks().length : 0;
+      },
+      stopCapture: () => {
+        captured?.stop();
+        captured = null;
+      },
+    },
   };
 }
 

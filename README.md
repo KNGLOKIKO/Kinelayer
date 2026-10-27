@@ -55,7 +55,7 @@ Kinelayer/
 │  │  ├─ temporal.ts           自研撤销栈：immer patches / inverse patches / 700ms 合并
 │  │  ├─ store.ts              Zustand 三段式：project（存盘）/ ui / runtime（都不存盘）
 │  │  ├─ defaults.ts           工厂 + normalizeProject（读宽容、写严格）+ 演示项目
-│  │  ├─ commands/*.ts         85 条命令，按领域分文件（图层/文本/代码/背景/项目/资源/字体/时间轴/动画/选择/历史/窗口/导出/查询/AI/自定义/批处理）
+│  │  ├─ commands/*.ts         86 条命令，按领域分文件（图层/文本/代码/背景/项目/资源/字体/时间轴/动画/选择/历史/窗口/导出/查询/AI/自定义/音频/批处理）
 │  │  ├─ customCommands.ts     【v2.7】宏的纯逻辑：占位符替换、参数收口、保存前校验、禁区命令、展开步骤
 │  │  ├─ bundle.ts             工程包（.kly）：ZIP 打包/解包、逐文件 sha256、五道解压闸门
 │  │  ├─ importPipeline.ts     【v2.5】导入管线的纯函数部分：嗅探 → 预检报告 → 映射成图层/轨道
@@ -104,7 +104,8 @@ Kinelayer/
 │  ├─ html-check.mjs           43 项 · v2.5c HTML/GSAP 静态解析/postMessage 时间同步/origin 元信息
 │  ├─ import-edit-check.mjs    30 项 · v2.6 导入之后：sourceRef/缺资源总账/asset.assign/来源区块
 │  ├─ custom-check.mjs         39 项 · v2.7 自定义命令：存前校验/原子执行/参数类型/失败回滚/持久化/双语
-│  ├─ sample-check.mjs         28 项 · v2.8 首次运行：示例工程/介绍动画/幂等/删除不复活/双语
+│  ├─ sample-check.mjs         34 项 · v2.8/2.9 首次运行：导览片/介绍动画/声音/幂等/删除不复活/双语
+│  ├─ audio-check.mjs          30 项 · v2.9 音频层：建模/命令/离线渲染/排程/时钟/波形/导出音轨
 │  ├─ online-smoke.mjs         31 项 · 对线上 GitHub Pages 部署的冒烟（不需 dev server）
 │  └─ push-via-api.mjs         推送兜底：github.com 这一跳被网络策略掐掉时，改走 Git Data REST API（只推已跟踪文件）
 └─ docs/
@@ -116,7 +117,8 @@ Kinelayer/
    ├─ 05-html-gsap-import.md    HTML/GSAP 片段：DOM 结构提取、iframe 时间同步、origin 元信息
    ├─ 06-after-import.md        导入之后：缺资源的四种状态、来源溯源、asset.assign 补回
    ├─ 07-custom-commands.md     自定义命令：为什么不做 DSL、{{x}} 两种语义、原子执行、禁区命令、跟人不跟工程
-   └─ 08-first-run.md           第一次打开：示例工程的三条约束、幂等判据、介绍页四拍动画
+   ├─ 08-first-run.md           第一次打开：96 秒导览片的六个章节、四条约束、幂等判据、介绍页四拍动画
+   └─ 09-audio.md               音频层：为什么是合成音源、锚点+lookahead+Worker 的排程、离线渲染导出、波形
 ```
 
 **分层规矩**：`ui/` 不能直接改 `project`；`render/` 不能 import `store`；
@@ -125,7 +127,7 @@ Kinelayer/
 
 ---
 
-## 命令一览（85 条）
+## 命令一览（86 条）
 
 | 分类  | 条数 | 代表命令                                                                                                                                                                                                                          |
 | --- | -- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -146,6 +148,7 @@ Kinelayer/
 | 查询  | 4  | `query.project` `query.layer` `query.registry` `query.capture`                                                                                                                                                                |
 | AI  | 5  | `ai.inspectImport` `ai.importProject` `ai.exportProject` `ai.queryCodeLayer` `ai.exportRemotionKit`                                                                                                                                    |
 | 自定义 | 4  | `custom.list` `custom.define` `custom.remove` `custom.run`（宏：一串已有命令 + 参数，存独立 IndexedDB）                                                                                                                                                |
+| 音频  | 1  | `audio.set`（音量 / 静音 / 淡入淡出 / 程序化音源参数） |
 | 批处理 | 1  | `command.batch`（多条命令合成一个撤销点，失败原子回滚）                                                                                                                                                                                           |
 
 每条命令都自带：zod schema、中文描述、可直接跑的 `example`、
@@ -393,8 +396,9 @@ AI 侧四条命令：`custom.list` / `custom.define` / `custom.run` / `custom.re
 
 示例本身守三条约束：**零外部资源**（不然首次打开就是一片「图片资源缺失」）、
 **第 0 帧就是完整海报**（入场动画在 t=0 的透明度是 0，照搬演示工程会让开场变成白屏，
-所以示例只用关键帧轨道，且轨道从设计位置起步）、**看得出能改**（时间轴上有三条轨道，
-画布上有一行「试试看」，图层名写人话）。8 层 / 2 个代码层 / 3 条关键帧轨道。
+所以示例只用关键帧轨道，且轨道从设计位置起步）、**看得出能改**（时间轴上有轨道，
+画布上有一行提示，图层名写人话）。v2.8 时它是 8 层 / 2 个代码层 / 3 条关键帧轨道，
+v2.9 换成了一支 96 秒的导览片（见下一节）。
 
 介绍页那段动画分四拍：画布 → 图层 → 关键帧 → 命令，每拍 2.2 秒循环，
 讲的是界面语言而不是渲染效果 —— 真正的渲染能力由旁边的示例卡片承担（那张缩略图就是渲染器的产物）。
@@ -402,6 +406,34 @@ AI 侧四条命令：`custom.list` / `custom.define` / `custom.run` / `custom.re
 `prefers-reduced-motion` 下停在第三拍，给一张静态但完整的说明图。
 
 细节见 [docs/08-first-run.md](docs/08-first-run.md)。
+
+---
+
+## v2.9 · 导览片与音频层
+
+两个需求其实是一件事：**第一屏得把项目讲清楚，而且不能是哑的。**
+
+示例工程从「4 秒海报」换成 **96 秒导览片**（1920×1080 / 30fps / 不循环），六章十六秒一节：
+开场 → 项目背景 → 核心功能 → 使用方式 → 主要内容 → 收尾。用户打开它，等于看完一支产品介绍，
+顺手还能在时间轴上看见「章节是怎么用图层和关键帧排出来的」。
+
+结构上守一条：**一个章节 = 一组区间相同的图层**。想改哪章就框选那组，想删哪章整组删掉，
+不会留下孤儿关键帧。文案与图形写在 `CHAPTERS` / `POINTS` / `GRAPHICS` 三张表里，改内容不碰时间轴。
+
+声音是**算出来的**，不是音频文件：工程包里只有几十字节的 `tone` 描述，同一份工程在任何机器上
+听到的完全一样，也保住了「零外部资源」这条约束。三种预设 —— `pad` 铺底、`pulse` 节拍、
+`chime` 章节提示（`marks` 里放触发的毫秒数）。
+
+排程的三层是这篇里最值得看的部分：**锚点**（只记一次「工程时间 ↔ AudioContext 时间」的映射，
+主时钟发现漂移超过 400ms 就重锚，也就是判定用户 seek 了）、**lookahead**（每 200ms 醒一次，
+把未来 1.2 秒的事件提前排进去）、**Worker ticker**（窗口定时器在后台会被节流到 1 秒一次，
+Worker 不会 —— 这个做法借自 Tone.js 的 `Ticker`）。
+
+导出走的是另一条路：`OfflineAudioContext` 先把整条音轨算出来（快、且确定），
+再整段放进 `MediaStreamAudioDestinationNode` 录进 WebM。思路来自 `Tone.Offline`。
+时间轴上的波形则按 wavesurfer.js 那套 peaks 做：离线渲染 → 按桶取峰值 → SVG 竖线。
+
+细节见 [docs/09-audio.md](docs/09-audio.md)。
 
 ---
 
@@ -518,7 +550,8 @@ VITE_BASE=/Kinelayer/ npm run build   # 项目页需要这个前缀
 - [HTML / GSAP 导入](docs/05-html-gsap-import.md) —— DOM 结构提取的取舍、iframe 白底绕不过去之后怎么办、postMessage 时间同步协议
 - [导入之后](docs/06-after-import.md) —— 媒体层的四种状态、`sourceRef` 为什么只记没拿到的、同地址多层怎么一起补
 - [自定义命令](docs/07-custom-commands.md) —— 为什么不做 DSL、`{{x}}` 的两种语义、一条宏为什么必须是一次批处理、禁区命令
-- [第一次打开](docs/08-first-run.md) —— 示例工程为什么零外部资源、第 0 帧为什么不能有入场动画、介绍动画的四拍
+- [第一次打开](docs/08-first-run.md) —— 96 秒导览片的六个章节、第 0 帧为什么不能有入场动画、介绍动画的四拍
+- [音频层](docs/09-audio.md) —— 为什么是合成音源、锚点 + lookahead + Worker 的排程、离线渲染导出、波形
 
 ## 许可
 

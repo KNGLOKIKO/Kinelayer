@@ -3,8 +3,9 @@
  *
  * 验的是「一个从没打开过这个应用的人，第一眼看到什么」：
  *   1. 工程库里已经有一份示例，带缩略图与「示例」徽标
- *   2. 它是真的能打开、能改、内容完整（8 层 / 3 条关键帧轨道 / 零外部资源）
+ *   2. 它是真的能打开、能改、内容完整（96 秒长片 / 六个章节 / 零外部资源）
  *   3. 第 0 帧就有完整画面（没有入场预设导致的「开场白屏」）
+ *   3b. 三条音轨是真的有声音（离线渲染出来的 peak 不为 0）
  *   4. 引导条只出现一次，刷新不再出现；示例不会被重复创建
  *   5. 删掉之后不再自动重建（用户删了就是删了）
  *   6. 介绍页那段四拍动画在跑，`prefers-reduced-motion` 下停在第三拍
@@ -66,8 +67,12 @@ const main = async () => {
     check('首次打开就有一条示例工程', first.cards.length === 1 && first.cards[0].id === SAMPLE_ID, JSON.stringify(first.cards.map((c) => c.id)));
     check('示例卡片带缩略图（不是灰块）', first.cards[0].thumb.startsWith('data:image/') && first.cards[0].thumb.length > 5000, String(first.cards[0]?.thumb.length ?? 0));
     check('示例卡片带「示例」徽标', first.cards[0].badge === true);
-    check('卡片刻出了尺寸与图层数', /1080×1440/.test(first.cards[0].text) && /8 图层/.test(first.cards[0].text), first.cards[0].text.slice(0, 80));
-    check('引导条说明了刚才发生了什么', !!first.banner && /8 层/.test(first.banner) && /3 条关键帧轨道/.test(first.banner), String(first.banner).slice(0, 100));
+    check('卡片刻出了尺寸与图层数', /1920×1080/.test(first.cards[0].text) && /\d+ 图层/.test(first.cards[0].text), first.cards[0].text.slice(0, 80));
+    check(
+      '引导条说明了刚才发生了什么（时长 / 图层 / 音轨）',
+      !!first.banner && /96 秒/.test(first.banner) && /条音轨/.test(first.banner) && /条关键帧轨道/.test(first.banner),
+      String(first.banner).slice(0, 120),
+    );
 
     /* ── 2. 介绍页动画 ───────────────────────────────── */
     check('介绍页有示例动画', first.hero === true && first.phase !== null, `phase=${first.phase}`);
@@ -112,25 +117,44 @@ const main = async () => {
 
     const shape = await cdp.ev(`(() => {
       const p = window.__kly.state().project;
-      const title = p.layers.find((l) => l.name === '主标题');
+      const firstTitle = p.layers.find((l) => l.name === '01 · 标题');
+      const audio = p.layers.filter((l) => l.type === 'audio');
       return {
-        id: p.id, layers: p.layers.length, assets: p.assets.length,
-        duration: p.duration, fps: p.fps, version: p.version,
+        id: p.id, layers: p.layers.length, assets: p.assets.length, fonts: p.fonts.length,
+        duration: p.duration, fps: p.fps, version: p.version, loop: p.loop,
         tracks: p.layers.reduce((n, l) => n + (l.animation?.tracks?.length ?? 0), 0),
         codeLayers: p.layers.filter((l) => l.type === 'code').length,
+        audioLayers: audio.length,
+        audioPresets: audio.map((l) => l.tone.preset),
         hasEnter: p.layers.some((l) => l.animation?.enter || l.animation?.exit),
-        titleOpacity: title ? title.opacity : null,
-        titleTracks: title ? title.animation.tracks.map((t) => t.property) : [],
+        firstTitleIn: firstTitle ? firstTitle.inPoint : null,
+        firstTitleOpacity: firstTitle ? firstTitle.opacity : null,
         names: p.layers.map((l) => l.name),
       };
     })()`);
     check('打开的就是那条示例', shape.id === SAMPLE_ID, shape.id);
-    check('八层内容齐全（背景 + 代码层 + 文字）', shape.layers === 8 && shape.codeLayers === 2, JSON.stringify({ layers: shape.layers, code: shape.codeLayers }));
-    check('带三条关键帧轨道', shape.tracks === 3 && shape.titleTracks.includes('y'), JSON.stringify(shape.titleTracks));
-    check('不依赖任何外部资源', shape.assets === 0, String(shape.assets));
-    check('没有入场/退场预设（第 0 帧不会是白屏）', shape.hasEnter === false && shape.titleOpacity === 1);
-    check('画布参数与卡片一致', shape.duration === 4000 && shape.fps === 30, `${shape.duration}ms / ${shape.fps}fps`);
-    check('图层名是写给人看的', shape.names.includes('试试看（可删除）'), JSON.stringify(shape.names));
+    check('是一支 96 秒长片（1920×1080 / 30fps / 不循环）', shape.duration === 96000 && shape.fps === 30 && shape.loop === false, `${shape.duration}ms ${shape.fps}fps loop=${shape.loop}`);
+    check('图层量级够撑起六个章节', shape.layers >= 45 && shape.codeLayers >= 6, JSON.stringify({ layers: shape.layers, code: shape.codeLayers }));
+    check('关键帧轨道铺满整条时间轴', shape.tracks >= 40, String(shape.tracks));
+    check('六章标题齐全（01…06）', ['01', '02', '03', '04', '05', '06'].every((n) => shape.names.includes(`${n} · 标题`)), JSON.stringify(shape.names.filter((n) => n.includes('标题'))));
+    check('三条音轨各司其职（pad / pulse / chime）', shape.audioLayers === 3 && shape.audioPresets.join(',') === 'pad,pulse,chime', JSON.stringify(shape.audioPresets));
+    check('不依赖任何外部资源', shape.assets === 0, `${shape.assets} 资源 / ${shape.fonts} 字体`);
+    check('没有入场/退场预设（第 0 帧不会是白屏）', shape.hasEnter === false && shape.firstTitleIn === 0 && shape.firstTitleOpacity === 1);
+    check('图层名是写给人看的（分镜表）', shape.names.includes('收尾 · 提示') && shape.names.includes('音频 · 铺底长音'), JSON.stringify(shape.names.slice(0, 6)));
+
+    /* 声音不能只在数据里：离线渲染一遍，peak 为 0 就是静音 */
+    const audio = await cdp.ev(`(async () => {
+      const m = await window.__kly.audio.measure();
+      const at30 = window.__kly.audio.describeAt(30000).map((x) => x.preset).sort();
+      const peaks = await window.__kly.audio.peaks(160);
+      let nonzero = 0;
+      if (peaks) for (const v of peaks) if (v > 0.01) nonzero++;
+      return { m, at30, buckets: peaks ? peaks.length : 0, nonzero };
+    })()`);
+    check('离线渲染出来的音轨真的有声音', !!audio.m && audio.m.peak > 0.01 && audio.m.rms > 0.001, JSON.stringify(audio.m));
+    check('音轨长度与工程时长一致', !!audio.m && Math.abs(audio.m.ms - 96000) <= 500, `${audio.m?.ms}ms`);
+    check('第 30 秒同时响着铺底与节拍', audio.at30.join(',') === 'pad,pulse', JSON.stringify(audio.at30));
+    check('时间轴波形拿得到峰值（大部分非零）', audio.buckets === 160 && audio.nonzero > 80, `${audio.nonzero}/${audio.buckets}`);
 
     const shot = await cdp.ev(`(async () => {
       const r = await window.__kly.dispatch('query.capture', { maxWidth: 640 });

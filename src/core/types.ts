@@ -4,7 +4,16 @@
  * 序列化时不含任何 base64 资源：二进制只存在 IndexedDB，Project 里只有 AssetMeta。
  */
 
-export type LayerType = 'background' | 'text' | 'image' | 'video' | 'code';
+export type LayerType = 'background' | 'text' | 'image' | 'video' | 'code' | 'audio';
+
+/** 全部图层类型。normalizeProject 的白名单直接用它，避免「加了类型忘了加白名单」 */
+export const LAYER_TYPES: LayerType[] = ['background', 'text', 'image', 'video', 'code', 'audio'];
+
+/**
+ * 用户能新建的类型（背景层永远在 index 0，不参与新建）。
+ * 命令层的 z.enum 与左栏按钮都读这一份，省得两边打架。
+ */
+export const CREATABLE_LAYER_TYPES: LayerType[] = ['text', 'image', 'video', 'code', 'audio'];
 
 export type BlendMode =
   | 'normal'
@@ -374,7 +383,45 @@ export interface CodeLayer extends BaseLayer {
   code: CodeSpec;
 }
 
-export type Layer = BackgroundLayer | TextLayer | ImageLayer | VideoLayer | CodeLayer;
+/* -------------------------------------------------------------------- 音频 */
+
+/**
+ * 程序化音源预设。
+ *
+ * 为什么不是「上传一个音频文件」：示例工程要求零外部资源（见 core/sampleProject.ts），
+ * 而工程包（.kly）里存二进制要额外的体积与解密成本。合成音源是**算出来的**：
+ * 同一份工程在任何机器上听到的完全一样，工程包也还是几十 KB。
+ * 真要用自己的音乐，走 `asset` 那条路是后续的事，这里先把「时间轴上能听见声音、
+ * 导出时声音跟着走」这条链路打通。
+ */
+export type TonePreset = 'pad' | 'pulse' | 'chime';
+
+export const TONE_PRESETS: TonePreset[] = ['pad', 'pulse', 'chime'];
+
+export interface ToneSpec {
+  preset: TonePreset;
+  /** 基频（Hz）。pad 是根音，pulse 是鼓的参考音高，chime 是音阶起点 */
+  root: number;
+  /** 每分钟拍数。pad 不用它（pad 是连续的），pulse/chime 用它算网格 */
+  bpm: number;
+  /** 和弦音程（半音偏移）。pad 叠几个音，chime 用它做琶音 */
+  chord: number[];
+  /** chime 的触发点：**相对图层起点**的毫秒数，用来标章节切换 */
+  marks: number[];
+}
+
+export interface AudioLayer extends BaseLayer {
+  type: 'audio';
+  /** 0..1，和图层 opacity 分开：opacity 对音频没有意义，混在一起会让人以为能淡出画面 */
+  volume: number;
+  muted: boolean;
+  /** 淡入/淡出，毫秒。超过图层长度时按比例压回去，不会算出负值 */
+  fadeIn: number;
+  fadeOut: number;
+  tone: ToneSpec;
+}
+
+export type Layer = BackgroundLayer | TextLayer | ImageLayer | VideoLayer | CodeLayer | AudioLayer;
 
 export interface AssetMeta {
   id: string;
@@ -578,6 +625,9 @@ export function isVideo(layer: Layer): layer is VideoLayer {
 }
 export function isCode(layer: Layer): layer is CodeLayer {
   return layer.type === 'code';
+}
+export function isAudio(layer: Layer): layer is AudioLayer {
+  return layer.type === 'audio';
 }
 
 /** 背景层不可删除 / 不可移动 z 序 / 不可隐藏以外的一切——此处只做结构性保证 */

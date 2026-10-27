@@ -3,9 +3,11 @@ import { clamp } from './geometry';
 import {
   ANIMATABLE_PROPERTIES,
   BLEND_MODES,
+  LAYER_TYPES,
   LIMITS,
   PROJECT_SCHEMA_VERSION,
   type AssetMeta,
+  type AudioLayer,
   type BackgroundLayer,
   type CodeLayer,
   type CodeSpec,
@@ -17,6 +19,7 @@ import {
   type PropertyTrack,
   type TextLayer,
   type TextStyle,
+  type ToneSpec,
   type VideoLayer,
   type BlendMode,
   type LayerType,
@@ -222,6 +225,38 @@ export function createCodeLayer(overrides: Partial<CodeLayer> = {}): CodeLayer {
   return { ...layer, ...overrides, code: { ...defaultCodeSpec(), ...(overrides.code ?? {}) } };
 }
 
+/**
+ * 默认音源：A2 根音的小三和弦长音，足够当背景铺底，也不至于抢画面。
+ * 具体用到哪几个音由使用方覆盖（示例工程按章节换和弦）。
+ */
+export function defaultToneSpec(overrides: Partial<ToneSpec> = {}): ToneSpec {
+  return {
+    preset: 'pad',
+    root: 110,
+    bpm: 84,
+    chord: [0, 7, 12],
+    marks: [],
+    ...overrides,
+  };
+}
+
+export function createAudioLayer(overrides: Partial<AudioLayer> = {}): AudioLayer {
+  const layer: AudioLayer = {
+    ...(baseLayer('audio') as AudioLayer),
+    type: 'audio',
+    name: '音频',
+    /* 音频不参与画面：给一个 0×0 的框，选中时不会在舞台上糊出一个大方块 */
+    width: 0,
+    height: 0,
+    volume: 0.6,
+    muted: false,
+    fadeIn: 300,
+    fadeOut: 500,
+    tone: defaultToneSpec(),
+  };
+  return { ...layer, ...overrides, tone: { ...defaultToneSpec(), ...(overrides.tone ?? {}) } };
+}
+
 export function createLayer(type: LayerType, overrides: Partial<Layer> = {}): Layer {
   switch (type) {
     case 'text':
@@ -232,6 +267,8 @@ export function createLayer(type: LayerType, overrides: Partial<Layer> = {}): La
       return createVideoLayer(overrides as Partial<VideoLayer>);
     case 'code':
       return createCodeLayer(overrides as Partial<CodeLayer>);
+    case 'audio':
+      return createAudioLayer(overrides as Partial<AudioLayer>);
     case 'background':
       return createBackground(overrides as Partial<BackgroundLayer>);
     default:
@@ -492,7 +529,7 @@ export function normalizeProject(raw: unknown): Project {
   for (const item of rawLayers) {
     if (!item || typeof item !== 'object') continue;
     const type = (item as Layer).type;
-    if (!['background', 'text', 'image', 'video', 'code'].includes(type)) continue;
+    if (!LAYER_TYPES.includes(type)) continue;
     const layer = item as Layer;
     if (seen.has(layer.id)) layer.id = uid('ly');
     seen.add(layer.id);
@@ -509,7 +546,11 @@ export function normalizeProject(raw: unknown): Project {
   const fonts = Array.isArray(r.fonts) ? (r.fonts as FontMeta[]).filter((f) => f && f.family) : [];
 
   // v1 → v2：schemaVersion 缺省视为 1，逐图层把 animation 迁移到当前形状
-  for (const layer of layers) layer.animation = normalizeAnimation(layer.animation);
+  for (const layer of layers) {
+    layer.animation = normalizeAnimation(layer.animation);
+    /* 音频层手里没有 tone 就是一颗静音炸弹（引擎会读到 undefined.preset），就地补默认值 */
+    if (layer.type === 'audio') normalizeAudioLayer(layer);
+  }
   background.animation = normalizeAnimation(background.animation);
 
   return {
@@ -527,6 +568,26 @@ export function normalizeProject(raw: unknown): Project {
     version: Math.max(1, Math.round(num(r.version, 1, 1, Number.MAX_SAFE_INTEGER))),
     createdAt: num(r.createdAt, Date.now(), 0, Number.MAX_SAFE_INTEGER),
     updatedAt: Date.now(),
+  };
+}
+
+/**
+ * 音频层的读宽容。
+ * 外来工程可能写了 `volume: 3` 或者干脆没写 tone —— 这里只做修复，不抛错（和 normalizeProject 一致）。
+ */
+function normalizeAudioLayer(layer: AudioLayer): void {
+  layer.volume = clamp(typeof layer.volume === 'number' && Number.isFinite(layer.volume) ? layer.volume : 0.6, 0, 1);
+  layer.muted = layer.muted === true;
+  layer.fadeIn = clamp(typeof layer.fadeIn === 'number' ? layer.fadeIn : 300, 0, 60_000);
+  layer.fadeOut = clamp(typeof layer.fadeOut === 'number' ? layer.fadeOut : 500, 0, 60_000);
+  const raw = (layer.tone ?? {}) as Partial<ToneSpec>;
+  const preset = raw.preset === 'pulse' || raw.preset === 'chime' ? raw.preset : 'pad';
+  layer.tone = {
+    preset,
+    root: clamp(typeof raw.root === 'number' && raw.root > 0 ? raw.root : 110, 20, 4000),
+    bpm: clamp(typeof raw.bpm === 'number' && raw.bpm > 0 ? raw.bpm : 84, 20, 300),
+    chord: Array.isArray(raw.chord) && raw.chord.length ? raw.chord.filter((n) => Number.isFinite(n)).slice(0, 8) : [0, 7, 12],
+    marks: Array.isArray(raw.marks) ? raw.marks.filter((n) => Number.isFinite(n) && n >= 0).slice(0, 128) : [],
   };
 }
 

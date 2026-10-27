@@ -147,6 +147,15 @@ export const zCodeSpec = z.object({
   params: z.record(z.union([z.string(), z.number(), z.boolean()])),
 });
 
+/** 程序化音源。marks 是「相对图层起点」的毫秒数组，chime 用它标章节切换 */
+export const zToneSpec = z.object({
+  preset: z.enum(['pad', 'pulse', 'chime']),
+  root: z.number().min(20).max(4000),
+  bpm: z.number().min(20).max(300),
+  chord: z.array(z.number().min(-36).max(36)).max(8),
+  marks: z.array(z.number().min(0).max(600_000)).max(128),
+});
+
 export const zBindTarget = z.enum(['x', 'y', 'width', 'height', 'rotation', 'opacity', 'scale']);
 
 export const zBindings = z

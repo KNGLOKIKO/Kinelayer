@@ -56,7 +56,7 @@ Kinelayer/
 │  │  ├─ temporal.ts           Hand-rolled undo: immer patches / inverse patches / 700ms coalescing
 │  │  ├─ store.ts              Zustand in three slices: project (persisted) / ui / runtime (never persisted)
 │  │  ├─ defaults.ts           Factories + normalizeProject (lenient read, strict write) + demo project
-│  │  ├─ commands/*.ts         85 commands, one file per domain (layer/text/code/background/project/asset/font/timeline/animation/selection/history/window/export/query/AI/custom/batch)
+│  │  ├─ commands/*.ts         86 commands, one file per domain (layer/text/code/background/project/asset/font/timeline/animation/selection/history/window/export/query/AI/custom/audio/batch)
 │  │  ├─ customCommands.ts     [v2.7] Macro logic, pure: placeholder substitution, param coercion, pre-save validation, forbidden commands, step expansion
 │  │  ├─ bundle.ts             Project package (.kly): ZIP packing/unpacking, per-file sha256, five unzip gates
 │  │  ├─ importPipeline.ts     [v2.5] Import pipeline, pure functions: sniff → inspect report → map to layers/tracks
@@ -111,7 +111,7 @@ injected through `services.ts`.
 
 ---
 
-## Commands at a glance (85)
+## Commands at a glance (86)
 
 | Category | Count | Representative commands |
 | --- | --- | --- |
@@ -132,6 +132,7 @@ injected through `services.ts`.
 | Query | 4 | `query.project` `query.layer` `query.registry` `query.capture` |
 | AI | 5 | `ai.inspectImport` `ai.importProject` `ai.exportProject` `ai.queryCodeLayer` `ai.exportRemotionKit` |
 | Custom | 4 | `custom.list` `custom.define` `custom.remove` `custom.run` (macros: a sequence of existing commands plus params, stored in their own IndexedDB store) |
+| Audio | 1 | `audio.set` (volume / mute / fades / procedural tone parameters) |
 | Batch | 1 | `command.batch` (many commands collapsed into one undo point, atomic rollback on failure) |
 
 Every command carries a zod schema, a description, a runnable `example`, and metadata such as
@@ -314,6 +315,36 @@ untouched) via `asset.assign`. Layers sharing one URL are filled together. Detai
 
 ---
 
+## v2.9 · The tour film and the audio layer
+
+Two requests that turned out to be one: **the first screen should explain the project, and it should not be silent.**
+
+The sample project is now a **96-second tour film** (1920×1080 / 30fps / no loop), six 16-second chapters:
+opening → background → core features → how to use it → what is inside → closing. Opening it is like watching
+a product walkthrough, and the timeline doubles as a storyboard for how those chapters were built.
+
+One rule holds the structure together: **a chapter is a group of layers sharing the same time span.**
+To change a chapter, select that group; to drop one, delete the group — no orphan keyframes left behind.
+Copy and graphics live in `CHAPTERS` / `POINTS` / `GRAPHICS`, so editing content never touches the timeline.
+
+The sound is **computed**, not sampled: the project file only carries a few dozen bytes of `tone` parameters,
+every machine hears exactly the same thing, and the "zero external assets" rule survives. Three presets —
+`pad` for the bed, `pulse` for the beat, `chime` for chapter cues (trigger times live in `marks`).
+
+Scheduling has three layers worth reading: an **anchor** (a single project-time ↔ `AudioContext` mapping;
+the master clock re-anchors when it drifts past 400ms, which is how a seek is detected), **lookahead**
+(wake every 200ms, schedule the next 1.2s up front), and a **worker ticker** (window timers get throttled
+to once per second in background tabs, workers do not — the pattern is lifted from Tone.js's `Ticker`).
+
+Export takes a different route: `OfflineAudioContext` renders the whole track first (fast and deterministic),
+then the buffer plays into a `MediaStreamAudioDestinationNode` that is muxed into the WebM — the idea comes
+from `Tone.Offline`. Timeline waveforms follow the wavesurfer.js peaks approach: render offline, bucket the
+peaks, draw SVG lines.
+
+Details in [docs/09-audio.md](docs/09-audio.md).
+
+---
+
 ## Shortcuts
 
 | Action | Keys |
@@ -426,7 +457,8 @@ all three flavours grow at once.
 - [Code video integration](docs/04-code-video-integration.md) — how far Remotion parsing goes, the `remotion-component` boundary, rendering a remotion-kit
 - [After import](docs/06-after-import.md) — the four states of a media layer, why `sourceRef` only records what was never fetched, fixing layers that share one address
 - [Custom commands](docs/07-custom-commands.md) — why there is no DSL, the two meanings of `{{x}}`, why one macro must be one atomic batch, forbidden commands
-- [First run](docs/08-first-run.md) — why the sample ships zero external assets, why frame 0 must not carry an enter animation, the four beats of the intro animation
+- [First run](docs/08-first-run.md) — the six chapters of the 96-second tour, why frame 0 must not carry an enter animation, the four beats of the intro animation
+- [Audio layer](docs/09-audio.md) — why the tones are synthesised, anchor + lookahead + worker scheduling, offline-rendered export, waveforms
 
 ## License
 

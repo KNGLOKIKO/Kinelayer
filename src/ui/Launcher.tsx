@@ -35,6 +35,8 @@ interface SeedInfo {
   layers?: number;
   tracks?: number;
   codeLayers?: number;
+  audioLayers?: number;
+  seconds?: number;
 }
 
 /** 最近项目最多列这么多：再多就成资料库了，这个页面只管「接着上次干」 */
@@ -287,11 +289,13 @@ export function Launcher({ mode = 'overlay' }: { mode?: 'overlay' | 'page' }) {
           >
             <Sparkles size={13} className="text-accent-soft shrink-0" />
             <span className="text-[11.5px] text-zinc-300">
-              {t('已把示例「{name}」放进工程库：{layers} 层 · {tracks} 条关键帧轨道 · {code} 个代码层 —— 打开就能改，删掉就不会再出现。', {
+              {t('已把示例「{name}」放进工程库：{seconds} 秒 · {layers} 层 · {tracks} 条关键帧轨道 · {code} 个代码层 · {audio} 条音轨 —— 打开就能改，删掉就不会再出现。', {
                 name: seed.name ?? '',
+                seconds: seed.seconds ?? 0,
                 layers: seed.layers ?? 0,
                 tracks: seed.tracks ?? 0,
                 code: seed.codeLayers ?? 0,
+                audio: seed.audioLayers ?? 0,
               })}
             </span>
             <div className="flex-1" />

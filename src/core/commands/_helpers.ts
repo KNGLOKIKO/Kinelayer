@@ -1,4 +1,4 @@
-import type { ImageLayer, Layer, Project, TextLayer, VideoLayer, CodeLayer, LayerAnimation } from '../types';
+import type { AudioLayer, ImageLayer, Layer, Project, TextLayer, VideoLayer, CodeLayer, LayerAnimation } from '../types';
 import { CommandFailure } from '../registry';
 import { getBackground } from '../types';
 
@@ -24,6 +24,12 @@ export function requireCode(draft: Project, id: string): CodeLayer {
   const layer = findLayer(draft, id);
   if (layer.type !== 'code') throw new CommandFailure('INVARIANT', `图层 ${id} 不是代码层`);
   return layer as CodeLayer;
+}
+
+export function requireAudio(draft: Project, id: string): AudioLayer {
+  const layer = findLayer(draft, id);
+  if (layer.type !== 'audio') throw new CommandFailure('INVARIANT', `图层 ${id} 不是音频层`);
+  return layer as AudioLayer;
 }
 
 export function requireImage(draft: Project, id: string): ImageLayer {

@@ -103,7 +103,17 @@ export interface AiSceneBackgroundLayer extends AiSceneLayerCommon {
   paint: { kind: string; color: string; gradient?: unknown; assetId: string | null };
 }
 
-export type AiSceneLayer = AiSceneTextLayer | AiSceneMediaLayer | AiSceneCodeLayer | AiSceneBackgroundLayer;
+export interface AiSceneAudioLayer extends AiSceneLayerCommon {
+  type: 'audio';
+  /** 程序化音源：没有资源文件，只有参数 */
+  tone: { preset: string; root: number; bpm: number; chord: number[]; marks: number };
+  volume: number;
+  muted: boolean;
+  fadeIn: number;
+  fadeOut: number;
+}
+
+export type AiSceneLayer = AiSceneTextLayer | AiSceneMediaLayer | AiSceneCodeLayer | AiSceneAudioLayer | AiSceneBackgroundLayer;
 
 export interface AiScene {
   format: typeof AI_SCENE_FORMAT;
@@ -308,6 +318,27 @@ export function buildAiScene(project: Project): AiScene {
           type: layer.type,
           asset: assetOf(project.assets, layer.assetId),
           fit: layer.fit,
+        });
+        break;
+      case 'audio':
+        /*
+         * 音频层的 box 是 0×0（它不占画面），AI 拿到 common 里的尺寸会当成「空图层」。
+         * 这里显式给出 tone 与音量，让它知道这层其实在响。
+         */
+        layers.push({
+          ...common,
+          type: 'audio',
+          tone: {
+            preset: layer.tone.preset,
+            root: layer.tone.root,
+            bpm: layer.tone.bpm,
+            chord: layer.tone.chord,
+            marks: layer.tone.marks.length,
+          },
+          volume: layer.volume,
+          muted: layer.muted,
+          fadeIn: layer.fadeIn,
+          fadeOut: layer.fadeOut,
         });
         break;
       case 'code':

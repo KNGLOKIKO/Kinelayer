@@ -9,6 +9,8 @@ import {
   Copy,
   Image as ImageIcon,
   MonitorSmartphone,
+  Music,
+  Play,
   RotateCcw,
   Square,
   Trash2,
@@ -28,7 +30,8 @@ import type {
   Layer,
   TextLayer,
 } from '@/core/types';
-import { ANIM_PRESETS, BLEND_MODES, BINDING_TARGETS, CODE_ENGINES, EASINGS } from '@/core/types';
+import { ANIM_PRESETS, BLEND_MODES, BINDING_TARGETS, CODE_ENGINES, EASINGS, TONE_PRESETS } from '@/core/types';
+import { previewAudioLayer } from '@/render/audioEngine';
 import { defaultTextStyle } from '@/core/defaults';
 import {
   Badge,
@@ -359,6 +362,7 @@ export function Inspector() {
         {layer.type === 'image' && <ImageSection layer={layer} />}
         {layer.type === 'video' && <VideoSection layer={layer} />}
         {layer.type === 'code' && <CodeSection layer={layer} />}
+        {layer.type === 'audio' && <AudioSection layer={layer} />}
 
         <Section title={t('动画')} defaultOpen={false}>
           {(['enter', 'exit', 'emphasis'] as const).map((slot) => {
@@ -800,6 +804,84 @@ function VideoSection({ layer }: { layer: Extract<Layer, { type: 'video' }> }) {
         <Toggle value={layer.loop} onChange={(loop) => update({ loop })} label={t('循环')} />
       </div>
       <Slider label={t('播放速度')} value={layer.playbackRate} min={0.25} max={3} step={0.05} onChange={(playbackRate) => update({ playbackRate })} format={(v) => `${v.toFixed(2)}×`} />
+    </Section>
+  );
+}
+
+/**
+ * 音频层。
+ *
+ * 这里刻意没有「上传音频」：音频层目前只有程序化音源（零外部资源），
+ * 与其摆一个点了没反应的按钮，不如把「声音是怎么来的」写清楚。
+ */
+function AudioSection({ layer }: { layer: Extract<Layer, { type: 'audio' }> }) {
+  const set = (patch: Record<string, unknown>) => void exec('audio.set', { id: layer.id, ...patch });
+  const setTone = (patch: Record<string, unknown>) => void exec('audio.set', { id: layer.id, tone: patch });
+  const presetLabel: Record<string, string> = {
+    pad: t('长音铺底'),
+    pulse: t('节拍'),
+    chime: t('提示音'),
+  };
+
+  return (
+    <Section title={t('音频')}>
+      <div className="border-ink-700 bg-ink-900/60 flex items-center gap-2 rounded border p-2">
+        <Music size={14} className="text-emerald-400" />
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[11px] text-zinc-300">
+            {presetLabel[layer.tone.preset] ?? layer.tone.preset} · {Math.round(layer.volume * 100)}%
+            {layer.muted ? ` · ${t('已静音')}` : ''}
+          </div>
+          <div className="text-[10px] text-zinc-600">{t('程序化合成，不依赖任何音频文件')}</div>
+        </div>
+        <Button variant="ghost" onClick={() => previewAudioLayer(layer)} title={t('试听这一层')} testId="audio-preview">
+          <Play size={11} /> {t('试听')}
+        </Button>
+      </div>
+
+      <Field label={t('音源')}>
+        <Select
+          value={layer.tone.preset}
+          options={TONE_PRESETS.map((p) => ({ value: p, label: presetLabel[p] ?? p }))}
+          onChange={(preset) => setTone({ preset })}
+        />
+      </Field>
+
+      <Slider
+        label={t('音量')}
+        value={layer.volume}
+        min={0}
+        max={1}
+        step={0.01}
+        onChange={(volume) => set({ volume })}
+        format={(v) => `${Math.round(v * 100)}%`}
+      />
+
+      <Toggle value={layer.muted} onChange={(muted) => set({ muted })} label={t('静音')} />
+
+      <div className="grid grid-cols-2 gap-2">
+        <Field label={t('淡入')}>
+          <NumberInput value={layer.fadeIn} onCommit={(fadeIn) => set({ fadeIn })} min={0} max={60000} suffix="ms" />
+        </Field>
+        <Field label={t('淡出')}>
+          <NumberInput value={layer.fadeOut} onCommit={(fadeOut) => set({ fadeOut })} min={0} max={60000} suffix="ms" />
+        </Field>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <Field label={t('基频')}>
+          <NumberInput value={layer.tone.root} onCommit={(root) => setTone({ root })} min={20} max={4000} suffix="Hz" />
+        </Field>
+        {layer.tone.preset !== 'pad' && (
+          <Field label={t('每分钟拍数')}>
+            <NumberInput value={layer.tone.bpm} onCommit={(bpm) => setTone({ bpm })} min={20} max={300} suffix="BPM" />
+          </Field>
+        )}
+      </div>
+
+      <p className="text-[10px] leading-relaxed text-zinc-600">
+        {t('音频跟着主时钟走：暂停、拖播放头都会重锚。导出 WebM 时会离线渲染一遍混进音轨。')}
+      </p>
     </Section>
   );
 }

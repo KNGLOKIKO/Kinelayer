@@ -5,6 +5,7 @@ import { updateUi, useEditor } from '@/core/store';
 import { clamp } from '@/core/geometry';
 import { ANIMATABLE_PROPERTIES, PROPERTY_LABELS, type AnimatableProperty, type Keyframe, type Layer } from '@/core/types';
 import { currentValue, trackOf, ANIM_PRESET_TRACKS, type AnimPresetTrack } from '@/core/commands/animation';
+import { peaksFor } from '@/render/audioEngine';
 import { IconButton, Toggle, cx } from './primitives';
 import { useLayoutTier } from './layout';
 import { t } from '@/i18n';
@@ -12,6 +13,43 @@ import { t } from '@/i18n';
 /** remotion 组件层：内部不可编辑，时间轴只表示「这段时间它可见」 */
 function isRemotionLayer(layer: Layer): boolean {
   return layer.type === 'code' && layer.code.engine === 'remotion-component';
+}
+
+/**
+ * 音频块里的波形。
+ *
+ * 用 SVG 而不是 canvas：时间轴行是 DOM，clip 的宽度随缩放变化，
+ * canvas 得自己处理 ResizeObserver 与 devicePixelRatio；SVG 靠 viewBox + preserveAspectRatio
+ * 自动拉伸，窄到 2px 宽也不会糊。峰值来自 audioEngine 的离线渲染（思路同 wavesurfer.js 的 peaks）。
+ */
+function AudioWave({ peaks, from, to }: { peaks: Float32Array; from: number; to: number }) {
+  const path = useMemo(() => {
+    const n = peaks.length;
+    const a = Math.max(0, Math.floor(from * n));
+    const b = Math.min(n, Math.ceil(to * n));
+    if (b <= a) return '';
+    const segments: string[] = [];
+    const span = b - a;
+    for (let i = a; i < b; i += 1) {
+      const x = ((i - a) / span) * 100;
+      const h = Math.max(0.06, peaks[i]) * 0.46;
+      segments.push(`M${x.toFixed(2)} ${(0.5 - h).toFixed(3)}V${(0.5 + h).toFixed(3)}`);
+    }
+    return segments.join('');
+  }, [peaks, from, to]);
+
+  if (!path) return null;
+  return (
+    <svg
+      aria-hidden
+      data-testid="audio-wave"
+      viewBox="0 0 100 1"
+      preserveAspectRatio="none"
+      className="pointer-events-none absolute inset-0 h-full w-full"
+    >
+      <path d={path} stroke="currentColor" strokeWidth={0.5} vectorEffect="non-scaling-stroke" className="text-emerald-300/50" fill="none" />
+    </svg>
+  );
 }
 
 function fmt(ms: number): string {
@@ -52,6 +90,27 @@ export function Timeline() {
   const startX = useRef(0);
   const kfDragRef = useRef<{ ids: string[]; delta: number } | null>(null);
   kfDragRef.current = kfDrag;
+
+  /*
+   * 波形只在「这条时间轴里真有音频层」时才算。
+   * peaksFor 走一次离线渲染（96 秒的工程压到 8kHz 也就几百毫秒），算一次缓存一个版本，
+   * 但没必要为一个纯图层工程白跑一遍。
+   */
+  const hasAudio = useMemo(() => project.layers.some((l) => l.type === 'audio'), [project.layers]);
+  const [peaks, setPeaks] = useState<Float32Array | null>(null);
+  useEffect(() => {
+    if (!hasAudio) {
+      setPeaks(null);
+      return;
+    }
+    let alive = true;
+    void peaksFor(project, 320).then((p) => {
+      if (alive) setPeaks(p);
+    });
+    return () => {
+      alive = false;
+    };
+  }, [hasAudio, project]);
 
   const seek = (clientX: number) => {
     const el = laneRef.current;
@@ -276,9 +335,11 @@ export function Timeline() {
                           ? 'bg-amber-400'
                           : row.layer.type === 'code'
                             ? 'bg-cyan'
-                            : row.layer.type === 'text'
-                              ? 'bg-accent'
-                              : 'bg-zinc-500',
+                            : row.layer.type === 'audio'
+                              ? 'bg-emerald-400'
+                              : row.layer.type === 'text'
+                                ? 'bg-accent'
+                                : 'bg-zinc-500',
                       )}
                     />
                     <span className="truncate">{row.layer.name}</span>
@@ -368,14 +429,16 @@ export function Timeline() {
                     <div key={row.layer.id} className="relative h-6">
                       <div
                         className={cx(
-                          'absolute top-1 h-4 cursor-pointer rounded-sm border transition',
+                          'absolute top-1 h-4 cursor-pointer overflow-hidden rounded-sm border transition',
                           bad
                             ? 'border-rose-500 bg-rose-500/30'
                             : active
                               ? 'border-accent bg-accent/40'
                               : row.layer.type === 'code'
                                 ? 'border-cyan/40 bg-cyan/15 hover:bg-cyan/25'
-                                : 'border-ink-600 bg-ink-700/80 hover:bg-ink-600',
+                                : row.layer.type === 'audio'
+                                  ? 'border-emerald-500/40 bg-emerald-500/15 hover:bg-emerald-500/25'
+                                  : 'border-ink-600 bg-ink-700/80 hover:bg-ink-600',
                         )}
                         style={{ left: `${left}%`, width: `${width}%` }}
                         onPointerDown={(e) => {
@@ -383,7 +446,15 @@ export function Timeline() {
                           void exec('selection.set', { ids: [row.layer.id] });
                         }}
                         title={`${row.layer.name} · ${row.layer.inPoint}–${out}ms`}
-                      />
+                      >
+                        {row.layer.type === 'audio' && peaks && (
+                          <AudioWave
+                            peaks={peaks}
+                            from={row.layer.inPoint / project.duration}
+                            to={Math.min(out, project.duration) / project.duration}
+                          />
+                        )}
+                      </div>
                       {row.layer.animation?.enter && (
                         <div className="absolute top-2 h-2 w-0.5 bg-emerald-400" style={{ left: `${left}%` }} />
                       )}

@@ -11,6 +11,7 @@ import {
   Layers,
   Lock,
   MonitorSmartphone,
+  Music,
   Play,
   Plus,
   Search,
@@ -85,6 +86,8 @@ function layerIcon(type: Layer['type']) {
       return <Video size={13} />;
     case 'code':
       return <Code2 size={13} />;
+    case 'audio':
+      return <Music size={13} />;
     default:
       return <Square size={13} />;
   }
@@ -265,7 +268,7 @@ function LayersPanel() {
   const reversed = useMemo(() => [...layers].reverse(), [layers]);
   const gaps = useMemo(() => missingAssetLayers(project), [project]);
 
-  const add = (type: 'text' | 'code' | 'image') => {
+  const add = (type: 'text' | 'code' | 'image' | 'audio') => {
     setAddOpen(false);
     void exec('layer.create', { type });
   };
@@ -284,6 +287,7 @@ function LayersPanel() {
                 { k: 'text' as const, label: t('文本层'), icon: Type },
                 { k: 'code' as const, label: t('代码层'), icon: Code2 },
                 { k: 'image' as const, label: t('图片层'), icon: ImageIcon },
+                { k: 'audio' as const, label: t('音频层'), icon: Music },
               ].map((item) => {
                 const Icon = item.icon;
                 return (
@@ -762,7 +766,7 @@ function CommandsPanel() {
           return (
             <div key={category}>
               <div className="sticky top-0 z-10 bg-ink-850/95 px-2 py-1 text-[10px] font-semibold tracking-wider text-zinc-600 backdrop-blur">
-                {(category as CommandCategory).toUpperCase()}
+                {t(category).toUpperCase()}
               </div>
               {filtered.map((d) => (
                 <CommandRow key={d.type} type={d.type} description={d.description} example={d.example} />

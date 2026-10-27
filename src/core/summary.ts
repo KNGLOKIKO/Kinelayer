@@ -22,6 +22,8 @@ export interface LayerSummary {
   codeBytes?: number;
   assetId?: string | null;
   codeError?: string | null;
+  /** 音频层专有：响什么、多响 */
+  audio?: { preset: string; root: number; bpm: number; volume: number; muted: boolean };
 }
 
 function truncate(s: string, n: number): string {
@@ -68,6 +70,15 @@ export function summarizeProject(project: Project): Record<string, unknown> {
       base.codeBytes = layer.code.source.length;
     } else if (layer.type === 'image' || layer.type === 'video') {
       base.assetId = layer.assetId;
+    } else if (layer.type === 'audio') {
+      /* 音频层没有画面属性，摘要里只报「响什么、多响」——AI 拿到坐标和尺寸只会更糊涂 */
+      base.audio = {
+        preset: layer.tone.preset,
+        root: layer.tone.root,
+        bpm: layer.tone.bpm,
+        volume: layer.volume,
+        muted: layer.muted,
+      };
     }
     return base;
   });

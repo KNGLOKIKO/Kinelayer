@@ -30,6 +30,7 @@ import { restoreFonts } from '@/persist/fonts';
 import { initAI } from '@/ai/config';
 import { connectBridge, subscribeBridgeSync } from '@/ai/bridgeClient';
 import { getLayerWindowHost } from '@/windows/host';
+import { resetAudio, syncProjectAudio } from '@/render/audioEngine';
 import { ensureServices } from '@/app/services';
 import { getServices } from '@/core/services';
 import { cx } from '@/ui/primitives';
@@ -176,6 +177,9 @@ export function EditorApp() {
     replaceUrl(editorUrl(liveProjectId));
   }, [booted, liveProjectId]);
 
+  /* 切工程 / 离开编辑器时收声：音频是全局单例，不清会跟着下一个工程继续响 */
+  useEffect(() => () => resetAudio(), [liveProjectId]);
+
   /* -------------------------------------------------------- master clock */
   useEffect(() => {
     const host = getLayerWindowHost();
@@ -186,7 +190,15 @@ export function EditorApp() {
       const dt = Math.min(120, now - last);
       last = now;
       const state = useEditor.getState();
-      if (!state.runtime.playing) return;
+      if (!state.runtime.playing) {
+        /*
+         * 每帧都调一次是故意的：sync 自己会判「有没有在响」，没在响就是一次空返回。
+         * 把「停」这件事交给主时钟而不是每个暂停入口，是为了不漏 —— 空格、时间轴、
+         * 顶部按钮、命令层有四个地方能停，谁忘了调 audio.stop 都会变成「画面停了声音还在」。
+         */
+        syncProjectAudio(state.project, state.runtime.playhead, false);
+        return;
+      }
       let next = state.runtime.playhead + dt;
       if (next >= state.project.duration) {
         if (state.project.loop) {
@@ -194,11 +206,14 @@ export function EditorApp() {
         } else {
           useEditor.setState({ runtime: { ...state.runtime, playhead: state.project.duration, playing: false } });
           host.broadcastTime(state.project.duration, false);
+          syncProjectAudio(state.project, state.project.duration, false);
           return;
         }
       }
       useEditor.setState({ runtime: { ...state.runtime, playhead: next } });
       host.broadcastTime(next, true);
+      /* 声音跟着同一根时间轴走；seek / 循环回绕由它自己重锚 */
+      syncProjectAudio(state.project, next, true);
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);

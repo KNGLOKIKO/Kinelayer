@@ -9,7 +9,7 @@
 | --- | --- | --- | --- |
 | 只支持 WebM（VP9/VP8），没有 MP4 | `exportWebm()` 用 `MediaRecorder` | 浏览器原生编码器里 H.264 的可用性依赖平台与许可证，不能保证 | 用 WebCodecs `VideoEncoder` + mp4 muxer，或 ffmpeg.wasm 转码 |
 | 没有 GIF | — | GIF 调色板 + 抖动需要额外编码器，体积也大 | 引入 gif.js 之类的工作线程编码器 |
-| 没有音轨 | 项目数据模型里没有音频概念 | 首版聚焦视觉；加音轨会牵动时间轴、导出、播放同步三处 | `AudioLayer` + `AudioContext` 混流，WebM 可带 Opus |
+| ~~没有音轨~~ | **v2.9 已支持**：`AudioLayer` + WebM 混流（Opus） | 见 docs/09-audio.md | 音频**文件**导入仍未支持，音源是参数化合成的 |
 | 导出是「按时间轴推进」而非实时录制 | 每帧 `requestFrame()` 后 `sleep(1000/fps)` | 这样帧与时间严格对齐，不受机器卡顿影响；代价是导出一个 4s@30fps 的视频要花 ~4s+ | 可以去掉 sleep 用固定 delta，但代码层里若用了真实时钟就会漂 |
 | HTML 代码层导出依赖 SVG `foreignObject` 栅格化 | `rasterizeHtml()` | 浏览器安全策略：外链 CSS/字体/图片可能不加载，部分滤镜不支持 | 引导用户把样式内联；长期可换成 OffscreenCanvas + 自绘 |
 
