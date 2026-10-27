@@ -10,6 +10,7 @@ import { setActiveLocale } from './i18n';
 import { dispatch } from './core/commandBus';
 import { listCommands } from './core/registry';
 import { audioStatus, createAudioCapture, describeAudioAt, measureOfflineAudio, peaksFor, type AudioCapture } from './render/audioEngine';
+import { acquireScratch, renderInto, renderToCanvas } from './render/exporters';
 
 registerAllCommands();
 // 先按浏览器语言/上次选择初始化，再渲染（避免首帧闪一下默认语言）
@@ -31,6 +32,62 @@ if (import.meta.env.DEV) {
       dispatch(type, payload ?? {}, { source: opts?.source ?? 'user', dryRun: opts?.dryRun }),
     state: () => useEditor.getState(),
     commands: () => listCommands().map((c) => c.type),
+    /**
+     * 分镜用：把当前工程在某一毫秒渲染成一张图。
+     * 走的是导出那条 `renderToCanvas`，所以「这里好看」＝「导出好看」；
+     * 片子做得越密，这个口越重要 —— 光看时间轴看不出画面挤不挤。
+     */
+    frame: async (ms: number, scale = 1) => {
+      const canvas = await renderToCanvas(useEditor.getState().project, ms, scale, false);
+      return canvas.toDataURL('image/png');
+    },
+    /**
+     * 只读耗时、不编码：基准测试用（toDataURL 一张 1080p 要十几毫秒，会盖住真实开销）。
+     *
+     * 用租来的画布而不是每次 `renderToCanvas`：后者每帧新分配 8MB，
+     * 量到的数字里混着 GC，而真实导出（WebM 那条路）是复用一张画布的。
+     * 度量的应该是「导出时一帧多贵」，不是「分配一张 1080p 画布多贵」。
+     */
+    renderTimed: async (ms: number, scale = 1) => {
+      const project = useEditor.getState().project;
+      const canvas = acquireScratch(project, scale);
+      const t0 = performance.now();
+      await renderInto(canvas, project, { time: ms, scale, transparent: false });
+      return +(performance.now() - t0).toFixed(2);
+    },
+    /**
+     * 性能剖析用：把某一毫秒拆到「每个图层各花了多少毫秒」。
+     * 走的是同一个 renderScene（onlyLayerId），所以拆出来的和整帧是同一份开销，
+     * 不是另写一条测量路径糊出来的数字。
+     *
+     * 两次取更小值：单次测量里一次 GC、一次字体回退都会把账算到无关图层头上
+     * （音频层画 0 像素却测出 20ms，就是这个）。要的是「这一层稳态多贵」。
+     */
+    profile: async (ms: number, scale = 1) => {
+      const project = useEditor.getState().project;
+      const canvas = acquireScratch(project, scale);
+      const once = async () => {
+        const t0 = performance.now();
+        await renderInto(canvas, project, { time: ms, scale, transparent: false });
+        return performance.now() - t0;
+      };
+      await once();
+      const total = Math.min(await once(), await once());
+      const rows: { id: string; name: string; type: string; ms: number }[] = [];
+      for (const layer of project.layers) {
+        if (ms < layer.inPoint || ms >= layer.outPoint) continue;
+        const id = layer.id;
+        const t0 = performance.now();
+        await renderInto(canvas, project, { time: ms, scale, transparent: false, layerId: id });
+        const a = performance.now() - t0;
+        const t1 = performance.now();
+        await renderInto(canvas, project, { time: ms, scale, transparent: false, layerId: id });
+        const b = performance.now() - t1;
+        rows.push({ id, name: layer.name, type: layer.type, ms: +Math.min(a, b).toFixed(2) });
+      }
+      rows.sort((a, b) => b.ms - a.ms);
+      return { total: +total.toFixed(2), rows };
+    },
     /** e2e 用：拿到某个图层的独立窗口地址（含本窗口 hostId） */
     layerUrl: (layerId: string) => buildLayerUrl(layerId, getLayerWindowHost().hostId),
     /**

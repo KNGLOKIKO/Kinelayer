@@ -110,12 +110,21 @@
 
 - `renderScene()` 每帧整张重绘（含代码层求值）。1080×1440、7 个图层在 30fps 下很轻松；
   但如果叠十几层 4K 图片 + 多个 GLSL 层，帧率会掉。目前没有脏矩形优化。
+- **代码层的耗时只由两个量决定：像素数 × 每像素计算量**。所以才有了
+  `CodeSpec.renderScale`（0.25–1，默认 1）：低频成片的画面（噪声场、雾、辉光）把它降下来，
+  像素数按平方减少；文字与细线不要降，放大后会糊。
+  一支 64 秒九层样片在这条规则下的实测账见 [10-performance.md](10-performance.md) ——
+  p95 从 155ms 压到 20.5ms，全片 320 个采样点无一超出 30fps 预算。
+  需要注意这是**软件光栅化**（无 GPU）下的数字；有显卡时 WebGL 那一段会低一到两个数量级。
 - 舞台的 HTML 代码层用 `<iframe>` 叠加预览，滚动/缩放时靠 CSS transform 跟随，极端缩放下可能有 1px 抖动。
 - 推荐 Chrome / Edge 116+。Safari 缺 `documentPictureInPicture`、`navigator.fonts`，
   且 `ctx.letterSpacing` 支持较晚，字距会退化。
-- 首屏按视图分包：启动页约 178KB gzip（共享运行时 158KB + 启动页 10KB + 公共组件 3KB + CSS 7KB），
-  进编辑器再加载约 205KB（CodeMirror、渲染引擎、AI 面板都在这里）。图层窗口是独立 chunk（~5KB）。
+- 首屏按视图分包：启动页约 204KB gzip（共享运行时 178KB + 启动页 13KB + 公共组件 3KB + CSS 8KB + HTML 1KB），
+  进编辑器再加载约 215KB（CodeMirror、渲染引擎、AI 面板都在这里）。图层窗口是独立 chunk（~5KB）。
   共享运行时里包含导入管线与 `scene.ai.json` 的投影逻辑 —— 它们是命令层的依赖，两个视图都要用。
+- 示例样片的九段画面源码是**单独一个 chunk**（42KB / 17KB gzip），`createSampleProject()` 走
+  `await import('./showcase/film')`：一个只想打开启动页的人不该为「一份可能永远不会被创建的示例」
+  付这份下载，而真要创建示例时每个浏览器只会拉一次。拆出来之后共享运行时从 195KB 降到 178KB gzip。
 - `@babel/parser` 单独一个 chunk（289KB / 73KB gzip），**只在真的导入 Remotion 工程或带 `<script>` 的 HTML 时才下载**（两条路共用同一个 chunk）。
 - html 代码层的 iframe 会在导入后异步量一次内容包围盒（量到之前 `opacity: 0`），
   所以导入瞬间那一层是空的，几十毫秒后才出现。不用「先显示后跳位」是刻意的 —— 跳位更刺眼。

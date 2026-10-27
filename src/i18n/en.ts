@@ -959,8 +959,8 @@ export const en: Record<string, string> = {
     'one command bus',
   '关键帧 · 图层窗口同源':
     'keyframes · same source as layer windows',
-  '已把示例「{name}」放进工程库：{seconds} 秒 · {layers} 层 · {tracks} 条关键帧轨道 · {code} 个代码层 · {audio} 条音轨 —— 打开就能改，删掉就不会再出现。':
-    'Added the sample 「{name}」 to your library: {seconds}s · {layers} layers · {tracks} keyframe tracks · {code} code layers · {audio} audio tracks — open it and edit freely; once deleted it will not come back.',
+  '已把示例「{name}」放进工程库：{seconds} 秒 · {layers} 层 · {code} 个代码层 · {audio} 条音轨 —— 打开就能改，删掉就不会再出现。':
+    'Added the sample 「{name}」 to your library: {seconds}s · {layers} layers · {code} code layers · {audio} audio tracks — open it and edit freely; once deleted it will not come back.',
   打开示例:
     'Open the sample',
   关掉这条提示:
@@ -979,8 +979,8 @@ export const en: Record<string, string> = {
     'Sample restored to your library',
   '示例已换成新版：{seconds} 秒 · {layers} 层 · {audio} 条音轨 —— 原来那份没动过，直接换掉了。':
     'Sample upgraded: {seconds}s · {layers} layers · {audio} audio tracks — the old copy had not been edited, so it was replaced in place.',
-  '示例有新版（{seconds} 秒六章导览）。你在这份上改过东西，所以没动它。':
-    'A newer sample is available ({seconds}s, six chapters). You have edited your copy, so it was left untouched.',
+  '示例有新版（{seconds} 秒极限样片）。你在这份上改过东西，所以没动它。':
+    'A newer sample is available ({seconds}s extreme reel). You have edited your copy, so it was left untouched.',
   换成新版:
     'Replace with the new one',
   '换成新版示例？你在这份示例上做过的改动会丢掉。':

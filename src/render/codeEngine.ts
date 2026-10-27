@@ -300,7 +300,13 @@ export function runCodeLayer(
   if (rt.disabled) {
     return { ok: false, error: rt.error, disabled: true };
   }
-  resize(rt, layer, scale);
+  /*
+   * 内部分辨率 = 外部倍率（预览 zoom*dpr / 导出 scale）× 图层自带的 renderScale。
+   * 两个乘数分开是有意的：一个是「显示多大」，一个是「这一层值不值这么多像素」。
+   * 合成阶段 `drawImage(canvas, 0, 0, layer.width, layer.height)` 会把内部分辨率
+   * 双线性放大回图层尺寸，所以这里省下的是纯粹的像素填充，不是画面内容。
+   */
+  resize(rt, layer, scale * (layer.code.renderScale ?? 1));
   const started = performance.now();
 
   try {

@@ -180,7 +180,7 @@ export const projectCommands = [
     mutating: false,
     undoable: false,
     description:
-      '把示例工程写进本地工程库（按版本幂等）。示例是一支 96 秒、六章的导览片（1920×1080 / 30fps）：开场、项目背景、核心功能、使用方式、主要内容、收尾，配三条参数化合成的音轨。全部图形与声音都由数据算出来，没有任何外部资源依赖，打开就能播、能改、能导出。同一版本塞过就直接返回；库里的还是旧版本时，没被动过就原地换新、被改过只回报「有新版」不覆盖；用户删掉之后不会自己冒回来。不改动当前打开的文档。',
+      '把示例工程写进本地工程库（按版本幂等）。示例是一支 64 秒、九段的极限样片（1920×1080 / 30fps）：冷开、点名、等轴城市、HUD 锁定、液态 shader、技术账、风格墙、落版，配六条参数化合成的音轨。全部图形与声音都由代码算出来，没有任何外部资源依赖，打开就能播、能改、能导出。同一版本塞过就直接返回；库里的还是旧版本时，没被动过就原地换新、被改过只回报「有新版」不覆盖；用户删掉之后不会自己冒回来。不改动当前打开的文档。',
     schema: z.object({ force: z.boolean().default(false) }),
     example: {},
     handler: async (draft, payload, ctx) => {
@@ -191,7 +191,7 @@ export const projectCommands = [
 
       /* 用户明确点名要放回/换新：原地覆盖同一个 id，不在列表里再造一条 */
       if (payload.force) {
-        const project = createSampleProject();
+        const project = await createSampleProject();
         const meta = await createProjectRecord(project);
         await markSampleSeeded(SAMPLE_VERSION);
         return {
@@ -244,7 +244,7 @@ export const projectCommands = [
           };
         }
         /* 没动过：原地换新。同一个 id，卡片位置、「当前」标记都不变 */
-        const project = createSampleProject();
+        const project = await createSampleProject();
         const meta = await createProjectRecord(project);
         await markSampleSeeded(SAMPLE_VERSION);
         return {
@@ -259,7 +259,7 @@ export const projectCommands = [
         };
       }
 
-      const project = createSampleProject();
+      const project = await createSampleProject();
       const meta = await createProjectRecord(project);
       await markSampleSeeded(SAMPLE_VERSION);
       return {

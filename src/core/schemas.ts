@@ -145,6 +145,8 @@ export const zCodeSpec = z.object({
   engine: zEngine,
   source: z.string().max(200_000),
   params: z.record(z.union([z.string(), z.number(), z.boolean()])),
+  /** 内部分辨率倍率（0.25–1）。低频画面降它换帧率，文字层不要降 */
+  renderScale: z.number().min(0.25).max(1).optional(),
 });
 
 /** 程序化音源。marks 是「相对图层起点」的毫秒数组，chime 用它标章节切换 */

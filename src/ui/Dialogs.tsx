@@ -481,6 +481,29 @@ export function CodeEditorDialog() {
       )}
       <div className="mb-2 flex items-center gap-2">
         <Badge tone="cyan">{layer.code.engine}</Badge>
+        {/*
+          内部分辨率：整支片子只有一个旋钮能同时改画质与耗时，得让它看得见。
+          文案刻意写「内部分辨率」而不是「质量」——它不改内容、不改字号，
+          只改这一层用多少像素去算，放大回图层尺寸时是双线性插值。
+        */}
+        {!isRemotion && !isBg && layer.type === 'code' && (
+          <label className="flex items-center gap-1.5 text-[10.5px] text-zinc-500">
+            <span>{t('内部分辨率')}</span>
+            <select
+              className="rounded border border-white/10 bg-ink-900 px-1.5 py-0.5 text-[10.5px] text-zinc-300"
+              value={String(layer.code.renderScale ?? 1)}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                void exec('code.setRenderScale', { id: layer.id, renderScale: v >= 1 ? null : v });
+              }}
+            >
+              <option value="1">{t('100% · 文字与细线用这个')}</option>
+              <option value="0.75">75%</option>
+              <option value="0.5">{t('50% · 噪声 / 辉光用这个')}</option>
+              <option value="0.35">35%</option>
+            </select>
+          </label>
+        )}
         <div className="flex-1" />
         {!isRemotion &&
           [

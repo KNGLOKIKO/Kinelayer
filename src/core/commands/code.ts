@@ -57,6 +57,22 @@ export const codeCommands = [
   }),
 
   defineCommand({
+    type: 'code.setRenderScale',
+    category: '代码',
+    mutating: true,
+    description:
+      '设置代码层的内部分辨率倍率（0.25–1，1 为原始）。低频成片画面（噪声场、雾、辉光）降它可以成倍省时间，文字与细线不要降。',
+    schema: z.object({ id: zId, renderScale: z.number().min(0.25).max(1).nullable() }),
+    example: { id: 'ly_abc', renderScale: 0.5 },
+    handler: (draft, payload) => {
+      const layer = requireCode(draft, payload.id);
+      if (payload.renderScale === null) delete layer.code.renderScale;
+      else layer.code.renderScale = payload.renderScale;
+      return { id: layer.id, renderScale: layer.code.renderScale ?? 1 };
+    },
+  }),
+
+  defineCommand({
     type: 'code.resetRuntime',
     category: '代码',
     mutating: false,

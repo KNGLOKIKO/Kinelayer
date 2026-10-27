@@ -3,9 +3,9 @@
  *
  * 验的是「一个从没打开过这个应用的人，第一眼看到什么」：
  *   1. 工程库里已经有一份示例，带缩略图与「示例」徽标
- *   2. 它是真的能打开、能改、内容完整（96 秒长片 / 六个章节 / 零外部资源）
+ *   2. 它是真的能打开、能改、内容完整（64 秒极限样片 / 九段分镜 / 零外部资源）
  *   3. 第 0 帧就有完整画面（没有入场预设导致的「开场白屏」）
- *   3b. 三条音轨是真的有声音（离线渲染出来的 peak 不为 0）
+ *   3b. 六条音轨是真的有声音（离线渲染出来的 peak 不为 0）
  *   4. 引导条只出现一次，刷新不再出现；示例不会被重复创建
  *   5. 旧版本（v2.8 那份 4 秒海报）会被换成新版；被改过的不覆盖，但要说清楚
  *   5. 删掉之后不再自动重建（用户删了就是删了）
@@ -117,13 +117,30 @@ const main = async () => {  const cdp = await launch({ url: base, width: 1440, h
     /* ── 1. 首屏：示例已经在库里 ─────────────────────── */
     const first = await cdp.ev(READ_LAUNCHER);
     check('首次打开就有一条示例工程', first.cards.length === 1 && first.cards[0].id === SAMPLE_ID, JSON.stringify(first.cards.map((c) => c.id)));
-    check('示例卡片带缩略图（不是灰块）', first.cards[0].thumb.startsWith('data:image/') && first.cards[0].thumb.length > 5000, String(first.cards[0]?.thumb.length ?? 0));
+    /*
+     * 缩略图不能用一个「字节数够大」的阈值糊过去：这支片子的第 0 帧本来就是几乎全黑的，
+     * 一张纯黑 JPEG 只有一千多字节，而一张真的暗场画面也只有三千多 —— 阈值设 5000
+     * 会把正确的东西判成错的。所以直接把它画到 64×36 上数颜色。
+     */
+    const thumbColors = await cdp.ev(`(async () => {
+      const img = document.querySelector('[data-project-id="${SAMPLE_ID}"] img');
+      const src = img ? img.getAttribute('src') || '' : '';
+      if (!src.startsWith('data:image/')) return -1;
+      const i = new Image(); i.src = src; await i.decode();
+      const c = document.createElement('canvas'); c.width = 64; c.height = 36;
+      const x = c.getContext('2d'); x.drawImage(i, 0, 0, 64, 36);
+      const d = x.getImageData(0, 0, 64, 36).data;
+      const seen = new Set();
+      for (let k = 0; k < d.length; k += 4) seen.add((d[k] << 16) | (d[k + 1] << 8) | d[k + 2]);
+      return seen.size;
+    })()`);
+    check('示例缩略图是真的画面（不是灰块）', thumbColors >= 24, `${thumbColors} 种颜色`);
     check('示例卡片带「示例」徽标', first.cards[0].badge === true);
-    check('卡片刻出了尺寸与图层数', /1920×1080/.test(first.cards[0].text) && /\d+ 图层/.test(first.cards[0].text), first.cards[0].text.slice(0, 80));
+    check('卡片刻出了尺寸与图层数', /1920×1080/.test(first.cards[0].text) && /16 图层/.test(first.cards[0].text), first.cards[0].text.slice(0, 80));
     check(
-      '引导条说明了刚才发生了什么（时长 / 图层 / 音轨）',
-      !!first.banner && /96 秒/.test(first.banner) && /条音轨/.test(first.banner) && /条关键帧轨道/.test(first.banner),
-      String(first.banner).slice(0, 120),
+      '引导条说明了刚才发生了什么（时长 / 代码层 / 音轨）',
+      !!first.banner && /64 秒/.test(first.banner) && /条音轨/.test(first.banner) && /个代码层/.test(first.banner),
+      String(first.banner).slice(0, 130),
     );
 
     /* ── 2. 介绍页动画 ───────────────────────────────── */
@@ -169,30 +186,34 @@ const main = async () => {  const cdp = await launch({ url: base, width: 1440, h
 
     const shape = await cdp.ev(`(() => {
       const p = window.__kly.state().project;
-      const firstTitle = p.layers.find((l) => l.name === '01 · 标题');
+      const coldOpen = p.layers.find((l) => l.name === '01 · 冷开 · 15');
       const audio = p.layers.filter((l) => l.type === 'audio');
+      const code = p.layers.filter((l) => l.type === 'code');
       return {
         id: p.id, layers: p.layers.length, assets: p.assets.length, fonts: p.fonts.length,
         duration: p.duration, fps: p.fps, version: p.version, loop: p.loop,
         tracks: p.layers.reduce((n, l) => n + (l.animation?.tracks?.length ?? 0), 0),
-        codeLayers: p.layers.filter((l) => l.type === 'code').length,
+        codeLayers: code.length,
         audioLayers: audio.length,
-        audioPresets: audio.map((l) => l.tone.preset),
+        audioPresets: audio.map((l) => l.tone.preset).sort().join(','),
         hasEnter: p.layers.some((l) => l.animation?.enter || l.animation?.exit),
-        firstTitleIn: firstTitle ? firstTitle.inPoint : null,
-        firstTitleOpacity: firstTitle ? firstTitle.opacity : null,
+        coldOpenIn: coldOpen ? coldOpen.inPoint : null,
+        halfRes: code.filter((l) => (l.code.renderScale ?? 1) < 1).map((l) => l.name),
         names: p.layers.map((l) => l.name),
       };
     })()`);
     check('打开的就是那条示例', shape.id === SAMPLE_ID, shape.id);
-    check('是一支 96 秒长片（1920×1080 / 30fps / 不循环）', shape.duration === 96000 && shape.fps === 30 && shape.loop === false, `${shape.duration}ms ${shape.fps}fps loop=${shape.loop}`);
-    check('图层量级够撑起六个章节', shape.layers >= 45 && shape.codeLayers >= 6, JSON.stringify({ layers: shape.layers, code: shape.codeLayers }));
-    check('关键帧轨道铺满整条时间轴', shape.tracks >= 40, String(shape.tracks));
-    check('六章标题齐全（01…06）', ['01', '02', '03', '04', '05', '06'].every((n) => shape.names.includes(`${n} · 标题`)), JSON.stringify(shape.names.filter((n) => n.includes('标题'))));
-    check('三条音轨各司其职（pad / pulse / chime）', shape.audioLayers === 3 && shape.audioPresets.join(',') === 'pad,pulse,chime', JSON.stringify(shape.audioPresets));
-    check('不依赖任何外部资源', shape.assets === 0, `${shape.assets} 资源 / ${shape.fonts} 字体`);
-    check('没有入场/退场预设（第 0 帧不会是白屏）', shape.hasEnter === false && shape.firstTitleIn === 0 && shape.firstTitleOpacity === 1);
-    check('图层名是写给人看的（分镜表）', shape.names.includes('收尾 · 提示') && shape.names.includes('音频 · 铺底长音'), JSON.stringify(shape.names.slice(0, 6)));
+    check('是一支 64 秒极限样片（1920×1080 / 30fps / 不循环）', shape.duration === 64000 && shape.fps === 30 && shape.loop === false, `${shape.duration}ms ${shape.fps}fps loop=${shape.loop}`);
+    check('九个代码层各管一段（不是一堆小图层）', shape.layers === 16 && shape.codeLayers === 9, JSON.stringify({ layers: shape.layers, code: shape.codeLayers }));
+    check('八段分镜标题齐全（01…08）', ['01', '02', '03', '04', '05', '06', '07', '08'].every((n) => shape.names.some((x) => x.startsWith(`${n} ·`))), JSON.stringify(shape.names));
+    /* 这支片子是把动画写进代码里的，不靠关键帧轨道 —— 断言也换成「代码层覆盖整条时间轴」 */
+    check('全片不依赖关键帧轨道（动画全在代码里）', shape.tracks === 0, `${shape.tracks} 条轨道`);
+    check('六条音轨：四条铺底 + 节拍 + 切点提示', shape.audioLayers === 6 && shape.audioPresets === 'chime,pad,pad,pad,pad,pulse', shape.audioPresets);
+    check('不依赖任何外部资源', shape.assets === 0 && shape.fonts === 0, `${shape.assets} 资源 / ${shape.fonts} 字体`);
+    check('没有入场/退场预设（第 0 帧不会是白屏）', shape.hasEnter === false && shape.coldOpenIn === 0, `enter=${shape.hasEnter} 冷开层 inPoint=${shape.coldOpenIn}`);
+    check('图层名是写给人看的分镜表', shape.names.includes('07 · 风格墙') && shape.names.includes('音频 · 切点提示'), JSON.stringify(shape.names.slice(0, 6)));
+    /* 性能取舍要跟着示例一起进版本库：这一层是逐像素噪声，跑在半分辨率上是设计决定，不是巧合 */
+    check('逐像素那一层标了半分辨率（性能取舍可见）', JSON.stringify(shape.halfRes) === JSON.stringify(['05 · 液态 shader']), JSON.stringify(shape.halfRes));
 
     /* 声音不能只在数据里：离线渲染一遍，peak 为 0 就是静音 */
     const audio = await cdp.ev(`(async () => {
@@ -204,8 +225,8 @@ const main = async () => {  const cdp = await launch({ url: base, width: 1440, h
       return { m, at30, buckets: peaks ? peaks.length : 0, nonzero };
     })()`);
     check('离线渲染出来的音轨真的有声音', !!audio.m && audio.m.peak > 0.01 && audio.m.rms > 0.001, JSON.stringify(audio.m));
-    check('音轨长度与工程时长一致', !!audio.m && Math.abs(audio.m.ms - 96000) <= 500, `${audio.m?.ms}ms`);
-    check('第 30 秒同时响着铺底与节拍', audio.at30.join(',') === 'pad,pulse', JSON.stringify(audio.at30));
+    check('音轨长度与工程时长一致', !!audio.m && Math.abs(audio.m.ms - 64000) <= 500, `${audio.m?.ms}ms`);
+    check('第 30 秒同时响着铺底与节拍', audio.at30.includes('pad') && audio.at30.includes('pulse'), JSON.stringify(audio.at30));
     check('时间轴波形拿得到峰值（大部分非零）', audio.buckets === 160 && audio.nonzero > 80, `${audio.nonzero}/${audio.buckets}`);
 
     const shot = await cdp.ev(`(async () => {
@@ -261,7 +282,7 @@ const main = async () => {  const cdp = await launch({ url: base, width: 1440, h
     const up = await cdp.ev(READ_LAUNCHER);
     check(
       '库里留着旧版时会换成新版（不是一直停在旧海报）',
-      rw === 'ok' && /织层导览（96 秒）/.test(up.cards[0]?.text ?? ''),
+      rw === 'ok' && /极限样片（64 秒）/.test(up.cards[0]?.text ?? ''),
       `${rw} · ${String(up.cards[0]?.text).slice(0, 48)}`,
     );
     const noticeUp = await cdp.ev(READ_NOTICE);
@@ -287,8 +308,8 @@ const main = async () => {  const cdp = await launch({ url: base, width: 1440, h
     })()`);
     await sleep(1600);
     const replaced = await cdp.ev(READ_LAUNCHER);
-    check('点「换成新版」才真的换掉', clickedReplace && /织层导览（96 秒）/.test(replaced.cards[0]?.text ?? ''), String(replaced.cards[0]?.text).slice(0, 48));
-    check('版本标记落进 prefs（下次不再来回换）', (await cdp.ev(READ_SAMPLE_VERSION)) === 2, String(await cdp.ev(READ_SAMPLE_VERSION)));
+    check('点「换成新版」才真的换掉', clickedReplace && /极限样片（64 秒）/.test(replaced.cards[0]?.text ?? ''), String(replaced.cards[0]?.text).slice(0, 48));
+    check('版本标记落进 prefs（下次不再来回换）', (await cdp.ev(READ_SAMPLE_VERSION)) === 3, String(await cdp.ev(READ_SAMPLE_VERSION)));
 
     /* ── 7. 英文模式：介绍区零中文 ───────────────────── */
     await cdp.ev(`(() => {

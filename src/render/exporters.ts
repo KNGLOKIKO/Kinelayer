@@ -72,12 +72,35 @@ export async function renderToCanvas(
   transparent: boolean,
   layerId: string | null = null,
 ): Promise<HTMLCanvasElement> {
-  const htmlBitmaps = await prepare(project, time, scale);
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.round(project.width * scale));
   canvas.height = Math.max(1, Math.round(project.height * scale));
+  await renderInto(canvas, project, { time, scale, transparent, layerId });
+  return canvas;
+}
+
+/**
+ * 把一帧画进**调用方自己那张**画布。
+ *
+ * 和 `renderToCanvas` 的唯一区别是「谁负责分配」——而这个区别很重要：
+ * 1920×1080 的 canvas 背后是 8MB，逐帧 new 一张的代价不在填充上，而在
+ * 两帧之间把 8MB 交给 GC。实测这一项能占到单帧开销的三成，而且更坏的是它
+ * **会被记到正好在渲染的那个图层头上**（剖析时音频层画 0 像素却测出 20ms，
+ * 就是这么来的）。导出 WebM 那条路本来就复用一张画布，现在其余路径也能复用。
+ *
+ * 调用方负责清场：这里会先 `clearRect`，但透明背景之外不会替你复位任何状态。
+ */
+export async function renderInto(
+  canvas: HTMLCanvasElement,
+  project: Project,
+  opts: { time: number; scale: number; transparent: boolean; layerId?: string | null },
+): Promise<void> {
+  const { time, scale, transparent, layerId = null } = opts;
+  const htmlBitmaps = await prepare(project, time, scale);
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('无法创建导出画布上下文');
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
   renderScene(ctx, project, {
     time,
@@ -86,6 +109,27 @@ export async function renderToCanvas(
     htmlBitmaps,
     onlyLayerId: layerId,
   });
+}
+
+/**
+ * 一块「临时画布」租借处：同一尺寸反复用同一张，避免 GC 抖动。
+ *
+ * 只借给**确定用完就走**的调用方（逐帧剖析、耗时采样）。返回的这张在下一次
+ * `acquireScratch` 同尺寸调用时就会被覆盖，所以不要把它传出去异步使用。
+ */
+const scratch = new Map<string, HTMLCanvasElement>();
+
+export function acquireScratch(project: Project, scale: number): HTMLCanvasElement {
+  const w = Math.max(1, Math.round(project.width * scale));
+  const h = Math.max(1, Math.round(project.height * scale));
+  const key = `${w}x${h}`;
+  let canvas = scratch.get(key);
+  if (!canvas) {
+    canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    scratch.set(key, canvas);
+  }
   return canvas;
 }
 

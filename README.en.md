@@ -345,6 +345,41 @@ Details in [docs/09-audio.md](docs/09-audio.md).
 
 ---
 
+## v2.10 · The extreme reel, and the performance ceiling
+
+The previous version proved that a code layer can explain something. This one asks a harder question:
+**can it carry a finished film?**
+
+The sample is now a **64-second reel**: eight segments, nine code layers, zero external assets — cold open
+(a huge 15 slamming down), roll call (fifteen MG style names, one per 500ms), isometric city (a 13×13 grid
+growing outward), HUD lock-on, a GLSL liquid field (three-level domain warping), a ledger of moving source
+code plus a waveform, a parallax texture wall, and an end card. The whole film has **zero keyframe tracks** —
+the animation lives in nine strings in `src/core/showcase/scenes.ts`, and the layer names *are* the storyboard.
+
+The real work, though, was performance. The first cut ran, but not fast enough: `perf-check` measured
+p95 = 155ms against a 33.3ms budget, 18.4% of samples over budget, two of five checks passing. The diagnosis
+fits on one line: **frame cost ≈ pixel count × work per pixel**, and the liquid segment evaluated 80 noise
+lookups per pixel.
+
+Two things followed. First, `CodeSpec.renderScale` (0.25–1) on the engine: a code layer can declare its own
+internal resolution and get bilinearly upscaled at composite time — low-frequency imagery (noise, fog, glow)
+can afford it, text and hairlines cannot. Second, the noise was split into three octave tiers (2 / 3 / 4),
+taking it from 20 evaluations to 13; since fewer octaves visibly softens the field, the warp amplitudes went up
+at the same time, trading folding for detail.
+
+Result: **p95 155.1ms → 20.5ms, zero over-budget samples out of 320, 5/5 checks passing.** The bottleneck even
+changed hands — the hottest layer is no longer the shader but the purely vector isometric city, which says more
+about the fix than the number does.
+
+One dead end is recorded on purpose: replacing the `sin`-based hash was expected to help and measurably did not
+(in a software rasteriser `sin` is a polynomial expansion, a few multiply-adds from an integer hash). The integer
+hash stayed in the code because it is more portable across devices, not because it is faster — written down so
+nobody mistakes it for an optimisation next time.
+
+Details in [docs/10-performance.md](docs/10-performance.md).
+
+---
+
 ## Shortcuts
 
 | Action | Keys |
@@ -457,8 +492,9 @@ all three flavours grow at once.
 - [Code video integration](docs/04-code-video-integration.md) — how far Remotion parsing goes, the `remotion-component` boundary, rendering a remotion-kit
 - [After import](docs/06-after-import.md) — the four states of a media layer, why `sourceRef` only records what was never fetched, fixing layers that share one address
 - [Custom commands](docs/07-custom-commands.md) — why there is no DSL, the two meanings of `{{x}}`, why one macro must be one atomic batch, forbidden commands
-- [First run](docs/08-first-run.md) — the six chapters of the 96-second tour, why frame 0 must not carry an enter animation, the four beats of the intro animation
+- [First run](docs/08-first-run.md) — the eight segments of the 64-second reel, why frame 0 must not carry an enter animation, why the sample upgrades by version
 - [Audio layer](docs/09-audio.md) — why the tones are synthesised, anchor + lookahead + worker scheduling, offline-rendered export, waveforms
+- [Performance](docs/10-performance.md) — the bottleneck is one multiplication, four optimisation directions (one of them a dead end), how the target is set, how to reproduce with `perf-check`
 
 ## License
 
