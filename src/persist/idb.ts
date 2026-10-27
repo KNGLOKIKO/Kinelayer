@@ -189,6 +189,13 @@ export interface AppPrefs {
    * 那就该真的没了，而不是下次刷新又冒出来。
    */
   sampleSeeded?: boolean;
+  /**
+   * 已塞进去的那份示例是第几版（见 `SAMPLE_VERSION`）。
+   *
+   * v2.8 只写了布尔标记，所以「没有这个字段但有 sampleSeeded」要按第 1 版算；
+   * 有版本号之后才能判断「是不是该换成新版」。
+   */
+  sampleVersion?: number;
 }
 
 /** 从裸 Project 抽元信息。idb 层不做 normalize，字段缺失就给保守默认值 */

@@ -7,6 +7,7 @@
  *   3. 第 0 帧就有完整画面（没有入场预设导致的「开场白屏」）
  *   3b. 三条音轨是真的有声音（离线渲染出来的 peak 不为 0）
  *   4. 引导条只出现一次，刷新不再出现；示例不会被重复创建
+ *   5. 旧版本（v2.8 那份 4 秒海报）会被换成新版；被改过的不覆盖，但要说清楚
  *   5. 删掉之后不再自动重建（用户删了就是删了）
  *   6. 介绍页那段四拍动画在跑，`prefers-reduced-motion` 下停在第三拍
  *   7. 英文模式下面板与动画零中文
@@ -51,8 +52,59 @@ const READ_LAUNCHER = `(() => {
   };
 })()`;
 
-const main = async () => {
-  const cdp = await launch({ url: base, width: 1440, height: 900 });
+const READ_NOTICE = `(() => {
+  const n = document.querySelector('[data-testid="sample-notice"]');
+  return n ? { reason: n.dataset.reason ?? '', text: (n.innerText || '').replace(/\\n/g, ' ') } : null;
+})()`;
+
+const READ_SAMPLE_VERSION = `(async () => {
+  const open = () => new Promise((res, rej) => { const r = indexedDB.open('kinelayer'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+  const db = await open();
+  const row = await new Promise((res) => {
+    const q = db.transaction('prefs', 'readonly').objectStore('prefs').get('app');
+    q.onsuccess = () => res(q.result?.value ?? {});
+  });
+  db.close();
+  return row.sampleVersion ?? null;
+})()`;
+
+/**
+ * 把库里那份示例改回 v2.8 的样子：老名字、4 秒、prefs 里只有 sampleSeeded。
+ * untouched = 建档之后没被动过（createdAt === updatedAt）；edited = 用户改过。
+ * 只改 meta 就够了 —— seedSample 的两个判据（版本号 / 有没有被改过）读的都是 meta。
+ */
+const REWIND_SAMPLE = (mode) => `(async () => {
+  const open = () => new Promise((res, rej) => { const r = indexedDB.open('kinelayer'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+  const db = await open();
+  const read = (store, key) => new Promise((res) => {
+    const q = db.transaction(store, 'readonly').objectStore(store).get(key);
+    q.onsuccess = () => res(q.result?.value ?? null);
+  });
+  const idx = await read('meta', 'projectIndex');
+  const prefs = (await read('prefs', 'app')) ?? {};
+  const list = Array.isArray(idx) ? [...idx] : [];
+  const i = list.findIndex((m) => m.id === '${SAMPLE_ID}');
+  if (i < 0) { db.close(); return 'no-meta'; }
+  list[i] = {
+    ...list[i],
+    name: '示例 · 从这里开始',
+    duration: 4000,
+    updatedAt: ${mode === 'edited' ? 'list[i].createdAt + 60000' : 'list[i].createdAt'},
+  };
+  const nextPrefs = { ...prefs, sampleSeeded: true };
+  delete nextPrefs.sampleVersion;
+  await new Promise((res, rej) => {
+    const tx = db.transaction(['meta', 'prefs'], 'readwrite');
+    tx.oncomplete = res;
+    tx.onerror = () => rej(tx.error);
+    tx.objectStore('meta').put({ key: 'projectIndex', value: list });
+    tx.objectStore('prefs').put({ key: 'app', value: nextPrefs });
+  });
+  db.close();
+  return 'ok';
+})()`;
+
+const main = async () => {  const cdp = await launch({ url: base, width: 1440, height: 900 });
   try {
     /* ── 0. 造一个「从没来过」的状态：只清 IndexedDB，语言钉死中文 ── */
     await cdp.conn.call('Storage.clearDataForOrigin', { origin: ORIGIN, storageTypes: 'indexeddb' });
@@ -196,6 +248,47 @@ const main = async () => {
     await sleep(1200);
     const back = await cdp.ev(READ_LAUNCHER);
     check('空状态里能一键放回示例', restored && back.cards.length === 1 && back.cards[0].id === SAMPLE_ID, JSON.stringify(back.cards.map((c) => c.id)));
+
+    /* ── 6b. 版本升级：v2.8 的老用户必须拿到新版 ──────────
+       这条是真踩到的坑：seedSample 原来只记「塞过没有」，于是 v2.9 换成 96 秒
+       导览之后，所有跑过 v2.8 的浏览器里仍然是那个 4 秒海报，而且从界面上
+       完全看不出来 —— 用户只会觉得「说好的示例呢」。
+       两个判据缺一不可：版本号（该不该换）、有没有被改过（能不能换）。 */
+    const rw = await cdp.ev(REWIND_SAMPLE('untouched'));
+    await cdp.conn.call('Page.reload');
+    await sleep(1200);
+    await cdp.waitFor(`!!document.querySelector('[data-testid="launcher"]')`, 12000);
+    const up = await cdp.ev(READ_LAUNCHER);
+    check(
+      '库里留着旧版时会换成新版（不是一直停在旧海报）',
+      rw === 'ok' && /织层导览（96 秒）/.test(up.cards[0]?.text ?? ''),
+      `${rw} · ${String(up.cards[0]?.text).slice(0, 48)}`,
+    );
+    const noticeUp = await cdp.ev(READ_NOTICE);
+    check('换新之后明说「示例已换成新版」', noticeUp?.reason === 'upgraded' && /换成新版/.test(noticeUp.text), JSON.stringify(noticeUp).slice(0, 90));
+
+    /* 用户改过的那份不能悄悄盖掉 */
+    const rw2 = await cdp.ev(REWIND_SAMPLE('edited'));
+    await cdp.conn.call('Page.reload');
+    await sleep(1200);
+    await cdp.waitFor(`!!document.querySelector('[data-testid="launcher"]')`, 12000);
+    const kept = await cdp.ev(READ_LAUNCHER);
+    check('改过的示例不会被静静覆盖', rw2 === 'ok' && /从这里开始/.test(kept.cards[0]?.text ?? ''), `${rw2} · ${String(kept.cards[0]?.text).slice(0, 48)}`);
+    const noticeMod = await cdp.ev(READ_NOTICE);
+    check('但会明说「有新版、没动你的」', noticeMod?.reason === 'modified' && /没动它/.test(noticeMod.text), JSON.stringify(noticeMod).slice(0, 90));
+
+    /* 点了才换，换完版本标记要落盘，免得每次刷新都问一遍 */
+    const clickedReplace = await cdp.ev(`(() => {
+      window.confirm = () => true;
+      const b = document.querySelector('[data-testid="sample-replace"]');
+      if (!b) return false;
+      b.click();
+      return true;
+    })()`);
+    await sleep(1600);
+    const replaced = await cdp.ev(READ_LAUNCHER);
+    check('点「换成新版」才真的换掉', clickedReplace && /织层导览（96 秒）/.test(replaced.cards[0]?.text ?? ''), String(replaced.cards[0]?.text).slice(0, 48));
+    check('版本标记落进 prefs（下次不再来回换）', (await cdp.ev(READ_SAMPLE_VERSION)) === 2, String(await cdp.ev(READ_SAMPLE_VERSION)));
 
     /* ── 7. 英文模式：介绍区零中文 ───────────────────── */
     await cdp.ev(`(() => {

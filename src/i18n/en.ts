@@ -977,6 +977,18 @@ export const en: Record<string, string> = {
     'Put the sample back',
   示例已放回工程库:
     'Sample restored to your library',
+  '示例已换成新版：{seconds} 秒 · {layers} 层 · {audio} 条音轨 —— 原来那份没动过，直接换掉了。':
+    'Sample upgraded: {seconds}s · {layers} layers · {audio} audio tracks — the old copy had not been edited, so it was replaced in place.',
+  '示例有新版（{seconds} 秒六章导览）。你在这份上改过东西，所以没动它。':
+    'A newer sample is available ({seconds}s, six chapters). You have edited your copy, so it was left untouched.',
+  换成新版:
+    'Replace with the new one',
+  '换成新版示例？你在这份示例上做过的改动会丢掉。':
+    'Replace with the newer sample? Any edits you made to this copy will be lost.',
+  示例已换成新版:
+    'Sample replaced with the new version',
+  知道了:
+    'Got it',
   放入失败:
     'Could not add the sample',
 

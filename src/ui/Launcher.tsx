@@ -30,6 +30,8 @@ import { t } from '@/i18n';
 
 interface SeedInfo {
   created: boolean;
+  /** created / upgraded / modified / removed / open / seeded / dryRun —— 决定引导条说哪句话 */
+  reason?: string;
   projectId?: string;
   name?: string;
   layers?: number;
@@ -37,6 +39,7 @@ interface SeedInfo {
   codeLayers?: number;
   audioLayers?: number;
   seconds?: number;
+  version?: number;
 }
 
 /** 最近项目最多列这么多：再多就成资料库了，这个页面只管「接着上次干」 */
@@ -66,6 +69,12 @@ export function Launcher({ mode = 'overlay' }: { mode?: 'overlay' | 'page' }) {
    * 刷新页面之后引导条就不该再出现，它是一次性的开场白，不是常驻横幅。
    */
   const [seed, setSeed] = useState<SeedInfo | null>(null);
+  /**
+   * 「库里的示例变了」这类消息：旧版被原地换新（upgraded），
+   * 或者有新版但用户改过所以没覆盖（modified）。和首塞的引导条分开，
+   * 因为它不是开场白 —— 它要说明「你原来那份现在怎么了」。
+   */
+  const [notice, setNotice] = useState<SeedInfo | null>(null);
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<string | null>(null);
   const [draftName, setDraftName] = useState('');
@@ -74,11 +83,17 @@ export function Launcher({ mode = 'overlay' }: { mode?: 'overlay' | 'page' }) {
 
   const refresh = useCallback(async () => {
     /*
-     * 先塞示例再列工程。这个命令是幂等的：除了第一次，其余时候都是一次 prefs 读就返回，
+     * 先塞示例再列工程。这个命令按版本幂等：同一版本塞过就是一次 prefs 读返回，
      * 所以两个形态（page / overlay）每次打开都可以无脑调，不需要额外的「是不是首次」判断。
+     * 但它也可能带回来「旧版被换新了」或「有新版但没动你的」—— 这两种都得让人看见，
+     * 否则库里的东西悄悄变了（或者一直没变）都不知道为什么。
      */
     const seeded = await exec<SeedInfo>('project.seedSample', {});
-    if (seeded.ok && seeded.data?.created) setSeed(seeded.data);
+    if (seeded.ok && seeded.data) {
+      const d = seeded.data;
+      if (d.created) setSeed(d);
+      else if (d.reason === 'upgraded' || d.reason === 'modified') setNotice(d);
+    }
 
     const res = await exec<{ projects: ProjectMeta[] }>('project.listRecent', { limit: RECENT_LIMIT });
     if (res.ok && res.data) setList(res.data.projects.slice(0, RECENT_LIMIT));
@@ -186,6 +201,19 @@ export function Launcher({ mode = 'overlay' }: { mode?: 'overlay' | 'page' }) {
       if (res.ok) {
         pushToast('success', t('已删除「{name}」· 清理 {n} 个资源', { name: meta.name, n: res.data?.removedAssets ?? 0 }));
       }
+    });
+
+  /* 有新版但那份被改过：只在用户点名要换时才覆盖 —— 这一下会丢掉他的改动，先问一句 */
+  const replaceSample = () =>
+    wrap(async () => {
+      if (!window.confirm(t('换成新版示例？你在这份示例上做过的改动会丢掉。'))) return;
+      const res = await exec<SeedInfo>('project.seedSample', { force: true });
+      if (!res.ok) {
+        pushToast('error', res.error?.message ?? t('放入失败'), 6000);
+        return;
+      }
+      setNotice(null);
+      pushToast('success', t('示例已换成新版'));
     });
 
   /* 用户把示例删了之后，得有一条路放回来 —— 不然「示例」就成了一辈子只有一次的东西 */
@@ -312,6 +340,55 @@ export function Launcher({ mode = 'overlay' }: { mode?: 'overlay' | 'page' }) {
               {t('打开示例')}
             </button>
             <button type="button" onClick={() => setSeed(null)} title={t('关掉这条提示')} className="text-zinc-500 transition hover:text-zinc-200">
+              <X size={13} />
+            </button>
+          </div>
+        )}
+
+        {/*
+          库里的示例变了：要么旧版被原地换新（没动过，直接换），要么有新版但那份被改过。
+          后者必须给一个「换成新版」的按钮 —— 否则用户永远卡在旧版上，
+          而且从界面上看不出「示例还有新版」这件事。
+        */}
+        {notice && (
+          <div
+            data-testid="sample-notice"
+            data-reason={notice.reason}
+            className="border-cyan/30 bg-cyan/[0.06] mb-4 flex flex-wrap items-center gap-2 rounded-lg border px-3 py-2"
+          >
+            <Sparkles size={13} className="text-cyan shrink-0" />
+            <span className="text-[11.5px] text-zinc-300">
+              {notice.reason === 'upgraded'
+                ? t('示例已换成新版：{seconds} 秒 · {layers} 层 · {audio} 条音轨 —— 原来那份没动过，直接换掉了。', {
+                    seconds: notice.seconds ?? 0,
+                    layers: notice.layers ?? 0,
+                    audio: notice.audioLayers ?? 0,
+                  })
+                : t('示例有新版（{seconds} 秒六章导览）。你在这份上改过东西，所以没动它。', {
+                    seconds: notice.seconds ?? 0,
+                  })}
+            </span>
+            <div className="flex-1" />
+            {notice.reason === 'modified' && (
+              <button
+                type="button"
+                onClick={replaceSample}
+                data-testid="sample-replace"
+                className="border-cyan/50 text-cyan hover:bg-cyan/15 inline-flex h-6 items-center rounded-md border px-2 text-[11px] font-medium transition"
+              >
+                {t('换成新版')}
+              </button>
+            )}
+            {notice.projectId && notice.reason === 'upgraded' && (
+              <button
+                type="button"
+                onClick={() => void openProject(notice.projectId as string)}
+                className="border-cyan/50 text-cyan hover:bg-cyan/15 inline-flex h-6 items-center rounded-md border px-2 text-[11px] font-medium transition"
+              >
+                {t('打开示例')}
+              </button>
+            )}
+            <button type="button" onClick={() => setNotice(null)} title={t('知道了')} className="text-zinc-500 transition hover:text-zinc-200">
               <X size={13} />
             </button>
           </div>

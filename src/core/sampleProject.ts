@@ -34,6 +34,18 @@ import { PROJECT_SCHEMA_VERSION } from './types';
 export const SAMPLE_PROJECT_ID = 'prj_sample_start';
 export const SAMPLE_PROJECT_NAME = '示例 · 织层导览（96 秒）';
 
+/**
+ * 示例的版本号。**换了内容就必须 +1**。
+ *
+ * `project.seedSample` 是按「已经塞过」幂等返回的 —— 不带版本的话，
+ * 老用户永远停在第一次塞进去的那份上：v2.9 把示例换成 96 秒导览之后，
+ * 所有跑过 v2.8 的浏览器里仍然是那个 4 秒海报，而且从启动页完全看不出来。
+ *
+ *   1 = v2.8「示例 · 从这里开始」（4 秒海报）
+ *   2 = v2.9 的 96 秒六章导览（含三条音轨）
+ */
+export const SAMPLE_VERSION = 2;
+
 const W = 1920;
 const H = 1080;
 const FPS = 30;

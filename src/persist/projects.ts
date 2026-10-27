@@ -194,18 +194,23 @@ export async function renameProjectRecord(id: string, name: string): Promise<Pro
 /* ------------------------------------------------------ 首次运行的示例工程 */
 
 /**
- * 示例只塞一次。
+ * 示例只塞一次 —— 但「一次」是**每个版本**一次。
  *
- * 判断顺序很重要：先看「有没有塞过」这个标记，再看「库里有没有那个 id」——
- * 标记挡住了 99% 的情况（一次 prefs 读），id 检查兜住「标记写失败/库被清过一半」的情形。
+ * 判断顺序很重要：先看版本标记，再看「库里有没有那个 id」——
+ * 标记挡住了绝大多数情况（一次 prefs 读），id 检查兜住「标记写失败/库被清过一半」的情形。
  * 两者都不改当前打开的文档，所以它可以在启动页每次刷新时无脑调用。
+ *
+ * 返回 0 = 从没塞过；1 = 只有 v2.8 的布尔标记；n = `sampleVersion`。
  */
-export async function hasSeededSample(): Promise<boolean> {
-  return (await idbGetPrefs()).sampleSeeded === true;
+export async function seededSampleVersion(): Promise<number> {
+  const prefs = await idbGetPrefs();
+  if (typeof prefs.sampleVersion === 'number') return prefs.sampleVersion;
+  /* v2.8 的库里只有 sampleSeeded:true，那份就是第 1 版 */
+  return prefs.sampleSeeded === true ? 1 : 0;
 }
 
-export async function markSampleSeeded(): Promise<void> {
-  await idbSetPrefs({ sampleSeeded: true } satisfies AppPrefs);
+export async function markSampleSeeded(version: number): Promise<void> {
+  await idbSetPrefs({ sampleSeeded: true, sampleVersion: version } satisfies AppPrefs);
 }
 
 export async function getLastProjectId(): Promise<string | null> {

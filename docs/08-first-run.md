@@ -109,20 +109,48 @@ title.animation.tracks = [track('letterSpacing', [
 
 ---
 
-## 五、幂等：两个判据，一条后路
+## 五、幂等：三个判据，一个版本号
 
 ```ts
-if (!force && await hasSeededSample()) return { created: false, reason: 'seeded' };
+const seeded = await seededSampleVersion();              // 0 / 1 / n
 const existing = await getProjectMeta(SAMPLE_PROJECT_ID);
-if (existing && !force) { await markSampleSeeded(); return { created: false, reason: 'exists' }; }
+if (!force && seeded >= SAMPLE_VERSION) return { created: false, reason: 'seeded' };
 ```
-
-两个判据分工不同：
 
 | 判据 | 挡住什么 |
 | --- | --- |
-| prefs 里的 `sampleSeeded` | 99% 的情况，一次读就结束，不碰工程本体 |
+| prefs 里的 `sampleVersion` | 同一版本塞过就一次读结束，不碰工程本体 |
 | 固定 id `prj_sample_start` | 标记丢了但工程还在（手动清过 prefs、标记那次写失败） |
+| `existing.updatedAt > existing.createdAt` | 用户改过它 —— 那就不能再盖 |
+| 当前文档 id（`draft.id`） | 示例正开在编辑器里：覆盖会和自动保存打架，会把旧内容写回来 |
+
+### 5.1 为什么要版本号（这一条是踩出来的）
+
+v2.8 的示例是 4 秒海报「示例 · 从这里开始」，v2.9 换成了 96 秒六章导览。
+只记「塞过没有」的后果是：**所有跑过 v2.8 的浏览器永远停在旧海报上**，
+而且界面上完全看不出来 —— 用户只会觉得「说好的示例呢」。
+
+所以 `SAMPLE_VERSION` 是硬约定：**换内容必须 +1**。判据从「塞过没有」变成
+「塞的是第几版」。prefs 里只有 v2.8 写下的 `sampleSeeded: true`（没有版本号）
+时按第 1 版算，不做数据迁移。
+
+### 5.2 换新的三条分支
+
+| 情况 | 做什么 | 界面说 |
+| --- | --- | --- |
+| 旧版，没被动过 | 原地换新（同一个 id，卡片位置与「当前」标记都不变） | 「示例已换成新版：96 秒 · 58 层 · 3 条音轨」 |
+| 旧版，但被改过 | **不覆盖**，也先不写版本标记 | 「示例有新版…你在这份上改过东西，所以没动它」+「换成新版」 |
+| 用户早就删了 | 只把版本标记跟上 | 什么都不说（承诺过「删掉就不会再出现」） |
+
+第一条之所以敢直接换，是因为自动保存只在 `project.version` 变化时才写库 ——
+「打开看过但没改」的 `updatedAt` 仍然等于 `createdAt`，可以判定为没动过。
+
+第二条不写版本标记是故意的：写了之后下次刷新连这句提示都不会再出现，
+用户就真的再也见不到新版了。按钮走 `force: true`，覆盖前还会 `confirm` 一次。
+
+第三条的判据不能是 `lastProjectId`：启动页（page 形态）内存里是一份空工程，
+用「上次打开的 id」会把「上次刚好看过示例」的人永远卡在旧版上。
+读 `draft.id` 才是「示例此刻真的开着」。
 
 **记的是「已经塞过」，不是「用户没见过」。** 用户第一件事可能就是把它删掉 ——
 那就该真的没了，而不是下次刷新又冒出来。
@@ -191,7 +219,7 @@ const fit = () => setScale(el.clientWidth / DESIGN_W);
 
 ## 八、自检
 
-`scripts/sample-check.mjs`，34 项，八个区块：
+`scripts/sample-check.mjs`，40 项，九个区块：
 
 | 区块 | 验什么 |
 | --- | --- |
@@ -202,7 +230,11 @@ const fit = () => setScale(el.clientWidth / DESIGN_W);
 | 打开它 | 96 秒 / 58 层 / 7 个代码层 / 70 条轨道 / 六章标题齐全 / 0 资源 / 无入场预设 |
 | 声音 | 离线渲染 peak 非零、时长对齐、第 30 秒同时响 pad 与 pulse、波形有包络 |
 | 删除 | 删完清空、刷新不复活、空状态能一键放回 |
+| 版本升级 | 把 meta 改回 v2.8 的样子（老名字 / 4 秒 / 无版本号）再刷新：没被动过就换新并说明、被改过就保留并给出「换成新版」、点了才换、版本标记落盘 |
 | 双语 | 英文模式下介绍区零中文、四拍标签也翻译了 |
+
+版本升级那一块只改 IndexedDB 里的 `projectIndex`（meta），因为 `seedSample`
+的两个判据读的都是 meta —— 这样测的是真实决策路径，不用伪造一份旧工程本体。
 
 音频功能本身另有 `scripts/audio-check.mjs`（30 项，见 [09-audio.md](09-audio.md)）。
 

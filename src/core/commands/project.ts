@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { defineCommand, CommandFailure, type CommandContext } from '../registry';
 import { createEmptyProject, normalizeProject } from '../defaults';
-import { SAMPLE_PROJECT_ID, createSampleProject, sampleHighlights } from '../sampleProject';
+import { SAMPLE_DURATION, SAMPLE_PROJECT_ID, SAMPLE_VERSION, createSampleProject, sampleHighlights } from '../sampleProject';
 import { unpackProject } from '../projectFile';
 import { LIMITS, getBackground, type Project } from '../types';
 import { clamp } from '../geometry';
@@ -16,9 +16,9 @@ import {
   duplicateProjectRecord,
   getLastProjectId,
   getProjectMeta,
-  hasSeededSample,
   isDetached,
   markSampleSeeded,
+  seededSampleVersion,
   listRecentProjects,
   loadProjectRecord,
   renameProjectRecord,
@@ -180,35 +180,93 @@ export const projectCommands = [
     mutating: false,
     undoable: false,
     description:
-      '首次运行时把示例工程写进本地工程库（幂等）。示例是一支 96 秒、六章的导览片（1920×1080 / 30fps）：开场、项目背景、核心功能、使用方式、主要内容、收尾，配三条参数化合成的音轨。全部图形与声音都由数据算出来，没有任何外部资源依赖，打开就能播、能改、能导出，删掉后不会再出现。已经塞过、或库里已有同一 id 时直接返回，不重复创建，也不动当前打开的文档。',
+      '把示例工程写进本地工程库（按版本幂等）。示例是一支 96 秒、六章的导览片（1920×1080 / 30fps）：开场、项目背景、核心功能、使用方式、主要内容、收尾，配三条参数化合成的音轨。全部图形与声音都由数据算出来，没有任何外部资源依赖，打开就能播、能改、能导出。同一版本塞过就直接返回；库里的还是旧版本时，没被动过就原地换新、被改过只回报「有新版」不覆盖；用户删掉之后不会自己冒回来。不改动当前打开的文档。',
     schema: z.object({ force: z.boolean().default(false) }),
     example: {},
-    handler: async (_draft, payload, ctx) => {
+    handler: async (draft, payload, ctx) => {
       if (ctx.dryRun) return { created: false, reason: 'dryRun' };
 
-      /* 绝大多数情况在这里就回去了：一次 prefs 读，不碰工程本体 */
-      if (!payload.force && (await hasSeededSample())) return { created: false, reason: 'seeded' };
-
-      /* 标记丢了但工程还在（手动清过 prefs、或者标记那次写失败）：认下它，别再建一份 */
+      const seeded = await seededSampleVersion();
       const existing = await getProjectMeta(SAMPLE_PROJECT_ID);
-      if (existing && !payload.force) {
-        await markSampleSeeded();
+
+      /* 用户明确点名要放回/换新：原地覆盖同一个 id，不在列表里再造一条 */
+      if (payload.force) {
+        const project = createSampleProject();
+        const meta = await createProjectRecord(project);
+        await markSampleSeeded(SAMPLE_VERSION);
+        return {
+          created: true,
+          replaced: !!existing,
+          projectId: meta.id,
+          name: meta.name,
+          version: SAMPLE_VERSION,
+          ...sampleHighlights(project),
+          thumbnail: !!meta.thumbnail,
+        };
+      }
+
+      /* 已经是最新版：一次 prefs 读就回去，不碰工程本体 */
+      if (seeded >= SAMPLE_VERSION) return { created: false, reason: 'seeded', version: seeded };
+
+      if (!existing) {
+        /*
+         * 标记说塞过、库里却没有 —— 用户自己删的。承诺过「删掉就不会再出现」，
+         * 换版本也不能把它塞回来，只把版本标记跟上。
+         */
+        if (seeded > 0) {
+          await markSampleSeeded(SAMPLE_VERSION);
+          return { created: false, reason: 'removed' };
+        }
+      } else {
+        /*
+         * 这份示例正开在编辑器里时先不动：覆盖期间内存里还是旧内容，
+         * 下一次自动保存会把旧内容又写回来。
+         *
+         * 判据是「当前文档 id」，不是「上次打开的 id」—— 启动页（page 形态）里
+         * 内存中是一份空工程，用 lastProjectId 会把「上次看过示例」的人永远卡在旧版上。
+         */
+        if (draft.id === SAMPLE_PROJECT_ID) {
+          return { created: false, reason: 'open', projectId: existing.id, version: seeded };
+        }
+        /*
+         * 改过就是用户的稿子，不能悄悄盖掉。只把「有新版」报上去，换不换由人决定；
+         * 版本标记先不写 —— 否则下次刷新连这个提示都不会再出现。
+         */
+        if (existing.updatedAt > existing.createdAt) {
+          return {
+            created: false,
+            reason: 'modified',
+            projectId: existing.id,
+            name: existing.name,
+            version: seeded,
+            /* 只报「新版有多长」，不报图层数：那要把整份示例建出来才数得清，为一句提示不值得 */
+            seconds: Math.round(SAMPLE_DURATION / 1000),
+          };
+        }
+        /* 没动过：原地换新。同一个 id，卡片位置、「当前」标记都不变 */
+        const project = createSampleProject();
+        const meta = await createProjectRecord(project);
+        await markSampleSeeded(SAMPLE_VERSION);
         return {
           created: false,
-          reason: 'exists',
-          projectId: existing.id,
-          name: existing.name,
-          layers: existing.layerCount,
+          reason: 'upgraded',
+          upgradedFrom: seeded,
+          projectId: meta.id,
+          name: meta.name,
+          version: SAMPLE_VERSION,
+          ...sampleHighlights(project),
+          thumbnail: !!meta.thumbnail,
         };
       }
 
       const project = createSampleProject();
       const meta = await createProjectRecord(project);
-      await markSampleSeeded();
+      await markSampleSeeded(SAMPLE_VERSION);
       return {
         created: true,
         projectId: meta.id,
         name: meta.name,
+        version: SAMPLE_VERSION,
         ...sampleHighlights(project),
         /* 缩略图是异步渲染的，成不成都不该让「塞示例」失败 */
         thumbnail: !!meta.thumbnail,
