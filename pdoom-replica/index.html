@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>one more pass — a pdoom-video replica</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="stylesheet" href="css/style.css" />
+<!--
+  字体升级槽位（可选）：原项目用 Archivo（可变宽度轴）/ IBM Plex Mono / Cormorant Garamond，均为 OFL 授权。
+  把这几个文件放进 fonts/ 并取消下面的注释，排版宽度轴与衬线手感就与原版一致：
+    fonts/Archivo[wdth,wght].ttf
+    fonts/IBMPlexMono-Regular.ttf   fonts/IBMPlexMono-Medium.ttf   fonts/IBMPlexMono-Bold.ttf
+    fonts/CormorantGaramond[wght].ttf
+  没有它们时回退到系统字体栈（见 css/style.css 的 --font-* 变量），布局仍然成立。
+-->
+<!-- <style>
+  @font-face { font-family: 'Archivo'; src: url('fonts/Archivo[wdth,wght].ttf') format('truetype-variations'); font-weight: 300 900; font-stretch: 62% 125%; }
+  @font-face { font-family: 'IBM Plex Mono'; src: url('fonts/IBMPlexMono-Regular.ttf'); font-weight: 400; }
+  @font-face { font-family: 'IBM Plex Mono'; src: url('fonts/IBMPlexMono-Medium.ttf'); font-weight: 500; }
+  @font-face { font-family: 'IBM Plex Mono'; src: url('fonts/IBMPlexMono-Bold.ttf'); font-weight: 700; }
+  @font-face { font-family: 'Cormorant Garamond'; src: url('fonts/CormorantGaramond[wght].ttf') format('truetype-variations'); font-weight: 400 700; }
+</style> -->
+</head>
+<body>
+<div id="wrap"><canvas id="c"></canvas></div>
+<div id="ui">
+  <div id="marks"></div>
+  <input id="scrub" type="range" min="0" value="0" />
+  <div id="info"></div>
+</div>
+<pre id="errs"></pre>
+<div id="hint">
+  <span>▶ / ⏸ — space</span>
+  <span>⇠ ⇢ — ±1s（shift ±5s）</span>
+  <span>⇤ ⇥ — ，/。 逐帧</span>
+  <span>[ ] — 上一段 / 下一段</span>
+  <span>L — 循环本段</span>
+  <span>H — 收起界面</span>
+</div>
+<script src="js/palette.js"></script>
+<script src="js/data.js"></script>
+<script src="js/lyrics.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/type.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/timeline.js"></script>
+<script src="js/scenes.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

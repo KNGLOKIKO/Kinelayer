@@ -939,15 +939,19 @@ function CodeSection({ layer }: { layer: Extract<Layer, { type: 'code' }> }) {
             </Field>
             <Field label={t('运动模糊')}>
               <Select
-                value={layer.code.motionBlur ? 'on' : 'off'}
+                value={!layer.code.motionBlur ? 'off' : layer.code.motionBlur.samples === 'auto' ? 'auto' : 'fixed'}
                 options={[
                   { value: 'off', label: t('关') },
-                  { value: 'on', label: t('开') },
+                  { value: 'fixed', label: t('固定') },
+                  { value: 'auto', label: t('自动') },
                 ]}
                 onChange={(v) =>
                   void exec('code.setMotionBlur', {
                     id: layer.id,
-                    motionBlur: v === 'on' ? { samples: 5, shutter: 44 } : null,
+                    motionBlur:
+                      v === 'off'
+                        ? null
+                        : { samples: v === 'auto' ? 'auto' : 5, shutter: 44, ...(v === 'auto' ? { tol: 3 } : {}) },
                   })
                 }
               />
@@ -956,14 +960,25 @@ function CodeSection({ layer }: { layer: Extract<Layer, { type: 'code' }> }) {
           {layer.code.motionBlur && (
             <>
               <div className="grid grid-cols-2 gap-1.5">
-                <Field label={t('子帧')}>
-                  <NumberInput
-                    value={layer.code.motionBlur.samples}
-                    onCommit={(samples) => void exec('code.setMotionBlur', { id: layer.id, motionBlur: { ...layer.code.motionBlur!, samples } })}
-                    min={2}
-                    max={8}
-                  />
-                </Field>
+                {typeof layer.code.motionBlur.samples === 'number' ? (
+                  <Field label={t('子帧')}>
+                    <NumberInput
+                      value={layer.code.motionBlur.samples}
+                      onCommit={(samples) => void exec('code.setMotionBlur', { id: layer.id, motionBlur: { ...layer.code.motionBlur!, samples } })}
+                      min={2}
+                      max={32}
+                    />
+                  </Field>
+                ) : (
+                  <Field label={t('容差')}>
+                    <NumberInput
+                      value={layer.code.motionBlur.tol ?? 3}
+                      onCommit={(tol) => void exec('code.setMotionBlur', { id: layer.id, motionBlur: { ...layer.code.motionBlur!, tol } })}
+                      min={0}
+                      max={32}
+                    />
+                  </Field>
+                )}
                 <Field label={t('快门')}>
                   <NumberInput
                     value={layer.code.motionBlur.shutter}
@@ -975,7 +990,9 @@ function CodeSection({ layer }: { layer: Extract<Layer, { type: 'code' }> }) {
                 </Field>
               </div>
               <p className="text-[10px] leading-relaxed text-zinc-600">
-                {t('快门是一帧曝光，不是重影次数：30fps 下一帧 33ms。给 110ms 会得到三次离散重影。代价是这一层多画 N 遍。')}
+                {layer.code.motionBlur.samples === 'auto'
+                  ? t('自动：从 4 个子帧起步逐级加密，全图最大变化不超过容差就停（最多 32）。容差是 0–255 的色阶。')
+                  : t('快门是一帧曝光，不是重影次数：30fps 下一帧 33ms。给 110ms 会得到三次离散重影。代价是这一层多画 N 遍。')}
               </p>
             </>
           )}

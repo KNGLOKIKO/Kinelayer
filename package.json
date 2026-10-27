@@ -9,6 +9,8 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "render": "node scripts/render.mjs video",
+    "render:check": "node scripts/render-check.mjs",
     "bridge": "node agent-bridge/src/bridge.js",
     "mcp": "node agent-bridge/src/mcp.js"
   },

@@ -444,6 +444,97 @@ Details in [docs/11-score.md](docs/11-score.md) (Chinese).
 
 ---
 
+## v2.12 · Offline renderer: porting "Render the Video"
+
+v2.11 borrowed that film's **storytelling**; this one borrows its **export pipeline**.
+`scripts/render.mjs` is a standalone Node script — no bun, no playwright — driving the same
+headless Edge over CDP:
+
+```sh
+node scripts/render.mjs video    --project prj_sample_revision --out out/revision.mp4
+node scripts/render.mjs sequence --project prj_sample_revision --out out/revision
+node scripts/render.mjs stills   --project prj_sample_revision --at 0,4000,22500
+node scripts/render.mjs sheet    --project prj_sample_revision --cuts --cols 4
+node scripts/render.mjs perf     --project prj_sample_revision --step 250
+```
+
+Same shape as the original: **several headless browsers each chew a chunk of frames, streaming
+in order into one encoder.** Out-of-order completion does not affect the file
+(`createOrderedSink` re-sequences by frame index); past `--mem-frames` queued frames the
+renderers wait for the encoder.
+
+### Adaptive sub-frame sampling
+
+`--samples auto` starts at 4 sub-frames and refines to 32 (4 → 8 → 16 → 32), measuring the
+largest change over the whole frame after each stage and stopping once it is within `--tol`
+(3 levels by default). Sub-frame positions sit on fixed grid points, so refining only fills
+the gaps — no sample ever moves, and the running average stays unbiased.
+
+The original converges **per 32×32 tile**, because on the GPU a scissor lets a settled tile
+skip its shader. **canvas2d has no scissor equivalent** — one sub-frame means redrawing the
+whole frame — so tiling saves no draws here. This implementation is therefore equivalent to
+the original's `--refine frame`. That sentence is in the code, not just the docs: no pretending.
+
+### Measured (this machine, no GPU, `--disable-gpu`)
+
+| Scene | p50 | p95 | max |
+| --- | --- | --- | --- |
+| Whole film, 240 samples (250 ms step) | 2.9 ms | 13.1 ms | 27.6 ms |
+| Blast section, 110 samples (100 ms step) | 11.3 ms | 14.7 ms | 19.0 ms |
+| Blast section, `--samples auto` | 93.7 ms | — | 100.0 ms |
+
+That last row is the price of copying the original's flags verbatim: 324 sub-frames are fine
+on a GPU; 32 of them on a CPU is already 3× over budget. Hence the default route is
+**a few fixed sub-frames + a lower internal resolution** (`renderScale` cuts the pixels per
+sub-frame — a multiplication), not more sub-frames. The blast overlay went from 5 sub-frames
+at full resolution to 4 at half, taking that section from 43 ms to 13 ms with no visible change.
+
+Throughput: the full 60-second film (1800 frames) renders in **89 seconds — 20.22 frames per
+second, 1.5× real time** — into 353 MB of PNGs plus an 11.5 MB WAV. The blast section (the
+most expensive 10 seconds) runs at 11.38 fps.
+
+### One bug that really did hang
+
+A full render once **stalled at frame 1350 (45000 ms, the end of the blast section) for 19
+minutes** with no exception and no exit code — it looked exactly like "a slow machine". Three
+causes stacked up, all fixed:
+
+1. **The back-pressure rule could deadlock.** "Wait while more than N frames are queued"
+   deadlocks when one renderer races ahead: the queue fills with frames *past* the write head
+   while the frame at the head is still rendering, so everyone sleeps and nothing advances.
+   The rule is now "each renderer only guarantees it is at most N frames ahead of the write
+   head" — whoever owns the head frame is never blocked, so the head always advances.
+2. **CDP calls had no timeout and ignored disconnects** — a crashed page meant awaiting a reply
+   that would never come. There is now `--frame-timeout` (90 s default), a socket close rejects
+   every pending call, and a single failed frame is re-rendered on a fresh browser (twice max),
+   which is safe because every frame is a pure function of time.
+3. **No heartbeat outside a TTY** — with the log swallowed by `| tail`, "hung" and "running"
+   were indistinguishable. Now there is a progress line every 60 frames plus a stall watchdog
+   that reports where it stopped and exits instead of hanging.
+
+> A renderer that hangs silently is far worse than one that fails: a failure tells you to
+> re-run, a silent hang sends you off blaming the machine.
+
+### Three things that do not line up, all stated plainly
+
+- **No ffmpeg** — `video` degrades to a PNG sequence plus a paste-ready `encode.cmd` /
+  `encode.sh` (`winget install Gyan.FFmpeg` fixes it; no code changes).
+- **No GPU** — the offline render deliberately keeps `--disable-gpu`: software rasterisation
+  gives identical pixels across machines, while GPU AA and shader precision follow the driver
+  and would produce different files from the same project. The cost is GLSL layers running
+  5–10× slower.
+- **4K takes the flags but has no usable frame rate** — a 1080p frame is 3–30 ms, 4K is 4× the
+  pixels, and the 33.3 ms budget is blown almost everywhere. Available substitutes:
+  `--scale 1.5` (2880×1620), `--fps 24`, or render in segments and `ffmpeg concat`.
+
+`plates` is not a separate command — it is "`stills` + a fixed directory + fixed timestamps",
+and this film's end card has no rewind montage. If it ever needs one, it is
+`stills --at ... --out public/plates`.
+
+Item-by-item mapping table in [docs/12-render.md](docs/12-render.md) (Chinese).
+
+---
+
 ## Shortcuts
 
 | Action | Keys |
@@ -559,6 +650,7 @@ all three flavours grow at once.
 - [First run](docs/08-first-run.md) — the eight segments of the 64-second reel, why frame 0 must not carry an enter animation, why the sample upgrades by version
 - [Audio layer](docs/09-audio.md) — why the tones are synthesised, anchor + lookahead + worker scheduling, offline-rendered export, waveforms
 - [Performance](docs/10-performance.md) — the bottleneck is one multiplication, four optimisation directions (one of them a dead end), how the target is set, how to reproduce with `perf-check`
+- [Offline rendering](docs/12-render.md) — item-by-item against pdoom-video's "Render the Video": sub-frame sampling, two-browser chunking, back-pressure, four extra modes, 4K, and why three of them cannot line up
 
 ## License
 

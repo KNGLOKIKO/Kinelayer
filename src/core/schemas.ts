@@ -149,7 +149,13 @@ export const zCodeSpec = z.object({
   renderScale: z.number().min(0.25).max(1).optional(),
   /** 子帧超采样：samples 次绘制叠成一张，shutter 是快门时长（毫秒） */
   motionBlur: z
-    .object({ samples: z.number().int().min(2).max(8), shutter: z.number().min(1).max(200) })
+    .object({
+      /** 数字 = 固定次数；'auto' = 按瓦片收敛自适应（导出用，预览会慢） */
+      samples: z.union([z.number().int().min(2).max(32), z.literal('auto')]),
+      shutter: z.number().min(1).max(200),
+      /** 收敛阈值（0..255 色阶），默认 3 */
+      tol: z.number().min(0).max(32).optional(),
+    })
     .optional(),
 });
 

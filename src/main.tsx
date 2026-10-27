@@ -9,7 +9,7 @@ import { useEditor } from './core/store';
 import { setActiveLocale } from './i18n';
 import { dispatch } from './core/commandBus';
 import { listCommands } from './core/registry';
-import { audioStatus, createAudioCapture, describeAudioAt, measureOfflineAudio, peaksFor, type AudioCapture } from './render/audioEngine';
+import { audioStatus, createAudioCapture, describeAudioAt, measureOfflineAudio, peaksFor, renderWav, type AudioCapture } from './render/audioEngine';
 import { acquireScratch, renderInto, renderToCanvas } from './render/exporters';
 
 registerAllCommands();
@@ -39,6 +39,49 @@ if (import.meta.env.DEV) {
      */
     frame: async (ms: number, scale = 1) => {
       const canvas = await renderToCanvas(useEditor.getState().project, ms, scale, false);
+      return canvas.toDataURL('image/png');
+    },
+    /** 离线渲染器用的工程参数：帧数不从界面读，从工程读 */
+    meta: () => {
+      const p = useEditor.getState().project;
+      return { id: p.id, name: p.name, width: p.width, height: p.height, duration: p.duration, fps: p.fps };
+    },
+    /** 离线渲染器用：整条音轨的 16bit WAV（base64），跟帧序列一起交给外部编码器 */
+    wav: async (sampleRate = 48000) => {
+      const bytes = await renderWav(useEditor.getState().project, { sampleRate });
+      if (!bytes) return null;
+      let bin = '';
+      const CH = 0x8000;
+      for (let i = 0; i < bytes.length; i += CH) {
+        bin += String.fromCharCode(...bytes.subarray(i, i + CH));
+      }
+      return { sampleRate, bytes: btoa(bin) };
+    },
+    /**
+     * 离线渲染器用：把若干个时刻拼成一张联络图（contact sheet）。
+     * 合成在页面里做：Node 侧没有 canvas，把 N 张 PNG 传回去再拼要解码一遍，不划算。
+     */
+    sheet: async (times: number[], cols = 4, scale = 0.5) => {
+      const p = useEditor.getState().project;
+      const cellW = Math.round((p.width * scale) / 2) * 2;
+      const cellH = Math.round((p.height * scale) / 2) * 2;
+      const rows = Math.max(1, Math.ceil(times.length / cols));
+      const canvas = document.createElement('canvas');
+      canvas.width = cellW * cols;
+      canvas.height = cellH * rows;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return null;
+      ctx.fillStyle = '#0b0b10';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      for (let i = 0; i < times.length; i += 1) {
+        const src = await renderToCanvas(p, times[i]!, scale, false);
+        ctx.drawImage(src, (i % cols) * cellW, Math.floor(i / cols) * cellH, cellW, cellH);
+        ctx.fillStyle = 'rgba(0,0,0,.55)';
+        ctx.fillRect((i % cols) * cellW, Math.floor(i / cols) * cellH, 92, 16);
+        ctx.fillStyle = '#9aa0aa';
+        ctx.font = '10px monospace';
+        ctx.fillText(`${(times[i]! / 1000).toFixed(2)}s`, (i % cols) * cellW + 4, Math.floor(i / cols) * cellH + 12);
+      }
       return canvas.toDataURL('image/png');
     },
     /**

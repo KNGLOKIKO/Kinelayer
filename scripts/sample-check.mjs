@@ -352,7 +352,7 @@ const main = async () => {  const cdp = await launch({ url: base, width: 1440, h
       clickedReplace && /极限样片（64 秒）/.test(replaced.cards.find((c) => c.id === SAMPLE_ID)?.text ?? ''),
       String(replaced.cards.find((c) => c.id === SAMPLE_ID)?.text).slice(0, 48),
     );
-    check('版本标记落进 prefs（下次不再来回换）', (await cdp.ev(READ_SAMPLE_VERSION)) === 4, String(await cdp.ev(READ_SAMPLE_VERSION)));
+    check('版本标记落进 prefs（下次不再来回换）', (await cdp.ev(READ_SAMPLE_VERSION)) === 5, String(await cdp.ev(READ_SAMPLE_VERSION)));
 
     /* ── 7. 第二份示例：再改一版（速度网格 + 逐字时间） ──────────
        两份片子是对照组：第一份把**渲染**压到上限，这一份把**叙事**压到上限。
@@ -390,7 +390,7 @@ const main = async () => {  const cdp = await launch({ url: base, width: 1440, h
     check('九段分镜（01…09 各一段）', rev.sections === 9, String(rev.sections));
     check('21 行歌词，全部落在片长内且按时间排序', rev.lyrics === 21 && rev.sorted && rev.inside, `${rev.lyrics} 行`);
     check('冷开那四秒里没有词（先给画面）', rev.firstLyric >= 4000, String(rev.firstLyric));
-    check('一个逐像素层（半分辨率）+ 一个子帧超采样层', rev.glsl === 1 && rev.halfRes === 1 && rev.blurred.length === 1 && rev.blurred[0] >= 2, JSON.stringify({ glsl: rev.glsl, halfRes: rev.halfRes, blurred: rev.blurred }));
+    check('引爆段：两个半分辨率层 + 一个 4 子帧运动模糊层（v2.12 调优后 13ms/帧）', rev.glsl === 1 && rev.halfRes === 2 && rev.blurred.length === 1 && rev.blurred[0] === 4, JSON.stringify({ glsl: rev.glsl, halfRes: rev.halfRes, blurred: rev.blurred }));
     check('原生图层也在用引擎：关键帧轨道 + 绑定表达式', rev.tracks >= 2 && rev.bound === 1, `${rev.tracks} 轨道 / ${rev.bound} 绑定`);
     check('五条合成音轨，仍然零外部资源', rev.audio === 5 && rev.assets === 0, `${rev.audio} 音轨 / ${rev.assets} 资源`);
 

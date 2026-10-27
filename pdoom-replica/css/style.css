@@ -1,0 +1,32 @@
+/* 原项目 app/index.html 内联样式的逐字移植，末尾追加本复刻的引导层。 */
+:root { color-scheme: dark; }
+html, body { margin: 0; height: 100%; background: #050505; color: #eee9df; font: 12px/1.4 ui-monospace, Menlo, monospace; overflow: hidden; }
+#wrap { position: absolute; inset: 0 0 64px 0; display: flex; align-items: center; justify-content: center; }
+#c { max-width: 100%; max-height: 100%; aspect-ratio: 16/9; background: #000; cursor: pointer; }
+#ui { position: absolute; left: 0; right: 0; bottom: 0; height: 64px; padding: 6px 12px; box-sizing: border-box; background: #0b0b0c; }
+#ui.hidden { display: none; } #ui.hidden ~ #wrap { bottom: 0; }
+#scrub { width: 100%; margin: 0; accent-color: #ff4d12; }
+#marks { position: relative; height: 16px; }
+.mark { position: absolute; top: 0; height: 14px; border-left: 1px solid #ff4d12; color: #9c978f; font-size: 9px; overflow: hidden; white-space: nowrap; padding-left: 2px; cursor: pointer; box-sizing: border-box; }
+.mark:hover { color: #eee9df; background: #ff4d1222; }
+#info { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: #9c978f; }
+#errs { display: none; position: fixed; top: 8px; left: 8px; right: 8px; max-height: 40vh; overflow: auto; background: #300; color: #fbb; padding: 8px; white-space: pre-wrap; z-index: 9; }
+body.export #ui, body.export #errs, body.export #hint { display: none !important; }
+body.export #wrap { inset: 0; }
+body.export #c { width: 1920px; height: 1080px; max-width: none; max-height: none; }
+
+/* —— 本复刻追加：系统字体回退变量 + 一次性引导层 —— */
+:root {
+  --font-sans: 'Archivo', 'Helvetica Neue', Arial, sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+  --font-serif: 'Cormorant Garamond', Georgia, serif;
+}
+#hint {
+  position: fixed; left: 50%; bottom: 76px; transform: translateX(-50%);
+  display: flex; gap: 18px; padding: 8px 16px;
+  background: #0b0b0ccc; border: 1px solid #5e5b57; border-radius: 3px;
+  color: #9c978f; font-size: 11px; white-space: nowrap;
+  transition: opacity .8s; pointer-events: none; z-index: 8;
+}
+#hint.gone { opacity: 0; }
+#hint span b { color: #eee9df; font-weight: 400; }

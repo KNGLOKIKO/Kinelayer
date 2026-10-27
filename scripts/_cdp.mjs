@@ -34,11 +34,42 @@ async function openWs(url) {
     ws.on('open', r);
     ws.on('error', j);
   });
-  const call = (method, params = {}) =>
-    new Promise((resolve) => {
+  /* 连接断了：把所有还在等回复的调用一次性 reject，别让它们悬着 */
+  const failAll = (why) => {
+    for (const [id, settle] of waiting) {
+      waiting.delete(id);
+      settle(null, new Error(why));
+    }
+  };
+  ws.on('close', () => failAll('CDP 连接已断开（页面或浏览器退出）'));
+  ws.on('error', (err) => failAll(`CDP 连接出错：${err?.message ?? err}`));
+  const call = (method, params = {}, timeoutMs = 120_000) =>
+    new Promise((resolve, reject) => {
       const id = ++seq;
-      waiting.set(id, resolve);
-      ws.send(JSON.stringify({ id, method, params }));
+      /*
+       * 超时与断连都必须 reject。
+       *
+       * 之前的写法是 `new Promise((resolve) => ...)`：既不超时也不听 close，
+       * 于是渲染器在跑到第 1350 帧时页面崩了，整个进程就**永久挂起** ——
+       * 没有报错、没有退出码，看起来像「很慢」，实际是死等一个永远不会来的回复。
+       * 一个静默挂住的渲染器比一个报错的渲染器坏得多：后者你知道要重跑。
+       */
+      const timer = setTimeout(() => {
+        waiting.delete(id);
+        reject(new Error(`CDP ${method} 超时（${timeoutMs}ms）`));
+      }, timeoutMs);
+      waiting.set(id, (msg, err) => {
+        clearTimeout(timer);
+        if (err) reject(err);
+        else resolve(msg);
+      });
+      try {
+        ws.send(JSON.stringify({ id, method, params }));
+      } catch (err) {
+        clearTimeout(timer);
+        waiting.delete(id);
+        reject(err);
+      }
     });
   const on = (event, fn) => {
     const list = listeners.get(event) ?? [];
@@ -113,8 +144,8 @@ export async function launch({
     await conn.call('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: false });
   }
 
-  const ev = async (expression) => {
-    const res = await conn.call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
+  const ev = async (expression, timeoutMs) => {
+    const res = await conn.call('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true }, timeoutMs);
     if (res.result?.exceptionDetails) throw new Error(JSON.stringify(res.result.exceptionDetails).slice(0, 600));
     return res.result?.result?.value;
   };

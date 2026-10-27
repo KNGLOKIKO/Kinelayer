@@ -109,6 +109,8 @@ Kinelayer/
 │  ├─ perf-check.mjs            5 项 · v2.10 性能：逐层剖析/320 点采样/画质-耗时前沿曲线
 │  ├─ audio-check.mjs          30 项 · v2.9 音频层：建模/命令/离线渲染/排程/时钟/波形/导出音轨
 │  ├─ online-smoke.mjs         32 项 · 对线上 GitHub Pages 部署的冒烟（不需 dev server，含「线上那份是不是当前版本」）
+│  ├─ render.mjs               离线渲染器：video / sequence / stills / sheet / perf（CDP 驱动，按序写一个编码器）
+│  ├─ render-check.mjs         ★ 渲染器自检：四种模式的形状（帧数/格数/wav 头/perf 统计）一次过
 │  └─ push-via-api.mjs         推送兜底：github.com 这一跳被网络策略掐掉时，改走 Git Data REST API（只推已跟踪文件）
 └─ docs/
    ├─ 00-reference-notes.md    参考项目提取报告（第十四章）
@@ -122,7 +124,8 @@ Kinelayer/
    ├─ 08-first-run.md           第一次打开：64 秒样片的八个段落、四条约束、幂等判据、介绍页四拍动画
    ├─ 09-audio.md               音频层：为什么是合成音源、锚点+lookahead+Worker 的排程、离线渲染导出、波形
    ├─ 10-performance.md         性能：瓶颈是一条乘法、四条优化方向、目标与判据、前沿曲线怎么读
-   └─ 11-score.md               谱面：速度网格为什么是工程级的、逐字时间怎么切、打拍拟合与 LRC
+   ├─ 11-score.md               谱面：速度网格为什么是工程级的、逐字时间怎么切、打拍拟合与 LRC
+   └─ 12-render.md              离线渲染：pdoom-video 那七项逐条对位，对齐到什么程度、哪三处是环境限制
 ```
 
 **分层规矩**：`ui/` 不能直接改 `project`；`render/` 不能 import `store`；
@@ -527,6 +530,78 @@ MG 风格名一拍一个）、等轴城市（13×13 格子错峰长楼）、HUD 
 
 ---
 
+## v2.12 · 离线渲染器：把「Render the Video」整段搬过来
+
+v2.11 抄了那支片子的**叙事手法**，这一版抄它的**出片管线**。
+`scripts/render.mjs` 是一个独立的 Node 脚本，不依赖 bun / playwright，用同一个 headless Edge + CDP 壳：
+
+```sh
+node scripts/render.mjs video    --project prj_sample_revision --out out/revision.mp4
+node scripts/render.mjs sequence --project prj_sample_revision --out out/revision
+node scripts/render.mjs stills   --project prj_sample_revision --at 0,4000,22500
+node scripts/render.mjs sheet    --project prj_sample_revision --cuts --cols 4
+node scripts/render.mjs perf     --project prj_sample_revision --step 250
+```
+
+管线与原项目同构：**多个无头浏览器各啃一块帧 → 按序流进一个编码器**。
+乱序渲完不影响成片（`createOrderedSink` 按帧号重排），排队超过 `--mem-frames` 就让渲染端等一下。
+
+### 自适应子帧采样
+
+`--samples auto` 从 4 个子帧起步，逐级加密到 32（4 → 8 → 16 → 32），
+每级量一次「全图最大变化」，不超过 `--tol`（默认 3 个色阶）就停。
+子帧位置固定在格点上，补样本永远往空隙里塞 —— 已经画过的不挪位置，增量平均才无偏。
+
+原项目按 32×32 瓦片各自收敛，因为 GPU 上能用 scissor 让静止瓦片不再跑着色器。
+**canvas2d 没有 scissor 等价物**，一次子帧必须整帧重画，所以瓦片在这里省不下绘制 ——
+本实现等价于原项目的 `--refine frame`。这句话写在代码里，也写在文档里：不假装有瓦片级优化。
+
+### 实测（本机，无 GPU，`--disable-gpu`）
+
+| 场景 | p50 | p95 | max |
+| --- | --- | --- | --- |
+| 全片 240 点（250ms 步长） | 2.9ms | 13.1ms | 27.6ms |
+| 引爆段 110 点（100ms 步长） | 11.3ms | 14.7ms | 19.0ms |
+| 引爆段 `--samples auto` | 93.7ms | — | 100.0ms |
+
+最后一行是「照抄原项目参数」的代价：324 子帧在 GPU 上跑得动，32 子帧在 CPU 上就已经三倍超预算。
+所以默认路线是**固定少数子帧 + 降内部分辨率**（`renderScale` 省的是每个子帧的像素，是乘法），
+而不是加子帧。引爆叠层从 5 子帧全幅改成 4 子帧半幅后，那一档从 43ms 压到 13ms，画面肉眼无差。
+
+吞吐：整片 60 秒 / 1800 帧 **89 秒渲完（20.22 帧/秒，1.5 倍实时）**，产物 353MB PNG 序列
++ 11.5MB WAV。引爆段（最贵的 10 秒）是 11.38 帧/秒。
+
+### 一个真挂住过的 bug
+
+整片渲染一度**卡在第 1350 帧（45000ms，引爆段结尾）19 分钟**，没有异常、没有退出码，
+看起来就像「机器慢」。三个原因叠在一起，都修了：
+
+1. **背压规则会死锁** —— 「待写帧超过上限就等」在一个渲染进程抢先、另一个落后时会互相卡死。
+   改成「每个进程只保证自己比写出口超前不超过 N 帧」，拥有出口那一帧的进程永远不被拦，
+   构造上不可能死锁。
+2. **CDP 调用没有超时、也不听断连** —— 页面崩了就在 `await` 一个永远不来的回复。
+   现在有 `--frame-timeout`（默认 90s），断连立刻 reject，单帧失败**换一台浏览器重渲这一帧**。
+3. **非 TTY 没有心跳** —— 日志被 `| tail` 吞掉时，「挂了」和「在跑」长得一样。
+   现在每 60 帧一行进度，另加停滞看门狗（出口 90 秒没动就报错退出）。
+
+> 一个静默挂住的渲染器比一个报错的渲染器坏得多：报错你知道要重跑，静默挂住你会先去怀疑机器。
+
+### 三处对不齐，都说清楚了
+
+- **没有 ffmpeg** —— `video` 自动降级成 PNG 序列 + 一条可粘的 `encode.cmd`／`encode.sh`
+  （`winget install Gyan.FFmpeg` 装完即可，代码不用动）。
+- **没有 GPU** —— 离线渲染刻意带 `--disable-gpu`：软光栅的像素跨机器一致，
+  GPU 的 AA 与着色器精度跟驱动走，同一份工程会渲出不同的文件。代价是 GLSL 层贵 5–10 倍。
+- **4K 参数通但帧率不可用** —— 1080p 一帧 3~30ms，4K 是 4 倍像素，预算 33.3ms 几乎全线超。
+  可用的替代：`--scale 1.5`（2880×1620）、`--fps 24`、或分段并发后 `ffmpeg concat`。
+
+`plates` 没有做成独立命令 —— 它是「`stills` + 固定目录 + 固定时刻」，本片落版没有倒带蒙太奇，
+真要做就是 `stills --at ... --out public/plates`。
+
+细节与逐项对位表见 [docs/12-render.md](docs/12-render.md)。
+
+---
+
 ## 快捷键
 
 | 操作            | 快捷键                                     |
@@ -644,6 +719,7 @@ VITE_BASE=/Kinelayer/ npm run build   # 项目页需要这个前缀
 - [音频层](docs/09-audio.md) —— 为什么是合成音源、锚点 + lookahead + Worker 的排程、离线渲染导出、波形
 - [性能](docs/10-performance.md) —— 瓶颈是一条乘法、四条优化方向（含一条走不通的）、目标怎么定、`perf-check` 怎么复现
 - [谱面](docs/11-score.md) —— 速度网格为什么不能挂在音频层上、逐字时间按字符权重切、打拍为什么要用墙钟、LRC 的两种时间标签
+- [离线渲染](docs/12-render.md) —— 与 mexicat/pdoom-video 的 Render the Video 逐项对位：子帧采样、双浏览器分块、背压、四种模式、4K，以及对不齐的三处是为什么
 
 ## 许可
 

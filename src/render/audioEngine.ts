@@ -449,6 +449,61 @@ export async function renderOfflineAudio(
 }
 
 /**
+ * 把整条音轨渲染成 16bit PCM WAV。
+ *
+ * 为什么需要它：离线渲染出去的每一帧是图，声音得单独给一份**无压缩**的，
+ * 才好在外部编码器（ffmpeg）里跟画面按同一条时间轴合起来 ——
+ * WebM 那条路是浏览器自己封装的，外部编码器读不了。
+ *
+ * 交错写入（L,R,L,R）而不是先写左再写右：WAV 的 data 块就是交错的，
+ * 拆开来写等于自己再拼一遍，没必要。
+ */
+export async function renderWav(
+  project: AudioHost,
+  opts: { sampleRate?: number } = {},
+): Promise<Uint8Array | null> {
+  const sampleRate = Math.max(8000, Math.min(96000, Math.round(opts.sampleRate ?? 48000)));
+  const buffer = await renderOfflineAudio(project, { sampleRate, channels: 2 });
+  if (!buffer) return null;
+  const channels = buffer.numberOfChannels;
+  const frames = buffer.length;
+  const bytesPerSample = 2;
+  const dataBytes = frames * channels * bytesPerSample;
+  const out = new Uint8Array(44 + dataBytes);
+  const view = new DataView(out.buffer);
+
+  const ascii = (offset: number, text: string) => {
+    for (let i = 0; i < text.length; i += 1) view.setUint8(offset + i, text.charCodeAt(i));
+  };
+
+  ascii(0, 'RIFF');
+  view.setUint32(4, 36 + dataBytes, true);
+  ascii(8, 'WAVE');
+  ascii(12, 'fmt ');
+  view.setUint32(16, 16, true); /* PCM 头长度 */
+  view.setUint16(20, 1, true); /* 1 = PCM */
+  view.setUint16(22, channels, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * channels * bytesPerSample, true);
+  view.setUint16(32, channels * bytesPerSample, true);
+  view.setUint16(34, 16, true);
+  ascii(36, 'data');
+  view.setUint32(40, dataBytes, true);
+
+  const planes: Float32Array[] = [];
+  for (let c = 0; c < channels; c += 1) planes.push(buffer.getChannelData(c));
+  let offset = 44;
+  for (let i = 0; i < frames; i += 1) {
+    for (let c = 0; c < channels; c += 1) {
+      const v = Math.max(-1, Math.min(1, planes[c]![i] ?? 0));
+      view.setInt16(offset, v < 0 ? v * 0x8000 : v * 0x7fff, true);
+      offset += 2;
+    }
+  }
+  return out;
+}
+
+/**
  * 离线量一下这条音轨：时长、峰值、均方根。
  *
  * 给自检用的「不用耳朵也能判断有没有声音」的入口 —— peak 为 0 就是全静音，

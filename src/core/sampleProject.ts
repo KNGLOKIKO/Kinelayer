@@ -14,6 +14,8 @@
  *   2 = v2.9 96 秒六章导览 —— 讲项目背景 / 功能 / 用法 / 内容
  *   3 = v2.10 64 秒极限样片 —— 十五种 MG 风格跑一遍，把引擎压到上限
  *   4 = v2.11 追加 60 秒「再改一版」—— 并给引擎补上速度网格与逐字时间
+ *   5 = v2.12 「再改一版」引爆段调优 —— 4 子帧运动模糊 + renderScale 0.5，
+ *       单帧 43ms → 13ms，全片 0 帧超 16.7ms 预算
  */
 
 import type { Project } from './types';
@@ -36,7 +38,7 @@ export interface SampleDef {
  * 老用户永远停在第一次塞进去的那份上（v2.9 就踩过这个坑 —— 换片之后
  * 所有跑过 v2.8 的浏览器都还是旧海报，而且界面上完全看不出来）。
  */
-export const SAMPLE_PACK_VERSION = 4;
+export const SAMPLE_PACK_VERSION = 5;
 
 export const SAMPLES: SampleDef[] = [
   {

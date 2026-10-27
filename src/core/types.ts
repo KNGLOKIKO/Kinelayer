@@ -365,7 +365,22 @@ export interface CodeSpec {
    * 代价是线性涨：`samples: 4` 就是四倍绘制。所以它只该出现在
    * 「便宜但高速」的层上，贵的逐像素层请先降 `renderScale` 再谈模糊。
    */
-  motionBlur?: { samples: number; shutter: number };
+  /**
+   * 子帧运动模糊。samples 给数字 = 固定次数；给 'auto' = 自适应
+   * （从 4 起步逐级加密到 32，每级按收敛情况决定还要不要继续）。
+   *
+   * shutter 是**本图层本地时间的毫秒数**（往回铺多久），不是帧时比例 ——
+   * 比例只有在知道 fps 时才有意义，而图层不知道自己在什么帧率上播。
+   * CLI 的 `--shutter 0.2`（原项目口径）会被换算成毫秒再进来，见 scripts/render.mjs。
+   *
+   * tol 是收敛阈值，单位是 0..255 的色阶，默认 3 —— 再细的差别肉眼也看不出来。
+   *
+   * 没有「按瓦片各自收敛」这个开关：原项目靠 scissor 让收敛的瓦片不再跑着色器，
+   * canvas2d 没有等价物，一次子帧必须整帧重画，所以瓦片级计数在本工程里
+   * 不可能省下任何一次绘制。能省的只有「还要不要再加密一级」，那是一个
+   * 全帧统一的是/否 —— 见 codeEngine 里 maxTileDelta 的注释。
+   */
+  motionBlur?: { samples: number | 'auto'; shutter: number; tol?: number };
   /**
    * `remotion-component` 的运行时元信息。别的引擎没有这一段。
    *

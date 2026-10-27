@@ -56,8 +56,8 @@ interface SceneDef {
   source: string;
   /** 内部分辨率倍率（低频成片画面才降） */
   renderScale?: number;
-  /** 子帧超采样：只给便宜但高速的层用 */
-  motionBlur?: { samples: number; shutter: number };
+  /** 子帧超采样：只给便宜但高速的层用。'auto' 见 codeEngine 的自适应瓦片 */
+  motionBlur?: { samples: number | 'auto'; shutter: number; tol?: number };
   suffix?: string;
 }
 
@@ -79,8 +79,19 @@ const SECTION_LAYERS: SceneDef[][] = [
      * shutter 只给 44ms，比一帧（33ms）略宽：**运动模糊积分的是「一帧曝光」**，
      * 不是「一段时间」。给 110ms 会得到三次离散的重影（第一次就是这么翻车的），
      * 那是长曝光，不是快门。
+     *
+     * 五帧降到四帧 + 半分辨率：这一层原本是全片唯一超预算的地方
+     * （1080p 全幅 × 5 子帧 → 单独 24ms，p95 43ms）。实测 4×0.5 把这一段
+     * 从 43ms 压到 23ms，而画面肉眼无差 —— 飞散标签本来就带辉光，
+     * 半分辨率丢掉的正是辉光里那点高频。
      */
-    { engine: 'canvas2d', source: R7_BLAST_TYPE, motionBlur: { samples: 5, shutter: 44 }, suffix: '叠层' },
+    {
+      engine: 'canvas2d',
+      source: R7_BLAST_TYPE,
+      renderScale: 0.5,
+      motionBlur: { samples: 4, shutter: 44 },
+      suffix: '叠层',
+    },
   ],
   [{ engine: 'canvas2d', source: R8_NAN }],
   [{ engine: 'canvas2d', source: R9_END }],

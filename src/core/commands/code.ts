@@ -77,13 +77,14 @@ export const codeCommands = [
     category: '代码',
     mutating: true,
     description:
-      '设置代码层的子帧运动模糊。samples 是同一帧内取几个子帧（2–8），shutter 是快门时长（毫秒）—— 注意它是一帧曝光，不是重影次数：30fps 下一帧 33ms，给 110ms 会得到三次离散重影（长曝光），给 44ms 才是真正的运动模糊。代价是绘制次数线性上涨（只影响这一层），所以给一两层需要方向感的元素用，不要整片都开。传 null 关闭。',
+      '设置代码层的子帧运动模糊。samples 是同一帧内取几个子帧（2–32，或 \'auto\' 按收敛情况自适应），shutter 是快门时长（毫秒）—— 注意它是一帧曝光，不是重影次数：30fps 下一帧 33ms，给 110ms 会得到三次离散重影（长曝光），给 44ms 才是真正的运动模糊。samples 为 \'auto\' 时 tol 是收敛阈值（色阶，默认 3）：从 4 起步逐级加密，全图最大变化不超过 tol 就停。代价是绘制次数线性上涨（只影响这一层），所以给一两层需要方向感的元素用，不要整片都开。传 null 关闭。',
     schema: z.object({
       id: zId,
       motionBlur: z
         .object({
-          samples: z.number().int().min(2).max(8),
+          samples: z.union([z.number().int().min(2).max(32), z.literal('auto')]),
           shutter: z.number().min(1).max(200),
+          tol: z.number().min(0).max(32).optional(),
         })
         .nullable(),
     }),
