@@ -142,6 +142,21 @@ r.check(
   `cards=${shell.cards} · ${shell.text.slice(0, 50)}`,
 );
 
+/*
+ * 线上那一份到底是不是当前这一版 —— 这条是「用户报了个 bug 其实是部署没生效」的解药。
+ * 判据取卡片上写的时长与名字：换片必换 SAMPLE_VERSION，时长与名字也就跟着变，
+ * 所以它同时验了「seedSample 跑成功」和「部署的是新构建」。
+ */
+const sampleCard = await b.ev(`(() => {
+  const c = document.querySelector('[data-project-id="prj_sample_start"]');
+  return c ? (c.innerText || '').replace(/\\n/g, ' | ') : null;
+})()`);
+r.check(
+  '首屏示例是 64 秒极限样片（部署与该版本对得上）',
+  !!sampleCard && /64s/.test(sampleCard) && /极限样片/.test(sampleCard),
+  String(sampleCard).slice(0, 90),
+);
+
 // ── 2. 生产包没有泄漏调试口 ───────────────────────────────────
 const leaked = await b.ev(`typeof window.__kly !== 'undefined'`);
 r.check('生产包未暴露 __kly 调试口', leaked === false);
@@ -159,6 +174,13 @@ if (!inEditor) {
   b.edge.kill();
   process.exit(r.finish() || 1);
 }
+
+/*
+ * 时码不是 DOM 一挂载就有的：主时钟推一帧之后才写进状态栏。
+ * 刚进编辑器那一瞬间直接读会读到空 —— 这条原来偶发 FAIL 就是因为它，
+ * 不是功能坏了。等它出现再快照（最多 4s，超时仍会落到下面的断言上）。
+ */
+await b.waitFor(`/00:00:0|00:05/.test(document.body.textContent || '')`, 4000);
 
 const editor = await b.ev(`(() => {
   const text = (document.body.textContent ?? '').replace(/\\s+/g, ' ');

@@ -107,7 +107,7 @@ Kinelayer/
 │  ├─ sample-check.mjs         41 项 · 首次运行：64 秒样片/介绍动画/声音/幂等/删除不复活/版本升级/双语
 │  ├─ perf-check.mjs            5 项 · v2.10 性能：逐层剖析/320 点采样/画质-耗时前沿曲线
 │  ├─ audio-check.mjs          30 项 · v2.9 音频层：建模/命令/离线渲染/排程/时钟/波形/导出音轨
-│  ├─ online-smoke.mjs         31 项 · 对线上 GitHub Pages 部署的冒烟（不需 dev server）
+│  ├─ online-smoke.mjs         32 项 · 对线上 GitHub Pages 部署的冒烟（不需 dev server，含「线上那份是不是当前版本」）
 │  └─ push-via-api.mjs         推送兜底：github.com 这一跳被网络策略掐掉时，改走 Git Data REST API（只推已跟踪文件）
 └─ docs/
    ├─ 00-reference-notes.md    参考项目提取报告（第十四章）
