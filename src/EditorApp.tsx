@@ -307,6 +307,17 @@ export function EditorApp() {
         void exec('selection.clear', {});
         return;
       }
+      if (e.key === 's' && !mod) {
+        /* 剪一刀：把选中的片段在播放头处切开。这是剪辑里最高频的动作，
+           所以给一个单键；冲突过的 Ctrl+S 是保存工程，前面已经 return 掉了。 */
+        const ids = useEditor.getState().ui.selectedIds;
+        const at = Math.round(useEditor.getState().runtime.playhead);
+        if (ids.length === 1) {
+          e.preventDefault();
+          void exec('layer.split', { id: ids[0], at });
+        }
+        return;
+      }
       if (e.shiftKey && e.key === '!') {
         window.dispatchEvent(new CustomEvent('ml:fit'));
         return;

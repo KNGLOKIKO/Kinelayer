@@ -125,6 +125,18 @@ export const layerCommands = [
         'inPoint',
         'outPoint',
         'meta',
+        'fit',
+        'radius',
+        'brightness',
+        'contrast',
+        'saturate',
+        'grayscale',
+        'blur',
+        'muted',
+        'loop',
+        'playbackRate',
+        'trimIn',
+        'transition',
       ] as const;
       const changed: string[] = [];
       for (const key of keys) {

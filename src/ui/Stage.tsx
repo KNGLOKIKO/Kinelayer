@@ -4,8 +4,9 @@ import { exec } from '@/core/commandBus';
 import { clamp, fitViewport, hitLayer, layerCenter, rotatePoint, screenToWorld, snapValue, type Vec } from '@/core/geometry';
 import { updateUi, useEditor } from '@/core/store';
 import { computeLayerFrame } from '@/render/animation';
-import { renderScene } from '@/render/renderScene';
+import { renderScene, prepareVideos } from '@/render/renderScene';
 import { bridgeToken, injectBridge } from '@/render/htmlBridge';
+import { subscribeAssets } from '@/render/assets';
 import type { CodeLayer, Layer, Project } from '@/core/types';
 
 import { t } from '@/i18n';
@@ -59,6 +60,9 @@ export function Stage() {
   const fittedRef = useRef(false);
   const userAdjustedRef = useRef(false);
   const lastSigRef = useRef('');
+  /** 上一次为哪个「版本|毫秒」seek 过视频（同一个 key 不重复 seek，否则 rAF 会自激） */
+  const prepKeyRef = useRef('');
+  const prepAtRef = useRef(0);
   const tickRef = useRef(0);
   /**
    * html 代码层的时间同步。
@@ -136,9 +140,14 @@ export function Stage() {
     ro.observe(el);
     const onFit = () => fit();
     window.addEventListener('ml:fit', onFit);
+    /* 资源迟到（视频解码完成、图片 load）也要重画：签名里没有资源状态 */
+    const unsubscribe = subscribeAssets(() => {
+      lastSigRef.current = '';
+    });
     return () => {
       ro.disconnect();
       window.removeEventListener('ml:fit', onFit);
+      unsubscribe();
     };
   }, []);
 
@@ -188,6 +197,38 @@ export function Stage() {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.translate(ui.panX, ui.panY);
       ctx.scale(ui.zoom, ui.zoom);
+
+      /*
+       * 视频层：画之前必须先把它 seek 到当前时刻。
+       *
+       * 以前预览这条路不 seek（只有导出走 prepareVideos），于是视频层在画布上
+       * 永远显示「视频解码中…」——因为 MediaRecorder/无索引的 WebM 在第一次
+       * seek 之前 readyState 到不了 HAVE_CURRENT_DATA。seek 完成后把签名清掉，
+       * 让下一帧重画；播放时按 100ms 节流，逐帧 seek 会把解码器拖死。
+       */
+      const hasVideo = p.layers.some((l) => l.type === 'video' && l.visible);
+      if (hasVideo) {
+        const key = `${p.version}|${Math.round(runtime.playhead)}`;
+        const now = performance.now();
+        if (key !== prepKeyRef.current && (!runtime.playing || now - prepAtRef.current > 100)) {
+          prepKeyRef.current = key;
+          prepAtRef.current = now;
+          void prepareVideos(p, runtime.playhead).then(() => {
+            /*
+             * seeked 不等于「这一帧可以 drawImage 了」：WebM/长 GOP 素材
+             * 常常是 seeked 先到、解码晚一两帧。追几帧，否则画面会停在占位框上
+             * 再也不动（签名没变，rAF 不会重画）。
+             */
+            let tries = 0;
+            const bump = () => {
+              lastSigRef.current = '';
+              tries += 1;
+              if (tries < 6) setTimeout(bump, 70);
+            };
+            bump();
+          });
+        }
+      }
 
       // 画布外的白边警示（内容超出画布时可见）
       ctx.fillStyle = '#0d1119';

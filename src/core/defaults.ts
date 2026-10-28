@@ -7,9 +7,11 @@ import {
   LAYER_TYPES,
   LIMITS,
   PROJECT_SCHEMA_VERSION,
+  TRANSITION_KINDS,
   type AssetMeta,
   type AudioLayer,
   type BackgroundLayer,
+  type ClipTransition,
   type CodeLayer,
   type CodeSpec,
   type FontMeta,
@@ -167,6 +169,7 @@ export function createImageLayer(overrides: Partial<ImageLayer> = {}): ImageLaye
     saturate: 1,
     grayscale: 0,
     blur: 0,
+    transition: null,
     width: 520,
     height: 520,
   };
@@ -184,6 +187,8 @@ export function createVideoLayer(overrides: Partial<VideoLayer> = {}): VideoLaye
     muted: true,
     loop: true,
     playbackRate: 1,
+    trimIn: 0,
+    transition: null,
     width: 640,
     height: 360,
   };
@@ -250,6 +255,8 @@ export function createAudioLayer(overrides: Partial<AudioLayer> = {}): AudioLaye
     /* 音频不参与画面：给一个 0×0 的框，选中时不会在舞台上糊出一个大方块 */
     width: 0,
     height: 0,
+    assetId: null,
+    trimIn: 0,
     volume: 0.6,
     muted: false,
     fadeIn: 300,
@@ -554,6 +561,8 @@ export function normalizeProject(raw: unknown): Project {
     layer.animation = normalizeAnimation(layer.animation);
     /* 音频层手里没有 tone 就是一颗静音炸弹（引擎会读到 undefined.preset），就地补默认值 */
     if (layer.type === 'audio') normalizeAudioLayer(layer);
+    if (layer.type === 'video') normalizeClipFields(layer);
+    if (layer.type === 'image') normalizeClipFields(layer);
   }
   background.animation = normalizeAnimation(background.animation);
 
@@ -589,6 +598,8 @@ export function normalizeProject(raw: unknown): Project {
  * 外来工程可能写了 `volume: 3` 或者干脆没写 tone —— 这里只做修复，不抛错（和 normalizeProject 一致）。
  */
 function normalizeAudioLayer(layer: AudioLayer): void {
+  layer.assetId = typeof layer.assetId === 'string' && layer.assetId ? layer.assetId : null;
+  layer.trimIn = clamp(typeof layer.trimIn === 'number' && Number.isFinite(layer.trimIn) ? layer.trimIn : 0, 0, 24 * 3600_000);
   layer.volume = clamp(typeof layer.volume === 'number' && Number.isFinite(layer.volume) ? layer.volume : 0.6, 0, 1);
   layer.muted = layer.muted === true;
   layer.fadeIn = clamp(typeof layer.fadeIn === 'number' ? layer.fadeIn : 300, 0, 60_000);
@@ -604,8 +615,27 @@ function normalizeAudioLayer(layer: AudioLayer): void {
   };
 }
 
-/** 序列化：保证不含 base64（资源只在 IndexedDB） */
-export function serializeProject(project: Project): string {
+/**
+ * 图片/视频的片段字段读宽容。
+ *
+ * 老工程没有 trimIn / transition —— 缺省必须是 **0 与 null**，不能是 undefined：
+ * 渲染时用 `layer.trimIn` 直接算源时间，一个 undefined 会让视频 seek 到 NaN，
+ * 症状是「素材永远停在第一帧」，而错误发生在渲染循环最里层。
+ */
+function normalizeClipFields(layer: ImageLayer | VideoLayer): void {
+  if (layer.type === 'video') {
+    layer.trimIn = clamp(typeof layer.trimIn === 'number' && Number.isFinite(layer.trimIn) ? layer.trimIn : 0, 0, 24 * 3600_000);
+    layer.playbackRate = clamp(typeof layer.playbackRate === 'number' && layer.playbackRate > 0 ? layer.playbackRate : 1, 0.1, 8);
+  }
+  const tr = layer.transition as ClipTransition | null | undefined;
+  if (!tr || typeof tr !== 'object' || !TRANSITION_KINDS.includes(tr.kind)) {
+    layer.transition = null;
+  } else {
+    layer.transition = { kind: tr.kind, duration: clamp(Number(tr.duration) || 0, 0, 10_000) };
+  }
+}
+
+/** 序列化：保证不含 base64（资源只在 IndexedDB） */export function serializeProject(project: Project): string {
   const clean: Project = {
     ...project,
     assets: project.assets.map((a) => ({ ...a })),

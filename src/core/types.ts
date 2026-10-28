@@ -40,6 +40,24 @@ export const BLEND_MODES: BlendMode[] = [
 
 export type FitMode = 'cover' | 'contain' | 'fill';
 
+/**
+ * 片段入点转场。
+ *
+ * 语义刻意做成**只看自己**：`duration` 是「从本片段入点起，与上一段交叉多久」，
+ * 不需要用户先选中两段再点「应用转场」——那一步是专业 NLE 的门槛之一。
+ * 渲染时上一段会自动淡出（`transitionOutAlpha`），所以两段的重叠关系是算出来的，
+ * 不是靠用户把片段拖到一起对出来的。
+ */
+export type TransitionKind = 'crossfade' | 'dip' | 'slide' | 'wipe';
+
+export const TRANSITION_KINDS: TransitionKind[] = ['crossfade', 'dip', 'slide', 'wipe'];
+
+export interface ClipTransition {
+  kind: TransitionKind;
+  /** 毫秒；会被夹到片段长度的一半以内 */
+  duration: number;
+}
+
 export type CodeEngine = 'canvas2d' | 'glsl' | 'html' | 'remotion-component';
 
 export const CODE_ENGINES: CodeEngine[] = ['canvas2d', 'glsl', 'html', 'remotion-component'];
@@ -326,6 +344,8 @@ export interface ImageLayer extends BaseLayer {
   saturate: number;
   grayscale: number; // 0..1
   blur: number; // px
+  /** 入点转场（图片也能有，做「图片幻灯」时不至于全是硬切） */
+  transition: ClipTransition | null;
 }
 
 export interface VideoLayer extends BaseLayer {
@@ -336,6 +356,13 @@ export interface VideoLayer extends BaseLayer {
   muted: boolean;
   loop: boolean;
   playbackRate: number;
+  /**
+   * 源内偏移（毫秒）：这一段的第 0 毫秒对应素材的第 `trimIn` 毫秒。
+   * 裁剪左边缘只动这个值，不动 inPoint —— 用户看到的就是「素材还回去了」。
+   */
+  trimIn: number;
+  /** 入点转场 */
+  transition: ClipTransition | null;
 }
 
 export interface CodeSpec {
@@ -451,6 +478,13 @@ export interface ToneSpec {
 
 export interface AudioLayer extends BaseLayer {
   type: 'audio';
+  /**
+   * 导入的音频文件（AssetMeta.kind === 'audio'）。
+   * 为 null 时退回程序化音源（`tone`）—— 示例工程全靠它，零外部资源。
+   */
+  assetId: string | null;
+  /** 源内偏移（毫秒），与视频层同义 */
+  trimIn: number;
   /** 0..1，和图层 opacity 分开：opacity 对音频没有意义，混在一起会让人以为能淡出画面 */
   volume: number;
   muted: boolean;
@@ -465,11 +499,13 @@ export type Layer = BackgroundLayer | TextLayer | ImageLayer | VideoLayer | Code
 export interface AssetMeta {
   id: string;
   name: string;
-  kind: 'image' | 'video' | 'font';
+  kind: 'image' | 'video' | 'audio' | 'font';
   mime: string;
   size: number;
   width?: number;
   height?: number;
+  /** 视频/音频时长（毫秒）。音频导入后要据此决定片段长度 */
+  duration?: number;
   createdAt: number;
 }
 

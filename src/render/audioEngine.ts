@@ -16,12 +16,13 @@
  *    这个做法直接借自 Tone.js 的 `Tone/core/clock/Ticker.ts`（它用 Blob 造 Worker 做计时器），
  *    连「Worker 不可用时退回 setTimeout」的降级层级都一样。
  *
- * 合成器只做三种预设（pad / pulse / chime），因为示例工程要求零外部资源。
- * 将来接音频文件时，在 `scheduleRange` 的 preset 分支旁边加一个「解码 AudioBuffer
- * 后从 inPoint 播放」的分支即可 —— 主时钟、导出、波形这三条链路一行都不用改。
+ * 合成器只做三种预设（pad / pulse / chime），示例工程因此零外部资源；
+ * 另外支持**导入音频**（assetId）：解码成 AudioBuffer 后按 trimIn 取偏移排程，
+ * 主时钟、导出、波形三条链路复用同一个 scheduleRange，一行都没另写。
  */
 
-import type { AudioLayer, Layer, Project, Tempo } from '../core/types';
+import type { AssetMeta, AudioLayer, Layer, Project, Tempo } from '../core/types';
+import { getAudioBuffer, preloadAudioAssets } from './assets';
 
 /** 每次 tick 往后排多远（秒）。后台被节流到 1 秒一次也不至于断音 */
 const LOOKAHEAD = 1.2;
@@ -38,6 +39,8 @@ const MASTER_GAIN = 0.9;
 export interface AudioHost {
   duration: number;
   layers: Layer[];
+  /** 资源清单（导入音频要按 assetId 找解码缓存；示例工程没有音频文件，可以为空） */
+  assets?: AssetMeta[];
   /**
    * 工程的速度网格。有它的时候，pulse 的网格原点用工程的第 0 拍，
    * 而不是「图层自己的起点」—— 否则图层往前挪 200ms，鼓就整体跟着挪 200ms，
@@ -67,6 +70,8 @@ interface Session {
   cursorMs: number;
   /** 已经起过声的 pad 图层 id —— pad 是长音，不能每 tick 叠一层 */
   started: Set<string>;
+  /** 导入音频排到哪了（毫秒）。tick 会重复进同一段，没有游标就会把同一秒排两遍 */
+  bufferAt?: Map<string, number>;
 }
 
 let graph: Graph | null = null;
@@ -241,6 +246,42 @@ function scheduleRange(m: Mixer, hostProject: AudioHost, s: Session, fromMs: num
     const length = end - start;
     const levelAt = (localMs: number) => envelopeAt(layer, localMs, length);
     const limit = Math.min(toMs, end);
+
+    /*
+     * 导入的音频文件：按片段裁剪（trimIn）+ 淡入淡出排一段 AudioBuffer。
+     * 没解码完就这轮先不排 —— 下次 tick 会重试，不要在这里 await（排程必须同步）。
+     */
+    if (layer.assetId) {
+      const buf = getAudioBuffer(layer.assetId);
+      if (!buf) continue;
+      const cursor = s.bufferAt?.get(layer.id) ?? 0;
+      const segFrom = Math.max(fromMs, start, cursor);
+      if (segFrom >= limit) continue;
+      const offset = ((layer.trimIn || 0) + (segFrom - start)) / 1000;
+      if (offset >= buf.duration - 0.001) continue;
+      const playMs = Math.min(limit - segFrom, (buf.duration - offset) * 1000);
+      if (playMs <= 5) continue;
+      const src = m.ctx.createBufferSource();
+      src.buffer = buf;
+      const gain = m.ctx.createGain();
+      const at = toCtx(segFrom);
+      const local = segFrom - start;
+      const fadeIn = Math.min(layer.fadeIn, length * 0.8);
+      const fadeOut = Math.min(layer.fadeOut, length * 0.8);
+      gain.gain.setValueAtTime(levelAt(local), at);
+      if (fadeIn > 0 && local < fadeIn) gain.gain.linearRampToValueAtTime(layer.muted ? 0 : layer.volume, at + (fadeIn - local) / 1000);
+      if (fadeOut > 0) {
+        const fadeStart = length - fadeOut;
+        if (local < fadeStart) gain.gain.setValueAtTime(layer.muted ? 0 : layer.volume, at + (fadeStart - local) / 1000);
+        gain.gain.linearRampToValueAtTime(0, at + Math.max(0.001, (length - local) / 1000));
+      }
+      src.connect(gain).connect(m.master);
+      track(src);
+      src.start(at, offset, playMs / 1000);
+      if (!s.bufferAt) s.bufferAt = new Map();
+      s.bufferAt.set(layer.id, segFrom + playMs);
+      continue;
+    }
 
     if (layer.tone.preset === 'pad') {
       if (s.started.has(layer.id)) continue;
@@ -435,6 +476,8 @@ export async function renderOfflineAudio(
   const sampleRate = Math.max(8000, Math.min(96000, Math.round(opts.sampleRate ?? 44100)));
   const frames = Math.max(1, Math.ceil((hostProject.duration / 1000) * sampleRate));
   try {
+    /* 导入音频必须先解码完再排程：scheduleRange 是同步的，不能在里面 await */
+    await preloadAudioAssets(hostProject.assets ?? []);
     const ctx = new Ctor(Math.max(1, Math.min(2, opts.channels ?? 1)), frames, sampleRate);
     const master = ctx.createGain();
     master.gain.value = MASTER_GAIN;

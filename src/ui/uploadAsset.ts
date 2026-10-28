@@ -19,26 +19,31 @@ export function fileToDataUrl(file: File): Promise<string> {
  * 资源面板是「导入 + 放到画布上」，补缺失资源是「导入 + 挂到已有图层上」——
  * 后者不能新建图层，否则用户补一张图会多出一个重影层。类型/大小校验只写一份。
  */
-export async function uploadAsset(file: File): Promise<{ id: string; kind: 'image' | 'video' } | null> {
-  const isVideo = file.type.startsWith('video/');
-  const isImage = file.type.startsWith('image/');
-  if (!isVideo && !isImage) {
+export async function uploadAsset(file: File): Promise<{ id: string; kind: 'image' | 'video' | 'audio' } | null> {
+  const kind: 'image' | 'video' | 'audio' | null = file.type.startsWith('video')
+    ? 'video'
+    : file.type.startsWith('audio')
+      ? 'audio'
+      : file.type.startsWith('image')
+        ? 'image'
+        : null;
+  if (!kind) {
     pushToast('warn', t('跳过不支持的文件：{name}', { name: file.name }));
     return null;
   }
-  if (file.size > 48 * 1024 * 1024) {
-    pushToast('error', t('{name} 超过 48MB，已跳过', { name: file.name }));
+  if (file.size > 96 * 1024 * 1024) {
+    pushToast('error', t('{name} 超过 96MB，已跳过', { name: file.name }));
     return null;
   }
   try {
     const dataUrl = await fileToDataUrl(file);
     const res = await exec<{ id: string }>('asset.import', {
       name: file.name,
-      mime: file.type || (isVideo ? 'video/mp4' : 'image/png'),
+      mime: file.type || (kind === 'video' ? 'video/mp4' : kind === 'audio' ? 'audio/mpeg' : 'image/png'),
       dataUrl,
-      kind: isVideo ? 'video' : 'image',
+      kind,
     });
-    if (res.ok && res.data?.id) return { id: res.data.id, kind: isVideo ? 'video' : 'image' };
+    if (res.ok && res.data?.id) return { id: res.data.id, kind };
     pushToast('error', res.error?.message ?? t('导入失败'));
     return null;
   } catch (err) {

@@ -204,6 +204,13 @@ export const zBlend = z.enum([
   'soft-light',
 ]);
 
+export const zTransition = z
+  .object({
+    kind: z.enum(['crossfade', 'dip', 'slide', 'wipe']),
+    duration: z.number().min(0).max(10_000),
+  })
+  .nullable();
+
 export const zLayerPatch = z.object({
   name: z.string().min(1).max(80).optional(),
   x: z.number().min(-100_000).max(100_000).optional(),
@@ -220,6 +227,20 @@ export const zLayerPatch = z.object({
   inPoint: z.number().min(0).max(600_000).optional(),
   outPoint: z.number().min(0).max(600_000).optional(),
   meta: z.record(z.string().max(400)).optional(),
+  /* 媒体层字段：这些以前不在白名单里，检查器上的「填充方式 / 播放速度 / 静音」
+     改完会被 zod 静默丢掉 —— 用户点了没反应，还查不出原因 */
+  fit: zFit.optional(),
+  radius: z.number().min(0).max(2000).optional(),
+  brightness: z.number().min(0).max(4).optional(),
+  contrast: z.number().min(0).max(4).optional(),
+  saturate: z.number().min(0).max(4).optional(),
+  grayscale: z.number().min(0).max(1).optional(),
+  blur: z.number().min(0).max(200).optional(),
+  muted: z.boolean().optional(),
+  loop: z.boolean().optional(),
+  playbackRate: z.number().min(0.1).max(8).optional(),
+  trimIn: z.number().min(0).max(24 * 3600_000).optional(),
+  transition: zTransition.optional(),
 });
 
 export const zBase64DataUrl = z

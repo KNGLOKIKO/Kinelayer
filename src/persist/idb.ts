@@ -26,7 +26,7 @@ const LEGACY_PROJECT_KEYS = ['project.autosave', 'currentProject', 'project'];
 export interface AssetRecord {
   id: string;
   name: string;
-  kind: 'image' | 'video' | 'font';
+  kind: 'image' | 'video' | 'audio' | 'font';
   mime: string;
   size: number;
   createdAt: number;

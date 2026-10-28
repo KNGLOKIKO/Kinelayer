@@ -1,4 +1,5 @@
 import { getBackground, type CodeLayer, type ImageLayer, type Layer, type Project, type RemotionRuntime, type VideoLayer } from '@/core/types';
+import { clipAlphaAt, clipEnd, outgoingExtension, sourceTimeMs, transitionAt, transitionOffset } from '@/core/media';
 import { computeLayerFrame, type FrameTransform } from './animation';
 import { getImage, getVideo, isAssetMissing, syncVideoTime, type Drawable } from './assets';
 import { codeEnvOf, runCodeLayer, type CodeEnv } from './codeEngine';
@@ -96,21 +97,46 @@ function drawPlaceholder(ctx: CanvasRenderingContext2D, w: number, h: number, la
   ctx.restore();
 }
 
+interface TransformTweaks {
+  /** 叠加在图层 opacity 上（转场用） */
+  alphaMul?: number;
+  /** 屏幕空间横向位移（slide 转场用） */
+  offsetX?: number;
+  /** 擦除进度 0..1：只画左侧这一条（wipe 转场用） */
+  wipe?: number;
+}
+
 function withTransform(
   ctx: CanvasRenderingContext2D,
   frame: FrameTransform,
   draw: () => void,
+  tweaks?: TransformTweaks,
 ): void {
   const w = frame.width;
   const h = frame.height;
   ctx.save();
-  ctx.globalAlpha = Math.max(0, Math.min(1, frame.opacity));
-  ctx.translate(frame.x + w / 2, frame.y + h / 2);
+  ctx.globalAlpha = Math.max(0, Math.min(1, frame.opacity * (tweaks?.alphaMul ?? 1)));
+  ctx.translate(frame.x + w / 2 + (tweaks?.offsetX ?? 0), frame.y + h / 2);
   if (frame.rotation) ctx.rotate((frame.rotation * Math.PI) / 180);
   if (frame.scale !== 1) ctx.scale(frame.scale, frame.scale);
   ctx.translate(-w / 2, -h / 2);
+  if (tweaks?.wipe !== undefined && tweaks.wipe < 1) {
+    ctx.beginPath();
+    ctx.rect(0, 0, Math.max(0, w * tweaks.wipe), h);
+    ctx.clip();
+  }
   draw();
   ctx.restore();
+}
+
+/** 媒体层的转场改写：透明度 / 滑入位移 / 擦除进度，三样都从 core/media 算出来 */
+function mediaTweaks(project: Project, layer: Layer, time: number): TransformTweaks {
+  const at = transitionAt(layer, project, time);
+  return {
+    alphaMul: clipAlphaAt(project, layer, time),
+    offsetX: transitionOffset(layer, project, time),
+    wipe: at && at.transition.kind === 'wipe' ? at.p : undefined,
+  };
 }
 
 function drawImageLayer(
@@ -118,6 +144,7 @@ function drawImageLayer(
   layer: ImageLayer,
   frame: FrameTransform,
   assetScale: number,
+  tweaks?: TransformTweaks,
 ): void {
   withTransform(ctx, frame, () => {
     const w = layer.width;
@@ -141,10 +168,10 @@ function drawImageLayer(
     drawFit(ctx, img, w, h, layer.fit);
     ctx.filter = 'none';
     ctx.restore();
-  });
+  }, tweaks);
 }
 
-function drawVideoLayer(ctx: CanvasRenderingContext2D, layer: VideoLayer, frame: FrameTransform): void {
+function drawVideoLayer(ctx: CanvasRenderingContext2D, layer: VideoLayer, frame: FrameTransform, tweaks?: TransformTweaks): void {
   withTransform(ctx, frame, () => {
     const w = layer.width;
     const h = layer.height;
@@ -159,7 +186,7 @@ function drawVideoLayer(ctx: CanvasRenderingContext2D, layer: VideoLayer, frame:
     }
     drawFit(ctx, video, w, h, layer.fit);
     ctx.restore();
-  });
+  }, tweaks);
 }
 
 /**
@@ -348,7 +375,13 @@ export function renderScene(ctx: CanvasRenderingContext2D, project: Project, opt
     if (opts.onlyLayerId && base.id !== opts.onlyLayerId) continue;
     const override = opts.overrides?.get(base.id);
     const layer = (override ? ({ ...base, ...override } as Layer) : base) as Layer;
-    const frame = computeLayerFrame(layer, i, time, project.duration);
+    /*
+     * 叠化/下陷期间，前一段要在自己的出点之后继续出帧（片段是对接的，不是重叠的）。
+     * 只在这里临时延长 outPoint，工程数据不动 —— 用户把转场删掉，画面立刻回到硬切。
+     */
+    const ext = layer.type === 'image' || layer.type === 'video' ? outgoingExtension(project, layer) : 0;
+    const drawn = ext > 0 ? ({ ...layer, outPoint: clipEnd(layer, project) + ext } as Layer) : layer;
+    const frame = computeLayerFrame(drawn, i, time, project.duration);
     if (!frame.alive || frame.opacity <= 0.001) continue;
     ctx.globalCompositeOperation = BLEND_MAP[layer.blendMode] ?? 'source-over';
     ctx.save();
@@ -368,10 +401,10 @@ export function renderScene(ctx: CanvasRenderingContext2D, project: Project, opt
         });
         break;
       case 'image':
-        drawImageLayer(ctx, layer, frame, scale);
+        drawImageLayer(ctx, layer, frame, scale, mediaTweaks(project, layer, time));
         break;
       case 'video':
-        drawVideoLayer(ctx, layer, frame);
+        drawVideoLayer(ctx, layer, frame, mediaTweaks(project, layer, time));
         break;
       case 'code':
         if (!opts.skipCode) drawCodeLayer(ctx, layer, frame, time, scale, opts, env);
@@ -390,8 +423,15 @@ export async function prepareVideos(project: Project, time: number): Promise<voi
   const tasks: Promise<void>[] = [];
   for (const layer of project.layers) {
     if (layer.type !== 'video' || !layer.visible) continue;
+    /* 出点之后可能还要多活一段（后一段的叠化），那段时间同样要 seek */
+    const end = clipEnd(layer, project) + outgoingExtension(project, layer);
+    if (time < layer.inPoint || time >= end) continue;
     const video = getVideo(layer.assetId);
-    if (video) tasks.push(syncVideoTime(video, time));
+    if (!video) continue;
+    const asset = project.assets.find((a) => a.id === layer.assetId);
+    /* 关键：这里传的是**素材内**时刻，不是时间轴时刻 —— trimIn 与播放速度都在
+       sourceTimeMs 里算掉了。以前直接传时间轴时间，所以裁剪左边缘后画面纹丝不动。 */
+    tasks.push(syncVideoTime(video, sourceTimeMs(layer, time, asset?.duration)));
   }
   await Promise.allSettled(tasks);
 }

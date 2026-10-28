@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Boxes, ChevronDown, ChevronRight, ChevronUp, Diamond, Pause, Play, Repeat, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { Boxes, ChevronDown, ChevronRight, ChevronUp, Diamond, Pause, Play, Repeat, Scissors, Trash2 } from 'lucide-react';
 import { exec } from '@/core/commandBus';
-import { updateUi, useEditor } from '@/core/store';
+import { pushToast, updateUi, useEditor } from '@/core/store';
 import { clamp } from '@/core/geometry';
+import { MIN_CLIP_MS, TRANSITION_LABEL_KEY } from '@/core/media';
 import { ANIMATABLE_PROPERTIES, PROPERTY_LABELS, type AnimatableProperty, type Keyframe, type Layer } from '@/core/types';
 import { currentValue, trackOf, ANIM_PRESET_TRACKS, type AnimPresetTrack } from '@/core/commands/animation';
 import { peaksFor } from '@/render/audioEngine';
@@ -91,6 +92,22 @@ export function Timeline() {
   const startX = useRef(0);
   const kfDragRef = useRef<{ ids: string[]; delta: number } | null>(null);
   kfDragRef.current = kfDrag;
+  /**
+   * 片段拖动 / 左右边缘裁剪。
+   *
+   * 与关键帧拖动同一条纪律：**拖动过程中只改本地预览，松手才提交一条命令**。
+   * 每移动一像素就 dispatch 一次会让撤销栈里堆几十条记录（而且每帧都在重建整棵图层树）。
+   */
+  const [clipDrag, setClipDrag] = useState<{
+    id: string;
+    mode: 'move' | 'left' | 'right';
+    startX: number;
+    delta: number;
+  } | null>(null);
+  const clipDragRef = useRef<typeof clipDrag>(null);
+  clipDragRef.current = clipDrag;
+  /** 片段几何在**内容层**里算：laneRef 是滚动视口，zoom>1 时两者宽度不同 */
+  const contentRef = useRef<HTMLDivElement>(null);
 
   /*
    * 波形只在「这条时间轴里真有音频层」时才算。
@@ -164,6 +181,83 @@ export function Timeline() {
       window.removeEventListener('pointerup', up);
     };
   }, [kfDrag, project]);
+
+  // 片段拖动 / 边缘裁剪：松手一条命令，撤销一次就回去
+  useEffect(() => {
+    if (!clipDrag) return;
+    const rectOf = () => contentRef.current?.getBoundingClientRect() ?? null;
+    const move = (e: PointerEvent) => {
+      const rect = rectOf();
+      if (!rect) return;
+      const msPerPx = project.duration / Math.max(1, rect.width);
+      const delta = Math.round((e.clientX - clipDrag.startX) * msPerPx);
+      setClipDrag((d) => (d ? { ...d, delta } : d));
+    };
+    const up = () => {
+      const cur = clipDragRef.current;
+      setClipDrag(null);
+      if (!cur || Math.abs(cur.delta) < 2) return;
+      const layer = project.layers.find((l) => l.id === cur.id);
+      if (!layer || layer.type === 'background') return;
+      const end = layer.outPoint > 0 ? Math.min(layer.outPoint, project.duration) : project.duration;
+      const rate = layer.type === 'video' ? Math.max(0.1, layer.playbackRate || 1) : 1;
+      const trimIn = 'trimIn' in layer ? layer.trimIn : 0;
+
+      if (cur.mode === 'move') {
+        let delta = clamp(cur.delta, -layer.inPoint, project.duration - end);
+        /* 吸附：播放头与其它片段的边，8px 以内自动贴上去 —— 非专业用户对不齐，
+           这一条比任何说明文字都管用 */
+        const rect = contentRef.current?.getBoundingClientRect();
+        const tol = rect ? (8 / rect.width) * project.duration : 0;
+        const anchors = [0, project.duration, playhead, ...project.layers.filter((l) => l.id !== layer.id).flatMap((l) => [l.inPoint, l.outPoint > 0 ? l.outPoint : project.duration])];
+        const target = layer.inPoint + delta;
+        for (const a of anchors) if (Math.abs(a - target) <= tol) { delta = a - layer.inPoint; break; }
+        void exec('layer.trim', {
+          id: layer.id,
+          inPoint: Math.round(layer.inPoint + delta),
+          outPoint: layer.outPoint > 0 ? Math.round(end + delta) : 0,
+        });
+        return;
+      }
+
+      if (cur.mode === 'left') {
+        /* 左边缘：时间轴入点与素材内偏移一起动，素材不会跟着滑走。
+           负方向最多退到素材开头（trimIn 归零），再往左就没有东西可露了。 */
+        const minDelta = Math.max(-layer.inPoint, -(trimIn / rate));
+        const delta = clamp(cur.delta, minDelta, end - layer.inPoint - MIN_CLIP_MS);
+        void exec('layer.trim', {
+          id: layer.id,
+          inPoint: Math.round(layer.inPoint + delta),
+          ...(layer.type === 'video' || layer.type === 'audio' ? { trimIn: Math.round(trimIn + delta * rate) } : {}),
+        });
+        return;
+      }
+
+      const out = clamp(end + cur.delta, layer.inPoint + MIN_CLIP_MS, project.duration);
+      void exec('layer.trim', { id: layer.id, outPoint: out >= project.duration - 1 ? 0 : Math.round(out) });
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    return () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+  }, [clipDrag, project, playhead]);
+
+  /** 拖动时的预览几何：只影响这一行的渲染，不写回工程 */
+  const previewClip = (layer: Layer, out: number): { inPoint: number; out: number } => {
+    const d = clipDrag?.id === layer.id ? clipDrag : null;
+    if (!d) return { inPoint: layer.inPoint, out };
+    if (d.mode === 'move') {
+      const delta = clamp(d.delta, -layer.inPoint, project.duration - out);
+      return { inPoint: layer.inPoint + delta, out: layer.outPoint > 0 ? out + delta : out };
+    }
+    if (d.mode === 'left') {
+      const delta = clamp(d.delta, -layer.inPoint, out - layer.inPoint - MIN_CLIP_MS);
+      return { inPoint: layer.inPoint + delta, out };
+    }
+    return { inPoint: layer.inPoint, out: clamp(out + d.delta, layer.inPoint + MIN_CLIP_MS, project.duration) };
+  };
 
   const rows = useMemo<Row[]>(() => {
     const out: Row[] = [];
@@ -297,8 +391,24 @@ export function Timeline() {
 
       <div className="flex min-h-0 flex-1">
         <div className="border-ink-700/60 flex w-[168px] shrink-0 flex-col border-r">
-          <div className="border-ink-700/60 flex h-5 items-center border-b px-2 text-[9px] tracking-wider text-zinc-600">
-            TRACKS
+          <div className="border-ink-700/60 flex h-5 items-center justify-between border-b px-2 text-[9px] tracking-wider text-zinc-600">
+            <span>TRACKS</span>
+            <button
+              type="button"
+              data-testid="timeline-split"
+              title={t('在播放头切开选中片段（S）')}
+              className="text-zinc-600 hover:text-accent-soft disabled:opacity-30"
+              disabled={!selectedIds.length}
+              onClick={() => {
+                const id = selectedIds[0];
+                if (!id) return;
+                void exec('layer.split', { id, at: Math.round(playhead) }).then((res) => {
+                  if (!res.ok) pushToast('warn', res.error?.message ?? t('切不开'));
+                });
+              }}
+            >
+              <Scissors size={11} />
+            </button>
           </div>
           <div className="ml-scroll flex-1 overflow-y-auto">
             {rows.map((row) =>
@@ -439,19 +549,30 @@ export function Timeline() {
           </div>
 
           <div ref={laneRef} className="ml-scroll h-[calc(100%-20px)] overflow-auto" onPointerDown={(e) => { if (e.target === e.currentTarget) { setDrag(true); seek(e.clientX); } }}>
-            <div className="relative" style={{ width: `${zoom * 100}%`, minWidth: '100%' }}>
+            <div ref={contentRef} className="relative" style={{ width: `${zoom * 100}%`, minWidth: '100%' }}>
               {rows.map((row) => {
                 if (row.kind === 'layer') {
                   const out = row.layer.outPoint > 0 ? row.layer.outPoint : project.duration;
+                  const preview = previewClip(row.layer, Math.min(out, project.duration));
                   const bad = row.layer.inPoint > project.duration || (row.layer.outPoint > 0 && row.layer.outPoint > project.duration);
-                  const left = (row.layer.inPoint / project.duration) * 100;
-                  const width = Math.max(1.5, ((Math.min(out, project.duration) - row.layer.inPoint) / project.duration) * 100);
+                  const left = (preview.inPoint / project.duration) * 100;
+                  const width = Math.max(1.5, ((Math.max(preview.inPoint + 1, preview.out) - preview.inPoint) / project.duration) * 100);
                   const active = selectedIds.includes(row.layer.id);
+                  const draggable = row.layer.type !== 'background' && !row.layer.locked;
+                  const transition = row.layer.type === 'image' || row.layer.type === 'video' ? row.layer.transition : null;
+                  const startClipDrag = (e: ReactPointerEvent<HTMLDivElement>, mode: 'move' | 'left' | 'right') => {
+                    if (!draggable) return;
+                    e.stopPropagation();
+                    e.preventDefault();
+                    void exec('selection.set', { ids: [row.layer.id] });
+                    setClipDrag({ id: row.layer.id, mode, startX: e.clientX, delta: 0 });
+                  };
                   return (
-                    <div key={row.layer.id} className="relative h-6">
+                    <div key={row.layer.id} className="group relative h-6">
                       <div
                         className={cx(
-                          'absolute top-1 h-4 cursor-pointer overflow-hidden rounded-sm border transition',
+                          'absolute top-1 h-4 overflow-hidden rounded-sm border transition',
+                          draggable ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer',
                           bad
                             ? 'border-rose-500 bg-rose-500/30'
                             : active
@@ -460,14 +581,17 @@ export function Timeline() {
                                 ? 'border-cyan/40 bg-cyan/15 hover:bg-cyan/25'
                                 : row.layer.type === 'audio'
                                   ? 'border-emerald-500/40 bg-emerald-500/15 hover:bg-emerald-500/25'
-                                  : 'border-ink-600 bg-ink-700/80 hover:bg-ink-600',
+                                  : row.layer.type === 'video'
+                                    ? 'border-violet-400/40 bg-violet-400/15 hover:bg-violet-400/25'
+                                    : 'border-ink-600 bg-ink-700/80 hover:bg-ink-600',
                         )}
                         style={{ left: `${left}%`, width: `${width}%` }}
-                        onPointerDown={(e) => {
-                          e.stopPropagation();
-                          void exec('selection.set', { ids: [row.layer.id] });
-                        }}
-                        title={`${row.layer.name} · ${row.layer.inPoint}–${out}ms`}
+                        onPointerDown={(e) => startClipDrag(e, 'move')}
+                        title={`${row.layer.name} · ${Math.round(preview.inPoint)}–${Math.round(preview.out)}ms${
+                          row.layer.type === 'video' || row.layer.type === 'audio'
+                            ? t(' · 素材入点 {ms}ms', { ms: Math.round(row.layer.trimIn ?? 0) })
+                            : ''
+                        }\n${t('拖动移动 · 左右边缘裁剪 · S 在播放头切开')}`}
                       >
                         {row.layer.type === 'audio' && peaks && (
                           <AudioWave
@@ -476,7 +600,38 @@ export function Timeline() {
                             to={Math.min(out, project.duration) / project.duration}
                           />
                         )}
+                        {transition && (
+                          <div
+                            className="absolute top-0 left-0 h-full w-2 bg-gradient-to-r from-accent/70 to-transparent"
+                            title={t('转场 {kind} · {ms}ms', {
+                              kind: t(TRANSITION_LABEL_KEY[transition.kind]),
+                              ms: transition.duration,
+                            })}
+                          />
+                        )}
                       </div>
+                      {draggable && (
+                        <>
+                          <div
+                            className={cx(
+                              'absolute top-0 z-10 h-6 w-1.5 cursor-ew-resize rounded-l-sm bg-accent/0 transition group-hover:bg-accent/60',
+                              active && 'bg-accent/60',
+                            )}
+                            style={{ left: `calc(${left}% - 3px)` }}
+                            title={t('拖动裁剪左边缘（素材不会跟着滑走）')}
+                            onPointerDown={(e) => startClipDrag(e, 'left')}
+                          />
+                          <div
+                            className={cx(
+                              'absolute top-0 z-10 h-6 w-1.5 cursor-ew-resize rounded-r-sm bg-accent/0 transition group-hover:bg-accent/60',
+                              active && 'bg-accent/60',
+                            )}
+                            style={{ left: `calc(${left + width}% - 3px)` }}
+                            title={t('拖动裁剪右边缘')}
+                            onPointerDown={(e) => startClipDrag(e, 'right')}
+                          />
+                        </>
+                      )}
                       {row.layer.animation?.enter && (
                         <div className="absolute top-2 h-2 w-0.5 bg-emerald-400" style={{ left: `${left}%` }} />
                       )}

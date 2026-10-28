@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { defineCommand, CommandFailure } from '../registry';
 import { zBase64DataUrl, zFit, zId } from '../schemas';
-import { createImageLayer, createVideoLayer } from '../defaults';
+import { createAudioLayer, createImageLayer, createVideoLayer } from '../defaults';
 import { nextLayerName } from './_helpers';
 import { invalidateAsset } from '@/render/assets';
 import type { Layer } from '../types';
@@ -13,12 +13,12 @@ export const assetCommands = [
     mutating: true,
     asyncHandler: true,
     description:
-      '导入图片或视频（dataURL，仅 UI 上传时使用；AI 不应调用）。二进制写入 IndexedDB，项目里只留元数据。返回 assetId。',
+      '导入图片、视频或音频（dataURL，仅 UI 上传时使用；AI 不应调用）。二进制写入 IndexedDB，项目里只留元数据。返回 assetId。',
     schema: z.object({
       name: z.string().min(1).max(160),
       mime: z.string().min(3).max(100),
       dataUrl: zBase64DataUrl,
-      kind: z.enum(['image', 'video']).default('image'),
+      kind: z.enum(['image', 'video', 'audio']).default('image'),
     }),
     example: { name: 'bg.png', mime: 'image/png', dataUrl: 'data:image/png;base64,...', kind: 'image' },
     handler: async (draft, payload, ctx) => {
@@ -77,8 +77,14 @@ export const assetCommands = [
       const targets = payload.ids.map((id) => {
         const layer = draft.layers.find((l) => l.id === id);
         if (!layer) throw new CommandFailure('NOT_FOUND', `图层不存在：${id}`);
-        if (layer.type !== 'image' && layer.type !== 'video') {
-          throw new CommandFailure('VALIDATION', `「${layer.name}」不是图片/视频层，挂不了资源`);
+        if (layer.type !== 'image' && layer.type !== 'video' && layer.type !== 'audio') {
+          throw new CommandFailure('VALIDATION', `「${layer.name}」不是媒体层，挂不了资源`);
+        }
+        if (layer.type === 'audio' && meta.kind !== 'audio') {
+          throw new CommandFailure('VALIDATION', `只有音频资源能挂到音频层「${layer.name}」`);
+        }
+        if (layer.type !== 'audio' && meta.kind === 'audio') {
+          throw new CommandFailure('VALIDATION', `音频资源不能挂到「${layer.name}」`);
         }
         if (layer.type === 'image' && meta.kind === 'video') {
           throw new CommandFailure('VALIDATION', `视频资源不能挂到图片层「${layer.name}」`);
@@ -111,9 +117,27 @@ export const assetCommands = [
       atIndex: z.number().int().min(1).optional(),
     }),
     example: { assetId: 'as_abc', width: 720 },
-    handler: (draft, payload) => {
+    handler: (draft, payload, ctx) => {
       const meta = draft.assets.find((a) => a.id === payload.assetId);
       if (!meta) throw new CommandFailure('NOT_FOUND', `资源不存在：${payload.assetId}`);
+      /* 音频放到时间轴上：从播放头开始，长度 = 素材时长（夹在工程结尾内） */
+      if (meta.kind === 'audio') {
+        const dur = meta.duration && meta.duration > 0 ? meta.duration : 5000;
+        const start = Math.round(Math.min(ctx.playhead, Math.max(0, draft.duration - 100)));
+        const layer = createAudioLayer({
+          name: meta.name,
+          assetId: meta.id,
+          inPoint: start,
+          outPoint: Math.min(draft.duration, start + dur),
+          volume: 0.8,
+          fadeIn: 120,
+          fadeOut: 260,
+        });
+        layer.name = nextLayerName(draft, meta.name || layer.name);
+        const index = payload.atIndex ? Math.min(payload.atIndex, draft.layers.length) : draft.layers.length;
+        draft.layers.splice(index, 0, layer);
+        return { id: layer.id, index, kind: 'audio' as const, duration: dur, inPoint: start };
+      }
       const maxW = draft.width * 0.72;
       const ratio = meta.width && meta.height ? meta.width / meta.height : 4 / 3;
       let width = payload.width ?? Math.min(maxW, meta.width ?? maxW);

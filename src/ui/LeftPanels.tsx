@@ -373,10 +373,21 @@ function useAssetUrl(id: string): string | null {
 
 function AssetCard({ id, name, kind, size }: { id: string; name: string; kind: string; size: number }) {
   const url = useAssetUrl(id);
+  const isAudio = kind === 'audio';
   return (
     <div className="group border-ink-700/70 bg-ink-900/60 relative overflow-hidden rounded-md border">
-      <button type="button" className="block h-20 w-full" onClick={() => void exec('asset.place', { assetId: id })} title={t('点击放置到画布')}>
-        {url ? (
+      <button
+        type="button"
+        className="block h-20 w-full"
+        onClick={() => void exec('asset.place', { assetId: id })}
+        title={isAudio ? t('点击放到时间轴（从播放头开始）') : t('点击放置到画布')}
+      >
+        {isAudio ? (
+          <div className="text-emerald-300/80 flex h-full flex-col items-center justify-center gap-1">
+            <Music size={18} />
+            <span className="text-[9px] tracking-wider text-zinc-500">AUDIO</span>
+          </div>
+        ) : url ? (
           kind === 'video' ? (
             <video src={url} className="h-full w-full object-cover" muted />
           ) : (
@@ -423,13 +434,13 @@ function AssetsPanel() {
     <div className="flex h-full flex-col">
       <div className="border-ink-700/70 flex h-9 items-center justify-between border-b px-2.5">
         <span className="text-[11px] font-semibold tracking-[0.1em] text-zinc-400 uppercase">{t('资源 {n}', { n: assets.length })}</span>
-        <IconButton title={t('导入图片 / 视频')} onClick={() => inputRef.current?.click()} size={24}>
+        <IconButton title={t('导入图片 / 视频 / 音频')} onClick={() => inputRef.current?.click()} size={24}>
           <Upload size={13} />
         </IconButton>
         <input
           ref={inputRef}
           type="file"
-          accept="image/*,video/*"
+          accept="image/*,video/*,audio/*"
           multiple
           className="hidden"
           onChange={(e) => {
@@ -454,8 +465,8 @@ function AssetsPanel() {
         {assets.length === 0 ? (
           <EmptyState
             icon={<ImageIcon size={22} />}
-            title={t('把图片或视频拖进来')}
-            hint={t('二进制存 IndexedDB，项目 JSON 里只有元数据，导出时不带 base64。')}
+            title={t('把图片、视频或音频拖进来')}
+            hint={t('视频/音频点一下自动放上时间轴；二进制存 IndexedDB，项目 JSON 里只有元数据。')}
           />
         ) : (
           <div className="grid grid-cols-2 gap-1.5">

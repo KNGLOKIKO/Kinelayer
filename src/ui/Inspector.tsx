@@ -30,8 +30,10 @@ import type {
   Layer,
   TextLayer,
 } from '@/core/types';
-import { ANIM_PRESETS, BLEND_MODES, BINDING_TARGETS, CODE_ENGINES, EASINGS, TONE_PRESETS } from '@/core/types';
+import { ANIM_PRESETS, BLEND_MODES, BINDING_TARGETS, CODE_ENGINES, EASINGS, TONE_PRESETS, TRANSITION_KINDS } from '@/core/types';
+import type { TransitionKind } from '@/core/types';
 import { previewAudioLayer } from '@/render/audioEngine';
+import { MIN_CLIP_MS, TRANSITION_LABEL_KEY as TRANSITION_LABEL } from '@/core/media';
 import { defaultTextStyle } from '@/core/defaults';
 import {
   Badge,
@@ -740,11 +742,93 @@ function TextSection({ layer }: { layer: TextLayer }) {
   );
 }
 
+/**
+ * 片段通用区：入点 / 出点 / 素材入点 / 转场。
+ *
+ * 放在图片、视频、音频三个面板的最上面而不是各写一份 —— 「片段在时间轴上的哪一段」
+ * 是这三类共同的第一属性；用户换了图层类型也不该换个地方找它。
+ */
+function ClipSection({ layer }: { layer: Extract<Layer, { type: 'image' | 'video' | 'audio' }> }) {
+  const project = useEditor((s) => s.project);
+  const asset = useEditor((s) => (layer.assetId ? s.project.assets.find((a) => a.id === layer.assetId) : undefined));
+  const trim = (patch: Record<string, unknown>) => void exec('layer.trim', { id: layer.id, ...patch });
+  const out = layer.outPoint > 0 ? layer.outPoint : project.duration;
+  const transition = layer.type === 'audio' ? null : layer.transition;
+  /* 素材入点能拖到素材的什么位置：与片段长度无关（片段可以比素材长，循环播） */
+  const maxTrimIn = Math.max(1, (asset?.duration ?? 0) - 100);
+  const transitionMax = Math.max(200, Math.min(2000, (out - layer.inPoint) / 2));
+
+  return (
+    <Section title={t('片段')}>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label={t('入点')}>
+          <NumberInput value={Math.round(layer.inPoint)} onCommit={(v) => trim({ inPoint: v })} min={0} max={project.duration} suffix="ms" />
+        </Field>
+        <Field label={t('出点')}>
+          <NumberInput
+            value={Math.round(out)}
+            onCommit={(v) => trim({ outPoint: v >= project.duration ? 0 : v })}
+            min={0}
+            max={project.duration}
+            suffix="ms"
+          />
+        </Field>
+      </div>
+      {(layer.type === 'video' || layer.type === 'audio') && asset?.duration ? (
+        <Slider
+          label={t('素材入点')}
+          value={Math.min(layer.trimIn ?? 0, maxTrimIn)}
+          min={0}
+          max={maxTrimIn}
+          step={10}
+          onChange={(trimIn) => trim({ trimIn })}
+          format={(v) => `${(v / 1000).toFixed(2)}s`}
+        />
+      ) : null}
+      {(layer.type === 'image' || layer.type === 'video') && (
+        <>
+          <Field label={t('转场（与上一段）')}>
+            <Select
+              value={transition?.kind ?? 'none'}
+              options={[
+                { value: 'none', label: t('硬切（无转场）') },
+                ...TRANSITION_KINDS.map((k) => ({ value: k, label: t(TRANSITION_LABEL[k]) })),
+              ]}
+              onChange={(kind) =>
+                void exec('layer.setTransition', {
+                  id: layer.id,
+                  kind: kind === 'none' ? null : (kind as TransitionKind),
+                  duration: transition?.duration ?? 500,
+                })
+              }
+            />
+          </Field>
+          {transition && (
+            <Slider
+              label={t('转场时长')}
+              value={Math.min(transition.duration, transitionMax)}
+              min={100}
+              max={transitionMax}
+              step={50}
+              onChange={(duration) => void exec('layer.setTransition', { id: layer.id, kind: transition.kind, duration })}
+              format={(v) => `${Math.round(v)}ms`}
+            />
+          )}
+          <p className="text-[10px] leading-relaxed text-zinc-600">
+            {t('转场只需要设在后一段上，前一段会自动让路。设成 0 或者选「硬切」就回到直接切。')}
+          </p>
+        </>
+      )}
+    </Section>
+  );
+}
+
 function ImageSection({ layer }: { layer: Extract<Layer, { type: 'image' }> }) {
   const asset = useEditor((s) => s.project.assets.find((a) => a.id === layer.assetId));
   const update = (patch: Record<string, unknown>) => void exec('layer.update', { id: layer.id, patch });
   return (
     <Section title={t('图片')}>
+      <ClipSection layer={layer} />
       <div className="flex items-center gap-2 rounded border border-ink-700 bg-ink-900/60 p-2">
         <ImageIcon size={14} className="text-zinc-500" />
         <div className="min-w-0 flex-1">
@@ -782,6 +866,7 @@ function VideoSection({ layer }: { layer: Extract<Layer, { type: 'video' }> }) {
   const update = (patch: Record<string, unknown>) => void exec('layer.update', { id: layer.id, patch });
   return (
     <Section title={t('视频')}>
+      <ClipSection layer={layer} />
       <div className="flex items-center gap-2 rounded border border-ink-700 bg-ink-900/60 p-2">
         <Video size={14} className="text-zinc-500" />
         <div className="min-w-0 flex-1">
@@ -815,12 +900,13 @@ function VideoSection({ layer }: { layer: Extract<Layer, { type: 'video' }> }) {
 /**
  * 音频层。
  *
- * 这里刻意没有「上传音频」：音频层目前只有程序化音源（零外部资源），
- * 与其摆一个点了没反应的按钮，不如把「声音是怎么来的」写清楚。
+ * 两种来源：导入的音频文件（assetId）走 WebAudio 按 trimIn 排程；
+ * 没有文件时退回程序化音源（tone）—— 示例工程全靠它，零外部资源。
  */
 function AudioSection({ layer }: { layer: Extract<Layer, { type: 'audio' }> }) {
   const set = (patch: Record<string, unknown>) => void exec('audio.set', { id: layer.id, ...patch });
   const setTone = (patch: Record<string, unknown>) => void exec('audio.set', { id: layer.id, tone: patch });
+  const asset = useEditor((s) => (layer.assetId ? s.project.assets.find((a) => a.id === layer.assetId) : undefined));
   const presetLabel: Record<string, string> = {
     pad: t('长音铺底'),
     pulse: t('节拍'),
@@ -829,27 +915,32 @@ function AudioSection({ layer }: { layer: Extract<Layer, { type: 'audio' }> }) {
 
   return (
     <Section title={t('音频')}>
+      <ClipSection layer={layer} />
       <div className="border-ink-700 bg-ink-900/60 flex items-center gap-2 rounded border p-2">
         <Music size={14} className="text-emerald-400" />
         <div className="min-w-0 flex-1">
           <div className="truncate text-[11px] text-zinc-300">
-            {presetLabel[layer.tone.preset] ?? layer.tone.preset} · {Math.round(layer.volume * 100)}%
+            {asset ? asset.name : `${presetLabel[layer.tone.preset] ?? layer.tone.preset} · ${Math.round(layer.volume * 100)}%`}
             {layer.muted ? ` · ${t('已静音')}` : ''}
           </div>
-          <div className="text-[10px] text-zinc-600">{t('程序化合成，不依赖任何音频文件')}</div>
+          <div className="text-[10px] text-zinc-600">
+            {asset ? t('导入音频 · {sec}s · 拖动片段边缘裁剪', { sec: ((asset.duration ?? 0) / 1000).toFixed(1) }) : t('程序化合成，不依赖任何音频文件')}
+          </div>
         </div>
         <Button variant="ghost" onClick={() => previewAudioLayer(layer)} title={t('试听这一层')} testId="audio-preview">
           <Play size={11} /> {t('试听')}
         </Button>
       </div>
 
-      <Field label={t('音源')}>
-        <Select
-          value={layer.tone.preset}
-          options={TONE_PRESETS.map((p) => ({ value: p, label: presetLabel[p] ?? p }))}
-          onChange={(preset) => setTone({ preset })}
-        />
-      </Field>
+      {!asset && (
+        <Field label={t('音源')}>
+          <Select
+            value={layer.tone.preset}
+            options={TONE_PRESETS.map((p) => ({ value: p, label: presetLabel[p] ?? p }))}
+            onChange={(preset) => setTone({ preset })}
+          />
+        </Field>
+      )}
 
       <Slider
         label={t('音量')}
@@ -872,16 +963,18 @@ function AudioSection({ layer }: { layer: Extract<Layer, { type: 'audio' }> }) {
         </Field>
       </div>
 
-      <div className="grid grid-cols-2 gap-2">
-        <Field label={t('基频')}>
-          <NumberInput value={layer.tone.root} onCommit={(root) => setTone({ root })} min={20} max={4000} suffix="Hz" />
-        </Field>
-        {layer.tone.preset !== 'pad' && (
-          <Field label={t('每分钟拍数')}>
-            <NumberInput value={layer.tone.bpm} onCommit={(bpm) => setTone({ bpm })} min={20} max={300} suffix="BPM" />
+      {!asset && (
+        <div className="grid grid-cols-2 gap-2">
+          <Field label={t('基频')}>
+            <NumberInput value={layer.tone.root} onCommit={(root) => setTone({ root })} min={20} max={4000} suffix="Hz" />
           </Field>
-        )}
-      </div>
+          {layer.tone.preset !== 'pad' && (
+            <Field label={t('每分钟拍数')}>
+              <NumberInput value={layer.tone.bpm} onCommit={(bpm) => setTone({ bpm })} min={20} max={300} suffix="BPM" />
+            </Field>
+          )}
+        </div>
+      )}
 
       <p className="text-[10px] leading-relaxed text-zinc-600">
         {t('音频跟着主时钟走：暂停、拖播放头都会重锚。导出 WebM 时会离线渲染一遍混进音轨。')}

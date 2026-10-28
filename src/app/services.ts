@@ -4,7 +4,7 @@ import { exec } from '@/core/commandBus';
 import { uid } from '@/core/ids';
 import { captureFrame, exportPng, exportProjectJson, exportWebm, buildFilename, downloadBlob } from '@/render/exporters';
 import { blobOf, looksLikeZip } from '@/core/bundle';
-import { preloadAssets, ensureAsset } from '@/render/assets';
+import { preloadAssets, ensureAsset, ensureAudioBuffer } from '@/render/assets';
 import { idbDeleteAsset, idbDeleteCommand, idbGetAsset, idbListCommands, idbPutAsset, idbPutCommand } from '@/persist/idb';
 import { loadFonts, registerFontFace, removeFont } from '@/persist/fonts';
 import { getLayerWindowHost } from '@/windows/host';
@@ -20,7 +20,10 @@ function dataUrlToBlob(dataUrl: string): Blob {
   return new Blob([bytes], { type: mime });
 }
 
-async function measure(blob: Blob, kind: 'image' | 'video'): Promise<{ width?: number; height?: number }> {
+async function measure(
+  blob: Blob,
+  kind: 'image' | 'video' | 'audio',
+): Promise<{ width?: number; height?: number; duration?: number }> {
   try {
     if (kind === 'image') {
       const bmp = await createImageBitmap(blob);
@@ -29,16 +32,20 @@ async function measure(blob: Blob, kind: 'image' | 'video'): Promise<{ width?: n
       return size;
     }
     const url = URL.createObjectURL(blob);
-    const video = document.createElement('video');
-    video.src = url;
-    video.muted = true;
-    const size = await new Promise<{ width?: number; height?: number }>((resolve) => {
-      video.onloadedmetadata = () => resolve({ width: video.videoWidth, height: video.videoHeight });
-      video.onerror = () => resolve({});
+    const el = document.createElement(kind === 'audio' ? 'audio' : 'video') as HTMLMediaElement;
+    el.src = url;
+    if (el instanceof HTMLVideoElement) el.muted = true;
+    const info = await new Promise<{ width?: number; height?: number; duration?: number }>((resolve) => {
+      el.onloadedmetadata = () =>
+        resolve({
+          ...(el instanceof HTMLVideoElement ? { width: el.videoWidth, height: el.videoHeight } : {}),
+          duration: Number.isFinite(el.duration) ? Math.round(el.duration * 1000) : undefined,
+        });
+      el.onerror = () => resolve({});
       setTimeout(() => resolve({}), 4000);
     });
     URL.revokeObjectURL(url);
-    return size;
+    return info;
   } catch {
     return {};
   }
@@ -130,7 +137,11 @@ export function ensureServices(): void {
     },
     async importAsset(input) {
       const blob = dataUrlToBlob(input.dataUrl);
-      const kind: 'image' | 'video' = input.mime.startsWith('video') ? 'video' : 'image';
+      const kind: 'image' | 'video' | 'audio' = input.mime.startsWith('video')
+        ? 'video'
+        : input.mime.startsWith('audio')
+          ? 'audio'
+          : 'image';
       const size = await measure(blob, kind);
       const meta: AssetMeta = {
         id: uid('as'),
@@ -142,7 +153,8 @@ export function ensureServices(): void {
         ...size,
       };
       await idbPutAsset({ ...meta, blob });
-      void ensureAsset(meta.id, kind);
+      if (kind === 'audio') void ensureAudioBuffer(meta.id);
+      else void ensureAsset(meta.id, kind);
       return meta;
     },
     async readAsset(id) {

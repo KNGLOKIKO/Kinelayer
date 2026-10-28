@@ -25,6 +25,14 @@ export interface LayerSummary {
   /** 音频层专有：响什么、多响 */
   audio?: { preset: string; root: number; bpm: number; volume: number; muted: boolean };
   /**
+   * 剪辑信息（只给「动过刀」的层）。
+   *
+   * 默认值一律不报：`trimIn: 0` / `transition: null` 是绝大多数层的样子，
+   * 每层都写一遍只会把上下文撑大。报了 `trimIn` 模型才知道这一段的画面不是素材开头；
+   * 报了 `transition` 它才不会以为两段之间是硬切而多画一帧黑场。
+   */
+  clip?: { trimIn?: number; playbackRate?: number; transition?: { kind: string; duration: number } };
+  /**
    * 来源溯源（只给「不是手搓的」那些层）。
    *
    * 不带这一项时，模型看到的是一堆没有来历的图层：它不知道这层是 HTML 解析出来的、
@@ -110,6 +118,20 @@ export function summarizeProject(project: Project): Record<string, unknown> {
         volume: layer.volume,
         muted: layer.muted,
       };
+    }
+
+    if (layer.type === 'image' || layer.type === 'video' || layer.type === 'audio') {
+      /* 图片没有「素材内时间」，只有转场；视频/音频才有 trimIn 与速度 */
+      const trimIn = layer.type === 'image' ? 0 : (layer.trimIn ?? 0);
+      const transition = layer.type === 'audio' ? null : layer.transition;
+      const rate = layer.type === 'video' ? layer.playbackRate : undefined;
+      if (trimIn > 0 || transition || (rate !== undefined && rate !== 1)) {
+        base.clip = {
+          ...(trimIn > 0 ? { trimIn } : {}),
+          ...(rate !== undefined && rate !== 1 ? { playbackRate: rate } : {}),
+          ...(transition ? { transition: { kind: transition.kind, duration: transition.duration } } : {}),
+        };
+      }
     }
     return base;
   });

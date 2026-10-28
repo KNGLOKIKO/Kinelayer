@@ -1059,6 +1059,40 @@ export const en: Record<string, string> = {
   '认 [分:秒.毫秒] 和 [分:秒-分:秒] 两种写法；没带时间戳的行会按顺序接在后面，先有再准。':
     'Accepts [mm:ss.mmm] and [mm:ss-mm:ss]. Lines without a timestamp are appended in order — first get them in, then get them right.',
   新的一行: 'New line',
+
+  // ── 剪辑：片段 / 裁剪 / 分割 / 转场 ────────────────────────
+  片段: 'Clip',
+  入点: 'In',
+  出点: 'Out',
+  素材入点: 'Source in',
+  ' · 素材入点 {ms}ms': ' · source in {ms}ms',
+  '拖动移动 · 左右边缘裁剪 · S 在播放头切开':
+    'Drag to move · drag the edges to trim · S splits at the playhead',
+  '拖动裁剪左边缘（素材不会跟着滑走）':
+    'Drag to trim the left edge (the media stays put inside the clip)',
+  拖动裁剪右边缘: 'Drag to trim the right edge',
+  '在播放头切开选中片段（S）': 'Split the selected clip at the playhead (S)',
+  切不开: 'Cannot split here',
+  '转场（与上一段）': 'Transition (from the previous clip)',
+  '硬切（无转场）': 'Cut (no transition)',
+  转场时长: 'Transition length',
+  '转场 {kind} · {ms}ms': 'Transition {kind} · {ms}ms',
+  叠化: 'Crossfade',
+  下陷黑场: 'Dip to black',
+  滑入: 'Slide',
+  擦除: 'Wipe',
+  '转场只需要设在后一段上，前一段会自动让路。设成 0 或者选「硬切」就回到直接切。':
+    'You only set the transition on the incoming clip — the previous one steps aside by itself. Set it to 0 or pick "Cut" to go back to a hard cut.',
+
+  // ── 剪辑：导入媒体 ────────────────────────────────────────
+  '导入图片 / 视频 / 音频': 'Import image / video / audio',
+  '把图片、视频或音频拖进来': 'Drop images, videos or audio here',
+  '视频/音频点一下自动放上时间轴；二进制存 IndexedDB，项目 JSON 里只有元数据。':
+    'One click puts video or audio on the timeline; the bytes live in IndexedDB and the project JSON keeps only metadata.',
+  '点击放到时间轴（从播放头开始）': 'Click to place on the timeline (starting at the playhead)',
+  '{name} 超过 96MB，已跳过': '{name} is over 96MB — skipped',
+  '导入音频 · {sec}s · 拖动片段边缘裁剪':
+    'Imported audio · {sec}s · drag the clip edges to trim',
 };
 
 export type EnDict = typeof en;

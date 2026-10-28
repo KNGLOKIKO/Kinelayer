@@ -641,7 +641,11 @@ export const projectCommands = [
         await idbPutAsset({
           id: asset.id,
           name: asset.name,
-          kind: asset.mime.startsWith('video') ? 'video' : 'image',
+          kind: asset.mime.startsWith('video')
+            ? 'video'
+            : asset.mime.startsWith('audio')
+              ? 'audio'
+              : 'image',
           mime: asset.mime,
           size: blob.size,
           createdAt: Date.now(),

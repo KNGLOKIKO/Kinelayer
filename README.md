@@ -134,11 +134,12 @@ Kinelayer/
 
 ---
 
-## 命令一览（91 条）
+## 命令一览（94 条）
 
 | 分类  | 条数 | 代表命令                                                                                                                                                                                                                          |
 | --- | -- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 图层  | 13 | `layer.create` `layer.update` `layer.delete` `layer.duplicate` `layer.reorder` `layer.align` `layer.rename` `layer.fixAll` `layer.setVisible` `layer.setLocked` `layer.setBlendMode` `layer.setAnimation` `layer.setBindings` |
+| 剪辑  | 3  | `layer.trim`（入点 / 出点 / 素材入点 / 速度）`layer.split`（在播放头切开）`layer.setTransition`（叠化 / 下陷 / 滑入 / 擦除）                                                                                                        |
 | 文本  | 3  | `text.setContent` `text.setStyle` `text.fitBox`                                                                                                                                                                               |
 | 代码  | 4  | `code.setSource` `code.setEngine` `code.setParams` `code.resetRuntime`                                                                                                                                                        |
 | 背景  | 2  | `background.set` `background.setCode`                                                                                                                                                                                         |
@@ -602,6 +603,90 @@ node scripts/render.mjs perf     --project prj_sample_revision --step 250
 
 ---
 
+## v2.13 · 剪辑：素材入点、分割、转场、导入音频
+
+前三版把「画面怎么动」做到了极限，但有一件事一直缺着：**它不能剪**。
+不能指定素材从第几秒开始用，不能把一段切开，两段之间只能硬切，声音只能靠程序化合成。
+这一版补的就是这四件事。
+
+### 先去看别人怎么做，再决定借谁
+
+调研了六个项目（★ 为 2026-10 快照）：`OpenCut-app/OpenCut`（32k，MIT，Rust/WASM + FFmpeg WASM +
+WebCodecs + OPFS）、`diffusionstudio/core`（1.2k，MPL-2.0，Mediabunny + WebCodecs 的编程式合成库）、
+`diffusionstudio/editor`（3.4k，「给 agent 用的编辑器」）、`designcombo/react-video-editor`（1.3k，
+React + Remotion，服务端渲染）、`mifi/lossless-cut`（45k，GPL-2.0，FFmpeg 无损剪切）、
+`wyattblue/auto-editor`（按静音/静止/黑场自动决定切点）。
+
+**没有一个当底座。** 理由很硬：它们的文档模型都是「素材 + 轨道」，我们的模型是「图层 + 时间函数」——
+一个视频层除了入点出点还有 `x/y/width/height/rotation/opacity/blendMode/animation/bindings`，
+`x` 能绑表达式、`opacity` 能挂关键帧。换成 WebCodecs + Mediabunny 等于把模型推翻重写，
+换来的只是导入素材时的解码速度，而瓶颈不在这里。
+
+借了三样，拒了三样：
+
+| 借来的 | 从哪 | 为什么 |
+| --- | --- | --- |
+| 源内偏移 `trimIn` | LosslessCut 的 offset 概念 | 「片段从素材第几毫秒开始」必须是独立的一个数，不能靠挪片段位置表达 |
+| 片段条 + 拖两端裁剪 | CapCut / OpenCut 的时间轴 | 非专业用户对「拖两端缩短」零学习成本 |
+| 转场只设在后一段 | Canva / CapCut 的默认行为 | 用户不该为了一个叠化去改两个片段 |
+
+| 拒掉的 | 为什么 |
+| --- | --- |
+| 关键帧对齐限制（LosslessCut） | 我们不解码重编码，切点可以在任意毫秒 —— 照搬只会把「切不准」当特性写进文档 |
+| 空的磁道（Premiere / 剪映） | 轨道在我们的模型里就是图层；引入空磁道等于让用户维护两份平行的 z 序 |
+| 自动切点当主路径（auto-editor） | 静音检测在音乐片里基本失效，第一刀就切错比手工切十刀更伤。它更适合做「建议切点」 |
+
+### 三个数字，一个文件
+
+剪辑出 bug 九成出在「同一个时刻有四种说法」。所以时间语义被压进 `src/core/media.ts` 一个纯函数文件，
+预览、导出、时间轴显示都调它，谁都不许自己算：
+
+```
+clipEnd(layer)    = outPoint > 0 ? min(outPoint, duration) : duration
+sourceTimeMs(t)   = trimIn + (t - inPoint) × playbackRate
+```
+
+**拖左边缘要同时动两个数**：`inPoint += delta` 与 `trimIn += delta × rate`。
+两个一起动，画面原地不动、只有长度变 —— 这就是「素材不会跟着滑走」的实现方式，
+也是分割时右半段必须累加 `trimIn` 的原因。
+
+**转场只写在后一段上**。时间轴上的片段是对接的（0–4200 / 4200–8400），不是叠着的；
+真正的叠化需要前一段在 4200–4800 继续出帧。做法是渲染时给前一段**临时延长出点**
+（`outgoingExtension()`），长度正好等于后一段的转场时长 —— 用户数据一个字节都没改。
+`dip`（下陷黑场）不额外画一张黑场，因为那张黑场会盖住上面所有图层（包括顶上的字幕），
+「中间变黑」是两段同时半透明叠出来的结果。
+
+### 改了什么
+
+| 层 | 改动 |
+| --- | --- |
+| 数据 | `VideoLayer.trimIn` / `ImageLayer.transition` / `AudioLayer.assetId + trimIn`；`AssetMeta.kind` 多一个 `audio`，新增 `duration` |
+| 命令 | `layer.trim`（拖动时 coalesce 成一步）/ `layer.split`（关键帧跟着切）/ `layer.setTransition`（时长夹到片段一半） |
+| 渲染 | `TransformTweaks { alphaMul, offsetX, wipe }` 注入 `withTransform`；`prepareVideos` 改用 `sourceTimeMs` |
+| 音频 | 解码缓存 `ensureAudioBuffer`；`scheduleRange` 新增导入音频分支；离线混音与实时播放共用一条排程 |
+| 时间轴 | 片段拖动、左右 6px 裁剪手柄、8px 吸附、转场渐变标记、分割按钮、`S` 键 |
+| 检查器 | 「片段」区（入点 / 出点 / 素材入点 / 转场 / 转场时长），图片视频音频三个面板共用一块 |
+| 工程包 | 音频 MIME 映射进 `assets/`，导入后按 mime 还原 kind |
+| 摘要 | `query.project` 给动过刀的层加 `clip: { trimIn, playbackRate, transition }`，AI 才知道这段不是素材开头 |
+
+### 界面：别让他面对一个专业 NLE
+
+一个改动只有一条路径（拖和输数字都发同一条 `layer.trim`）；片段条上能看见的就是能改的
+（悬停出两个手柄，左边缘的 tooltip 直接写「素材不会跟着滑走」）；吸附只吸 8px 内的最近目标；
+「片段」区在图片/视频/音频三个面板里都排在媒体参数之前（三类共用一块）；默认值全部合法（新建的层一进来就是硬切）；
+文案说人话（不写 `transition.duration`，写「转场时长」）。
+
+### 像素级验证
+
+`scripts/media-check.mjs` 在真实浏览器里现造一段左红右蓝的 WebM 和一段正弦波 WAV，
+14 条断言全绿。最该看的一条：叠化中点取像素得 `[68, 6, 138]` ——
+前帧纯红 `[255,0,0]`、后帧纯蓝 `[0,0,255]`。**红蓝各半说明前一段真的还在出帧**；
+只做「新画面淡入」会得到偏蓝，硬切会得到纯红或纯蓝。
+
+细节（含六项目对比表、逐项取舍、四阶段开发计划）见 [docs/13-editing.md](docs/13-editing.md)。
+
+---
+
 ## 快捷键
 
 | 操作            | 快捷键                                     |
@@ -618,6 +703,7 @@ node scripts/render.mjs perf     --project prj_sample_revision --step 250
 | 平移画布          | 中键拖拽 或 `Space + 拖拽`                     |
 | 缩放画布          | `Ctrl/Cmd + 滚轮`                         |
 | 就地编辑文字        | 双击文本层                                   |
+| 在播放头分割视频 / 音频 | `S`                                     |
 
 ---
 
@@ -720,6 +806,7 @@ VITE_BASE=/Kinelayer/ npm run build   # 项目页需要这个前缀
 - [性能](docs/10-performance.md) —— 瓶颈是一条乘法、四条优化方向（含一条走不通的）、目标怎么定、`perf-check` 怎么复现
 - [谱面](docs/11-score.md) —— 速度网格为什么不能挂在音频层上、逐字时间按字符权重切、打拍为什么要用墙钟、LRC 的两种时间标签
 - [离线渲染](docs/12-render.md) —— 与 mexicat/pdoom-video 的 Render the Video 逐项对位：子帧采样、双浏览器分块、背压、四种模式、4K，以及对不齐的三处是为什么
+- [剪辑](docs/13-editing.md) —— 六个开源剪辑项目的路线对比与选型、`trimIn` / 分割 / 转场的时间语义、界面取舍、四阶段开发计划、像素级验证
 
 ## 许可
 
