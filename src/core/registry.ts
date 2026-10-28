@@ -79,6 +79,7 @@ export type CommandCategory =
   | 'AI'
   | '自定义'
   | '音频'
+  | '人声'
   | '系统';
 
 export interface CommandDef<S extends z.ZodTypeAny = z.ZodTypeAny> {

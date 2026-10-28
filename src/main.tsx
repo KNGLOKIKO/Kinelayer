@@ -11,6 +11,8 @@ import { dispatch } from './core/commandBus';
 import { listCommands } from './core/registry';
 import { audioStatus, createAudioCapture, describeAudioAt, measureOfflineAudio, peaksFor, renderWav, type AudioCapture } from './render/audioEngine';
 import { acquireScratch, renderInto, renderToCanvas } from './render/exporters';
+import { buildVoicePlan, syllablesOf } from './core/voice';
+import { clearVoiceCache, renderVoiceBuffer } from './render/voiceSynth';
 
 registerAllCommands();
 // 先按浏览器语言/上次选择初始化，再渲染（避免首帧闪一下默认语言）
@@ -157,6 +159,70 @@ if (import.meta.env.DEV) {
         captured?.stop();
         captured = null;
       },
+    },
+    /**
+     * 人声链路同样只能「读数」：音节切得对不对靠计划，有没有声靠离线渲染的 peak/rms，
+     * 确定性靠两次渲染的样本校验和。离线渲染必须可复现，所以噪声走 LCG 不走 Math.random ——
+     * 这条断言（hash 相等）就是防止有人以后偷偷换回去。
+     */
+    voice: {
+      plan: (spec: object) => {
+        const plan = buildVoicePlan(spec);
+        return {
+          totalMs: plan.totalMs,
+          unknownCount: plan.unknownCount,
+          phonemeCount: plan.phonemeCount,
+          notes: plan.notes.map((n) => ({ atMs: n.atMs, ms: n.ms, f0: +n.f0.toFixed(1), text: n.text, pinyin: n.pinyin, phonemes: n.phonemes.map((p) => p.ph) })),
+        };
+      },
+      syllables: (text: string) =>
+        syllablesOf(text).map((s) => ({ text: s.text, pinyin: s.pinyin, phonemes: s.phonemes, unknown: s.unknown, pauseMs: s.pauseMs })),
+      render: async (spec: object, opts?: { sampleRate?: number; ms?: number }) => {
+        const buf = await renderVoiceBuffer(spec, opts ?? {});
+        if (!buf) return null;
+        const data = buf.getChannelData(0);
+        let peak = 0;
+        let sum = 0;
+        /*
+         * FNV-1a，**按 16bit 量化后**再算。
+         *
+         * 这个和只用来判「是不是同一段声音」（换音色/换词必须变），**不用来判复现性**：
+         * OfflineAudioContext 不保证逐位可复现，同一张图跑两遍末位会差 1~2 个 float32 ULP
+         * （实测 maxDiff ≈ 3e-8）。量化到 16bit 也救不了 —— 总有几十个样本正好压在
+         * `.5` 的舍入边界上，进位方向随机，于是校验和每次都不一样。
+         * 要判「两次导出会不会一样」，看 stability() 的 maxDiff（它是逐样本比差，不看边界）。
+         */
+        let hash = 0x811c9dc5;
+        for (let i = 0; i < data.length; i += 1) {
+          const v = data[i]!;
+          const a = Math.abs(v);
+          if (a > peak) peak = a;
+          sum += v * v;
+          hash = Math.imul(hash ^ Math.round(Math.max(-1, Math.min(1, v)) * 32767), 0x01000193) >>> 0;
+        }
+        return { ms: Math.round(buf.duration * 1000), peak: +peak.toFixed(4), rms: +Math.sqrt(sum / Math.max(1, data.length)).toFixed(4), hash: hash.toString(16) };
+      },
+      /**
+       * 稳定性：同 spec 渲染两遍，逐样本比差。
+       * 导出要可复现，所以这里既看校验和也看最大偏差 —— 只看校验和的话，
+       * 「差 1e-7」和「差 0.3」是一个结论，而这两件事的严重性完全不同。
+       */
+      stability: async (spec: object, opts?: { sampleRate?: number; ms?: number }) => {
+        const a = await renderVoiceBuffer(spec, opts ?? {});
+        const b = await renderVoiceBuffer(spec, opts ?? {});
+        if (!a || !b) return null;
+        const x = a.getChannelData(0);
+        const y = b.getChannelData(0);
+        let maxDiff = 0;
+        let over = 0;
+        for (let i = 0; i < Math.min(x.length, y.length); i += 1) {
+          const d = Math.abs(x[i]! - y[i]!);
+          if (d > maxDiff) maxDiff = d;
+          if (d > 1e-6) over += 1;
+        }
+        return { lenA: x.length, lenB: y.length, maxDiff, over };
+      },
+      clear: () => clearVoiceCache(),
     },
   };
 }

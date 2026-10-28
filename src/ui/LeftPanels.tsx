@@ -1,6 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
+  ArrowRightLeft,
+  Baseline,
   ChevronDown,
   Code2,
   Copy,
@@ -10,6 +12,7 @@ import {
   Image as ImageIcon,
   Layers,
   Lock,
+  Mic,
   MonitorSmartphone,
   Music,
   Play,
@@ -30,22 +33,46 @@ import { listByCategory, type CommandCategory } from '@/core/registry';
 import { pushToast, updateUi, useEditor } from '@/core/store';
 import { idbGetAsset } from '@/persist/idb';
 import { SYSTEM_FONTS, listLocalFonts } from '@/persist/fonts';
-import type { CustomCommand, Layer, LayerOrigin } from '@/core/types';
+import type { CustomCommand, Layer, LayerOrigin, LeftTab } from '@/core/types';
 import { Badge, Button, EmptyState, IconButton, TextInput, cx } from './primitives';
 import { isAssetMissing, missingAssetLayers } from './assetGaps';
 import { fileToDataUrl, uploadAsset } from './uploadAsset';
+import { VoicePanel } from './VoicePanel';
+import { TRANSITIONS } from '@/core/media';
+import { setDragData } from './dnd';
 
 import { t } from '@/i18n';
 /* ------------------------------------------------------------------ rail */
 
 // label 一律存中文原文：模块级拿不到「用户当前语言」，翻译必须留到渲染时做
-const TABS: { id: 'layers' | 'assets' | 'fonts' | 'commands' | 'custom'; icon: typeof Layers; label: string }[] = [
+const TABS: { id: LeftTab; icon: typeof Layers; label: string }[] = [
+  { id: 'assets', icon: ImageIcon, label: '素材' },
+  { id: 'audio', icon: Mic, label: '音频' },
+  { id: 'text', icon: Type, label: '文本' },
+  { id: 'effects', icon: Sparkles, label: '特效' },
+  { id: 'transitions', icon: ArrowRightLeft, label: '转场' },
   { id: 'layers', icon: Layers, label: '图层' },
-  { id: 'assets', icon: ImageIcon, label: '资源' },
-  { id: 'fonts', icon: Type, label: '字体' },
-  { id: 'custom', icon: Sparkles, label: '自定义' },
+  { id: 'fonts', icon: Baseline, label: '字体' },
   { id: 'commands', icon: Terminal, label: '命令' },
+  { id: 'custom', icon: Wand2, label: '自定义' },
 ];
+
+/**
+ * 从别处（检查器）跳到「音频 → 人声」这一页。
+ *
+ * 子页签是 AudioPanel 的局部 state，而面板只在 leftTab==='audio' 时才挂载 ——
+ * 直接派事件会和挂载抢先后。所以用一个模块级的「下次挂载该开哪页」旗标，
+ * 挂载时读它、读完清掉；已经挂着的情况靠同一条事件即时切换。
+ */
+let pendingAudioTab: 'voice' | 'music' | null = null;
+
+export function openVoiceTab(): void {
+  pendingAudioTab = 'voice';
+  updateUi((u) => {
+    u.leftTab = 'audio';
+  });
+  window.dispatchEvent(new CustomEvent('ml:audio-tab', { detail: 'voice' }));
+}
 
 export function LeftRail() {
   const tab = useEditor((s) => s.ui.leftTab);
@@ -375,7 +402,12 @@ function AssetCard({ id, name, kind, size }: { id: string; name: string; kind: s
   const url = useAssetUrl(id);
   const isAudio = kind === 'audio';
   return (
-    <div className="group border-ink-700/70 bg-ink-900/60 relative overflow-hidden rounded-md border">
+    <div
+      className="group border-ink-700/70 bg-ink-900/60 relative overflow-hidden rounded-md border"
+      draggable
+      onDragStart={(e) => setDragData(e, 'asset', id)}
+      title={t('拖到时间轴放入，或点一下放到播放头')}
+    >
       <button
         type="button"
         className="block h-20 w-full"
@@ -790,14 +822,231 @@ function CommandsPanel() {
   );
 }
 
+/* ------------------------------------------------------------------ 面板：素材 / 音频 / 文本 / 特效 / 转场 */
+
+/** 特效 = 一套入场动画。拖到片段上就是给那一段套上 */
+const EFFECTS: { id: string; label: string; hint: string }[] = [
+  { id: 'fade-in', label: '淡入', hint: '从透明浮出来' },
+  { id: 'rise', label: '上浮', hint: '从下方推上来' },
+  { id: 'zoom-in', label: '放大进入', hint: '由小变大' },
+  { id: 'pop', label: '弹入', hint: '带一点回弹' },
+  { id: 'spin', label: '旋转进入', hint: '边转边出现' },
+  { id: 'pulse', label: '脉冲', hint: '强调一次，不改变位置' },
+];
+
+function PanelHeader({ title, right }: { title: string; right?: ReactNode }) {
+  return (
+    <div className="border-ink-700/70 flex h-9 shrink-0 items-center justify-between border-b px-2.5">
+      <span className="text-[11.5px] font-medium text-zinc-300">{title}</span>
+      {right}
+    </div>
+  );
+}
+
+function AudioPanel() {
+  const [tab, setTab] = useState<'voice' | 'music'>(() => {
+    const wanted = pendingAudioTab ?? 'voice';
+    pendingAudioTab = null;
+    return wanted;
+  });
+  useEffect(() => {
+    const onTab = (e: Event) => setTab((e as CustomEvent<'voice' | 'music'>).detail ?? 'voice');
+    window.addEventListener('ml:audio-tab', onTab);
+    return () => window.removeEventListener('ml:audio-tab', onTab);
+  }, []);
+  const layers = useEditor((s) => s.project.layers);
+  const audioCount = layers.filter((l) => l.type === 'audio').length;
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="border-ink-700/70 flex h-9 shrink-0 items-center gap-1 border-b px-2">
+        {(['voice', 'music'] as const).map((id) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setTab(id)}
+            className={cx(
+              'h-6 rounded px-2 text-[11px] transition',
+              tab === id ? 'bg-accent/20 text-accent-soft' : 'text-zinc-500 hover:text-zinc-200',
+            )}
+          >
+            {id === 'voice' ? t('人声') : t('音乐')}
+          </button>
+        ))}
+        <div className="flex-1" />
+        <span className="text-[10px] text-zinc-600">{t('{n} 条音轨', { n: audioCount })}</span>
+      </div>
+      {tab === 'voice' ? (
+        <div className="min-h-0 flex-1">
+          <VoicePanel />
+        </div>
+      ) : (
+        <div className="ml-scroll min-h-0 flex-1 space-y-2 overflow-y-auto p-2.5">
+          <p className="text-[10.5px] leading-relaxed text-zinc-600">
+            {t('程序化音源：不依赖任何音频文件，同一份工程在任何机器上听到的完全一样。')}
+          </p>
+          {[
+            { preset: 'pad' as const, label: '长音铺底', hint: '和弦长音，垫在下面' },
+            { preset: 'pulse' as const, label: '节拍', hint: '跟着工程速度打点' },
+            { preset: 'chime' as const, label: '提示音', hint: '在标记点响一声' },
+          ].map((item) => (
+            <button
+              key={item.preset}
+              type="button"
+              onClick={() =>
+                void exec('layer.create', {
+                  type: 'audio',
+                  name: t(item.label),
+                  tone: { preset: item.preset },
+                })
+              }
+              className="border-ink-700/70 bg-ink-900/50 hover:border-accent/50 hover:bg-ink-800/70 flex w-full items-center gap-2 rounded-md border p-2 text-left transition"
+            >
+              <Music size={14} className="text-emerald-300/80" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-[11.5px] text-zinc-200">{t(item.label)}</span>
+                <span className="block text-[10px] text-zinc-600">{t(item.hint)}</span>
+              </span>
+              <Plus size={12} className="text-zinc-600" />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TextPanel() {
+  const project = useEditor((s) => s.project);
+  const add = (kind: 'title' | 'sub' | 'body') => {
+    const width = Math.round(project.width * (kind === 'body' ? 0.62 : 0.78));
+    const size = kind === 'title' ? Math.round(project.width * 0.062) : kind === 'sub' ? Math.round(project.width * 0.032) : Math.round(project.width * 0.024);
+    void exec('layer.create', {
+      type: 'text',
+      name: kind === 'title' ? t('标题') : kind === 'sub' ? t('副标题') : t('正文'),
+      x: Math.round((project.width - width) / 2),
+      y: Math.round(project.height * (kind === 'title' ? 0.42 : kind === 'sub' ? 0.52 : 0.62)),
+      width,
+      height: Math.round(size * 1.6),
+      text: kind === 'title' ? t('在这里输入标题') : kind === 'sub' ? t('副标题') : t('正文'),
+      textStyle: { fontSize: size, fontWeight: kind === 'body' ? 400 : 700, align: 'center' },
+    });
+  };
+  return (
+    <div className="flex h-full flex-col">
+      <PanelHeader title={t('文本')} />
+      <div className="ml-scroll flex-1 space-y-2 overflow-y-auto p-2.5">
+        {[
+          { id: 'title' as const, label: '标题', hint: '大字号居中，占画面宽度的 78%' },
+          { id: 'sub' as const, label: '副标题', hint: '标题下面那一行' },
+          { id: 'body' as const, label: '正文', hint: '小字号，多行' },
+        ].map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            onClick={() => add(item.id)}
+            className="border-ink-700/70 bg-ink-900/50 hover:border-accent/50 hover:bg-ink-800/70 flex w-full items-center gap-2 rounded-md border p-2 text-left transition"
+          >
+            <Type size={14} className="text-accent-soft/80" />
+            <span className="min-w-0 flex-1">
+              <span className="block text-[11.5px] text-zinc-200">{t(item.label)}</span>
+              <span className="block text-[10px] text-zinc-600">{t(item.hint)}</span>
+            </span>
+            <Plus size={12} className="text-zinc-600" />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function EffectsPanel() {
+  return (
+    <div className="flex h-full flex-col">
+      <PanelHeader title={t('特效')} />
+      <div className="ml-scroll flex-1 overflow-y-auto p-2">
+        <p className="mb-2 px-0.5 text-[10.5px] leading-relaxed text-zinc-600">
+          {t('把特效拖到时间轴的片段上，或者先选中片段再点。')}
+        </p>
+        <div className="grid grid-cols-2 gap-1.5">
+          {EFFECTS.map((fx) => (
+            <button
+              key={fx.id}
+              type="button"
+              draggable
+              onDragStart={(e) => setDragData(e, 'effect', fx.id)}
+              onClick={() => {
+                const id = useEditor.getState().ui.selectedIds[0];
+                if (!id) {
+                  pushToast('warn', t('先选中一个片段'));
+                  return;
+                }
+                void exec('animation.applyPreset', { id, preset: fx.id, duration: 600 });
+              }}
+              title={t(fx.hint)}
+              className="border-ink-700/70 bg-ink-900/50 hover:border-accent/60 hover:bg-ink-800/80 flex h-16 cursor-grab flex-col items-center justify-center gap-1 rounded-md border transition active:cursor-grabbing"
+            >
+              <Sparkles size={13} className="text-accent-soft/80" />
+              <span className="text-[10.5px] text-zinc-300">{t(fx.label)}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TransitionsPanel() {
+  const selectedIds = useEditor((s) => s.ui.selectedIds);
+  return (
+    <div className="flex h-full flex-col">
+      <PanelHeader title={t('转场')} />
+      <div className="ml-scroll flex-1 overflow-y-auto p-2">
+        <p className="mb-2 px-0.5 text-[10.5px] leading-relaxed text-zinc-600">
+          {t('把转场拖到片段上就够了：它接在「上一段」和这一段之间，前一段会自动让路。')}
+        </p>
+        {TRANSITIONS.map((tr) => (
+          <button
+            key={tr.kind}
+            type="button"
+            draggable
+            onDragStart={(e) => setDragData(e, 'transition', tr.kind)}
+            onClick={() => {
+              const id = selectedIds[0];
+              if (!id) {
+                pushToast('warn', t('先选中要接在后面的那一段'));
+                return;
+              }
+              void exec('layer.setTransition', { id, kind: tr.kind, duration: 600 });
+            }}
+            className="border-ink-700/70 bg-ink-900/50 hover:border-accent/60 hover:bg-ink-800/80 mb-1.5 flex w-full cursor-grab items-center gap-2 rounded-md border p-2 text-left transition active:cursor-grabbing"
+          >
+            <span className="flex h-8 w-12 shrink-0 items-center justify-center rounded bg-gradient-to-r from-accent/50 via-accent/20 to-transparent">
+              <ArrowRightLeft size={12} className="text-accent-soft" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[11.5px] text-zinc-200">{t(tr.label)}</span>
+              <span className="block truncate text-[10px] text-zinc-600">{t(tr.hint)}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ shell */
 
 export function LeftPanel({ width = 268 }: { width?: number }) {
   const tab = useEditor((s) => s.ui.leftTab);
   return (
     <aside className="border-ink-700/80 bg-ink-850/60 flex shrink-0 flex-col border-r" style={{ width }}>
-      {tab === 'layers' && <LayersPanel />}
       {tab === 'assets' && <AssetsPanel />}
+      {tab === 'audio' && <AudioPanel />}
+      {tab === 'text' && <TextPanel />}
+      {tab === 'effects' && <EffectsPanel />}
+      {tab === 'transitions' && <TransitionsPanel />}
+      {tab === 'layers' && <LayersPanel />}
       {tab === 'fonts' && <FontsPanel />}
       {tab === 'custom' && <CustomPanel />}
       {tab === 'commands' && <CommandsPanel />}

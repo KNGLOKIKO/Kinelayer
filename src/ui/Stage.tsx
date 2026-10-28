@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { MousePointer2 } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Maximize2, MousePointer2, Pause, Play, Repeat, SkipBack, SkipForward } from 'lucide-react';
 import { exec } from '@/core/commandBus';
 import { clamp, fitViewport, hitLayer, layerCenter, rotatePoint, screenToWorld, snapValue, type Vec } from '@/core/geometry';
 import { updateUi, useEditor } from '@/core/store';
@@ -10,6 +10,7 @@ import { subscribeAssets } from '@/render/assets';
 import type { CodeLayer, Layer, Project } from '@/core/types';
 
 import { t } from '@/i18n';
+import { cx } from '@/ui/primitives';
 type Handle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'rotate';
 
 interface DragState {
@@ -26,6 +27,115 @@ interface DragState {
 }
 
 const HANDLE_SIZE = 7;
+
+/**
+ * 剪映式播放控制条。
+ *
+ * 单独成一个组件不是为了好看：它订阅了 playhead，而播放时 playhead 每帧都变 ——
+ * 挂在 Stage 里就等于让整棵树（含 HTML 层的 iframe 重算 transform）跟着 60fps 重渲染。
+ * 这里只让一条 30px 高的控制条跟着走。
+ */
+function PlayBar() {
+  const playing = useEditor((s) => s.runtime.playing);
+  const playhead = useEditor((s) => s.runtime.playhead);
+  const duration = useEditor((s) => s.project.duration);
+  const loop = useEditor((s) => s.project.loop);
+  const fps = useEditor((s) => s.project.fps);
+
+  const step = Math.max(1, Math.round(1000 / Math.max(1, fps)));
+  /* 帧号对齐：时间轴上的播放头是连续毫秒，逐帧步进要落在整帧上，否则按十几下会漂出半帧 */
+  const frameOf = (ms: number) => Math.round((ms * fps) / 1000);
+  const msOf = (frame: number) => (frame * 1000) / fps;
+
+  const seek = (ms: number) => void exec('timeline.seek', { time: clamp(ms, 0, duration) });
+  const nudge = (dir: -1 | 1) => seek(msOf(frameOf(playhead) + dir));
+
+  return (
+    <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-end justify-between gap-3 px-3 pb-3">
+      <div
+        className="shadow-pop pointer-events-auto flex items-center gap-0.5 rounded-full border border-white/10 bg-[#101013]/92 px-1.5 py-1 backdrop-blur"
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <BarButton title={t('回到开头')} onClick={() => seek(0)}>
+          <SkipBack size={13} />
+        </BarButton>
+        <BarButton title={t('上一帧 (←)')} onClick={() => nudge(-1)}>
+          <ChevronLeft size={14} />
+        </BarButton>
+        <button
+          type="button"
+          title={t('播放 / 暂停 (Space)')}
+          onClick={() => void exec(playing ? 'timeline.pause' : 'timeline.play')}
+          className="mx-0.5 grid h-8 w-8 place-items-center rounded-full bg-accent text-[#04121c] transition-colors hover:bg-accent-soft"
+        >
+          {playing ? <Pause size={14} fill="currentColor" /> : <Play size={14} fill="currentColor" className="ml-0.5" />}
+        </button>
+        <BarButton title={t('下一帧 (→)')} onClick={() => nudge(1)}>
+          <ChevronRight size={14} />
+        </BarButton>
+        <BarButton title={t('到结尾')} onClick={() => seek(duration)}>
+          <SkipForward size={13} />
+        </BarButton>
+
+        <div className="mx-1 h-4 w-px bg-white/10" />
+
+        <div className="pr-1.5 pl-0.5 font-mono text-[10.5px] leading-none tabular-nums text-zinc-300">
+          {timecode(playhead, fps)}
+          <span className="text-zinc-600"> / {timecode(duration, fps)}</span>
+        </div>
+      </div>
+
+      <div
+        className="shadow-pop pointer-events-auto flex items-center gap-0.5 rounded-full border border-white/10 bg-[#101013]/92 px-1.5 py-1 backdrop-blur"
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        <BarButton title={t('循环播放')} onClick={() => void exec('timeline.setLoop', { loop: !loop })} active={loop}>
+          <Repeat size={13} />
+        </BarButton>
+        <BarButton title={t('适应窗口 (Shift+1)')} onClick={() => window.dispatchEvent(new CustomEvent('ml:fit'))}>
+          <Maximize2 size={13} />
+        </BarButton>
+      </div>
+    </div>
+  );
+}
+
+function BarButton({
+  title,
+  onClick,
+  active,
+  children,
+}: {
+  title: string;
+  onClick: () => void;
+  active?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      className={cx(
+        'grid h-7 w-7 place-items-center rounded-full transition-colors',
+        active ? 'bg-accent/20 text-accent-soft' : 'text-zinc-400 hover:bg-white/8 hover:text-zinc-100',
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** 00:00:00:00 式的专业时序码（分:秒:帧），剪映里播放头读数就是这个口径 */
+function timecode(ms: number, fps: number): string {
+  const safe = Math.max(0, ms);
+  const totalFrames = Math.round((safe / 1000) * fps);
+  const f = totalFrames % Math.max(1, Math.round(fps));
+  const totalSec = Math.floor(safe / 1000);
+  const mm = String(Math.floor(totalSec / 60)).padStart(2, '0');
+  const ss = String(totalSec % 60).padStart(2, '0');
+  return `${mm}:${ss}:${String(f).padStart(2, '0')}`;
+}
 
 function getFrame(project: Project, id: string) {
   const index = project.layers.findIndex((l) => l.id === id);
@@ -810,7 +920,8 @@ export function Stage() {
   return (
     <div
       ref={containerRef}
-      className="ml-grid relative flex-1 overflow-hidden bg-[#080b11]"
+      data-testid="stage"
+      className="relative flex-1 overflow-hidden bg-[#0b0b0d]"
       style={{ cursor }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -819,6 +930,8 @@ export function Stage() {
       onDoubleClick={onDoubleClick}
       onContextMenu={(e) => e.preventDefault()}
     >
+      {/* 网格铺在画布下面：画布是透明的，网格只该出现在画布外的留白区 */}
+      <div className="ml-grid pointer-events-none absolute inset-0" />
       <canvas ref={canvasRef} className="absolute inset-0 block" />
 
       {/* HTML 代码层：编辑态用 sandbox iframe 实时渲染（导出时走 foreignObject 栅格化） */}
@@ -901,13 +1014,17 @@ export function Stage() {
             lineHeight: editingLayer.style.lineHeight,
             letterSpacing: editingLayer.style.letterSpacing,
             textAlign: editingLayer.style.align,
-            caretColor: '#9b83ff',
+            caretColor: '#5cc8ff',
           }}
         />
       )}
 
+      {/* 剪映式播放控制条：悬浮在预览区底部，不参与画布拖拽 */}
+      <PlayBar />
+
+      {/* 操作提示：挪到预览区顶部。底部已经是播放控制条的地盘，两条并排会互相挤 */}
       {selectedIds.length === 0 && !editingText && (
-        <div className="pointer-events-none absolute bottom-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-ink-700 bg-ink-900/90 px-3 py-1 text-[10.5px] text-zinc-500">
+        <div className="pointer-events-none absolute top-3 left-1/2 flex -translate-x-1/2 items-center gap-1.5 rounded-full border border-white/8 bg-[#101013]/70 px-3 py-1 text-[10.5px] text-zinc-500 backdrop-blur">
           <MousePointer2 size={11} /> {t('拖拽移动 · 双击编辑文本 · 空格拖拽平移 · Ctrl+滚轮缩放')}
         </div>
       )}

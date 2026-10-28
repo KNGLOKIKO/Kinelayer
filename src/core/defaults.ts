@@ -1,6 +1,7 @@
 import { uid } from './ids';
 import { clamp } from './geometry';
 import { DEFAULT_TEMPO, clampTempo, normalizeLyrics } from './score';
+import { normalizeVoiceSpec } from './voice';
 import {
   ANIMATABLE_PROPERTIES,
   BLEND_MODES,
@@ -24,6 +25,7 @@ import {
   type TextStyle,
   type Tempo,
   type ToneSpec,
+  type VoiceSpec,
   type VideoLayer,
   type BlendMode,
   type LayerType,
@@ -262,6 +264,7 @@ export function createAudioLayer(overrides: Partial<AudioLayer> = {}): AudioLaye
     fadeIn: 300,
     fadeOut: 500,
     tone: defaultToneSpec(),
+    voice: null,
   };
   return { ...layer, ...overrides, tone: { ...defaultToneSpec(), ...(overrides.tone ?? {}) } };
 }
@@ -613,6 +616,12 @@ function normalizeAudioLayer(layer: AudioLayer): void {
     chord: Array.isArray(raw.chord) && raw.chord.length ? raw.chord.filter((n) => Number.isFinite(n)).slice(0, 8) : [0, 7, 12],
     marks: Array.isArray(raw.marks) ? raw.marks.filter((n) => Number.isFinite(n) && n >= 0).slice(0, 128) : [],
   };
+  /*
+   * 人声：老工程没有这个字段。**空文本要收成 null**，不然渲染层会为一个空句子
+   * 反复去算一段 0 秒的缓冲，而且「这一层是程序化音源」的判断会失效。
+   */
+  const voice = (layer.voice ?? null) as Partial<VoiceSpec> | null;
+  layer.voice = voice && typeof voice.text === 'string' && voice.text.trim() ? normalizeVoiceSpec(voice) : null;
 }
 
 /**

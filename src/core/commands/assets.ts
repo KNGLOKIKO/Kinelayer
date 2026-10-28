@@ -115,15 +115,17 @@ export const assetCommands = [
       height: z.number().min(1).optional(),
       fit: zFit.optional(),
       atIndex: z.number().int().min(1).optional(),
+      at: z.number().min(0).optional().describe('放到时间轴的哪个时刻（毫秒），缺省用播放头'),
     }),
-    example: { assetId: 'as_abc', width: 720 },
+    example: { assetId: 'as_abc', width: 720, at: 2000 },
     handler: (draft, payload, ctx) => {
       const meta = draft.assets.find((a) => a.id === payload.assetId);
       if (!meta) throw new CommandFailure('NOT_FOUND', `资源不存在：${payload.assetId}`);
       /* 音频放到时间轴上：从播放头开始，长度 = 素材时长（夹在工程结尾内） */
       if (meta.kind === 'audio') {
         const dur = meta.duration && meta.duration > 0 ? meta.duration : 5000;
-        const start = Math.round(Math.min(ctx.playhead, Math.max(0, draft.duration - 100)));
+        const wanted = payload.at ?? ctx.playhead;
+        const start = Math.round(Math.min(Math.max(0, wanted), Math.max(0, draft.duration - 100)));
         const layer = createAudioLayer({
           name: meta.name,
           assetId: meta.id,

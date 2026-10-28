@@ -1,5 +1,6 @@
 import type { Layer, Project } from './types';
 import { getBackground } from './types';
+import { syllablesOf } from './voice';
 
 export interface LayerSummary {
   index: number;
@@ -23,7 +24,22 @@ export interface LayerSummary {
   assetId?: string | null;
   codeError?: string | null;
   /** 音频层专有：响什么、多响 */
-  audio?: { preset: string; root: number; bpm: number; volume: number; muted: boolean };
+  audio?: {
+    /** 'voice' 表示这层是人声合成的，此时 preset 恒为 'voice'，音源不是 tone */
+    preset: string;
+    root: number;
+    bpm: number;
+    volume: number;
+    muted: boolean;
+    /**
+     * 人声摘要。
+     *
+     * 只报「说了什么、怎么说」：文本是这条命令的全部输入，
+     * 模式/音色决定了同样的词听起来是不是同一个人。
+     * 颤音、气声这些细枝末节不报 —— AI 要改它们直接给整份 voice 对象。
+     */
+    voice?: { text: string; mode: string; preset: string; syllables: number };
+  };
   /**
    * 剪辑信息（只给「动过刀」的层）。
    *
@@ -111,13 +127,29 @@ export function summarizeProject(project: Project): Record<string, unknown> {
       base.assetId = layer.assetId;
     } else if (layer.type === 'audio') {
       /* 音频层没有画面属性，摘要里只报「响什么、多响」——AI 拿到坐标和尺寸只会更糊涂 */
-      base.audio = {
-        preset: layer.tone.preset,
-        root: layer.tone.root,
-        bpm: layer.tone.bpm,
-        volume: layer.volume,
-        muted: layer.muted,
-      };
+      if (layer.voice) {
+        base.audio = {
+          preset: 'voice',
+          root: layer.voice.root,
+          bpm: layer.voice.bpm,
+          volume: layer.volume,
+          muted: layer.muted,
+          voice: {
+            text: truncate(layer.voice.text, 60),
+            mode: layer.voice.mode,
+            preset: layer.voice.preset,
+            syllables: syllablesOf(layer.voice.text).length,
+          },
+        };
+      } else {
+        base.audio = {
+          preset: layer.assetId ? 'asset' : layer.tone.preset,
+          root: layer.tone.root,
+          bpm: layer.tone.bpm,
+          volume: layer.volume,
+          muted: layer.muted,
+        };
+      }
     }
 
     if (layer.type === 'image' || layer.type === 'video' || layer.type === 'audio') {

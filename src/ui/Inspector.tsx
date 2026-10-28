@@ -8,6 +8,7 @@ import {
   Code2,
   Copy,
   Image as ImageIcon,
+  Mic,
   MonitorSmartphone,
   Music,
   Play,
@@ -29,12 +30,16 @@ import type {
   GradientSpec,
   Layer,
   TextLayer,
+  VoiceMode,
+  VoicePreset,
 } from '@/core/types';
 import { ANIM_PRESETS, BLEND_MODES, BINDING_TARGETS, CODE_ENGINES, EASINGS, TONE_PRESETS, TRANSITION_KINDS } from '@/core/types';
 import type { TransitionKind } from '@/core/types';
 import { previewAudioLayer } from '@/render/audioEngine';
 import { MIN_CLIP_MS, TRANSITION_LABEL_KEY as TRANSITION_LABEL } from '@/core/media';
 import { defaultTextStyle } from '@/core/defaults';
+import { syllablesOf } from '@/core/voice';
+import { openVoiceTab } from '@/ui/LeftPanels';
 import {
   Badge,
   Button,
@@ -900,8 +905,8 @@ function VideoSection({ layer }: { layer: Extract<Layer, { type: 'video' }> }) {
 /**
  * 音频层。
  *
- * 两种来源：导入的音频文件（assetId）走 WebAudio 按 trimIn 排程；
- * 没有文件时退回程序化音源（tone）—— 示例工程全靠它，零外部资源。
+ * 三条音源互斥，优先级 voice > assetId > tone：
+ * 人声（共振峰合成）、导入的音频文件（按 trimIn 排程）、程序化音源（示例工程全靠它）。
  */
 function AudioSection({ layer }: { layer: Extract<Layer, { type: 'audio' }> }) {
   const set = (patch: Record<string, unknown>) => void exec('audio.set', { id: layer.id, ...patch });
@@ -912,27 +917,55 @@ function AudioSection({ layer }: { layer: Extract<Layer, { type: 'audio' }> }) {
     pulse: t('节拍'),
     chime: t('提示音'),
   };
+  const voice = layer.voice;
+  const modeLabel: Record<VoiceMode, string> = { speak: t('说话'), sing: t('演唱') };
+  const voiceLabel: Record<VoicePreset, string> = {
+    female: t('女声'),
+    male: t('男声'),
+    child: t('童声'),
+    robot: t('机器人'),
+  };
+
+  const headline = voice
+    ? `${voice.text.slice(0, 18)}${voice.text.length > 18 ? '…' : ''}`
+    : asset
+      ? asset.name
+      : `${presetLabel[layer.tone.preset] ?? layer.tone.preset} · ${Math.round(layer.volume * 100)}%`;
+
+  const subline = voice
+    ? t('人声合成 · {mode} · {preset} · {n} 字', {
+        mode: modeLabel[voice.mode],
+        preset: voiceLabel[voice.preset],
+        n: syllablesOf(voice.text).length,
+      })
+    : asset
+      ? t('导入音频 · {sec}s · 拖动片段边缘裁剪', { sec: ((asset.duration ?? 0) / 1000).toFixed(1) })
+      : t('程序化合成，不依赖任何音频文件');
 
   return (
     <Section title={t('音频')}>
       <ClipSection layer={layer} />
       <div className="border-ink-700 bg-ink-900/60 flex items-center gap-2 rounded border p-2">
-        <Music size={14} className="text-emerald-400" />
+        {voice ? <Mic size={14} className="text-sky-400" /> : <Music size={14} className="text-emerald-400" />}
         <div className="min-w-0 flex-1">
           <div className="truncate text-[11px] text-zinc-300">
-            {asset ? asset.name : `${presetLabel[layer.tone.preset] ?? layer.tone.preset} · ${Math.round(layer.volume * 100)}%`}
+            {headline}
             {layer.muted ? ` · ${t('已静音')}` : ''}
           </div>
-          <div className="text-[10px] text-zinc-600">
-            {asset ? t('导入音频 · {sec}s · 拖动片段边缘裁剪', { sec: ((asset.duration ?? 0) / 1000).toFixed(1) }) : t('程序化合成，不依赖任何音频文件')}
-          </div>
+          <div className="truncate text-[10px] text-zinc-600">{subline}</div>
         </div>
         <Button variant="ghost" onClick={() => previewAudioLayer(layer)} title={t('试听这一层')} testId="audio-preview">
           <Play size={11} /> {t('试听')}
         </Button>
       </div>
 
-      {!asset && (
+      {voice && (
+        <Button variant="ghost" onClick={() => openVoiceTab()} testId="audio-edit-voice">
+          <Mic size={11} /> {t('去人声面板编辑')}
+        </Button>
+      )}
+
+      {!asset && !voice && (
         <Field label={t('音源')}>
           <Select
             value={layer.tone.preset}
@@ -963,7 +996,7 @@ function AudioSection({ layer }: { layer: Extract<Layer, { type: 'audio' }> }) {
         </Field>
       </div>
 
-      {!asset && (
+      {!asset && !voice && (
         <div className="grid grid-cols-2 gap-2">
           <Field label={t('基频')}>
             <NumberInput value={layer.tone.root} onCommit={(root) => setTone({ root })} min={20} max={4000} suffix="Hz" />

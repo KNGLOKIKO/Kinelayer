@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { Boxes, ChevronDown, ChevronRight, ChevronUp, Diamond, Pause, Play, Repeat, Scissors, Trash2 } from 'lucide-react';
+import { Boxes, ChevronDown, ChevronRight, ChevronUp, Copy, Diamond, Pause, Play, Redo2, Repeat, Scissors, Trash2, Undo2 } from 'lucide-react';
 import { exec } from '@/core/commandBus';
 import { pushToast, updateUi, useEditor } from '@/core/store';
 import { clamp } from '@/core/geometry';
@@ -11,6 +11,7 @@ import { IconButton, Toggle, cx } from './primitives';
 import { useLayoutTier } from './layout';
 import { t } from '@/i18n';
 import { beatMs, tempoOf } from '@/core/score';
+import { DRAG_ASSET, DRAG_EFFECT, DRAG_TRANSITION, hasDragKind } from './dnd';
 
 /** remotion 组件层：内部不可编辑，时间轴只表示「这段时间它可见」 */
 function isRemotionLayer(layer: Layer): boolean {
@@ -294,35 +295,142 @@ export function Timeline() {
   );
   const single = picked.length === 1 ? (picked[0] as (typeof picked)[number]) : null;
 
+  /* ------------------------------------------------------------ 拖放接收 */
+
+  /**
+   * 落点 → 毫秒。用内容层的 rect（与片段几何同一套坐标），
+   * 不能用 laneRef：zoom>1 时视口比内容窄，比例会算错。
+   */
+  const timeAt = (clientX: number): number => {
+    const rect = contentRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0) return 0;
+    return clamp(((clientX - rect.left) / rect.width) * project.duration, 0, project.duration);
+  };
+
+  /** 落点最近的片段：转场/特效都得有「受主」，按起点距离挑最像的那个 */
+  const clipNear = (time: number): Layer | null => {
+    const clips = project.layers.filter((l) => l.type !== 'background' && !l.locked);
+    if (!clips.length) return null;
+    let best: Layer | null = null;
+    let bestScore = Infinity;
+    for (const l of clips) {
+      const out = l.outPoint > 0 ? l.outPoint : project.duration;
+      /* 落在片段内部算 0 距离，落在外面前按到最近边缘的距离算 */
+      const score = time >= l.inPoint && time <= out ? 0 : Math.min(Math.abs(time - l.inPoint), Math.abs(time - out));
+      if (score < bestScore) {
+        bestScore = score;
+        best = l;
+      }
+    }
+    return best;
+  };
+
+  const [dropAt, setDropAt] = useState<{ time: number; kind: string } | null>(null);
+
+  const onLaneDragOver = (e: React.DragEvent) => {
+    const kind = hasDragKind(e.dataTransfer);
+    if (!kind) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    setDropAt({ time: timeAt(e.clientX), kind });
+  };
+
+  const onLaneDrop = (e: React.DragEvent) => {
+    const kind = hasDragKind(e.dataTransfer);
+    setDropAt(null);
+    if (!kind) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const time = Math.round(timeAt(e.clientX));
+    const value = e.dataTransfer.getData(kind === 'asset' ? DRAG_ASSET : kind === 'transition' ? DRAG_TRANSITION : DRAG_EFFECT);
+
+    if (kind === 'asset') {
+      void exec('asset.place', { assetId: value, at: time }).then((res) => {
+        if (!res.ok) pushToast('error', res.error?.message ?? t('放入失败'));
+        else void exec('timeline.seek', { time });
+      });
+      return;
+    }
+
+    const target = clipNear(time);
+    if (!target) {
+      pushToast('warn', t('这条时间轴上还没有片段'));
+      return;
+    }
+    if (kind === 'transition') {
+      void exec('layer.setTransition', { id: target.id, kind: value, duration: 600 }).then((res) => {
+        if (!res.ok) pushToast('error', res.error?.message ?? t('贴不上转场'));
+        else pushToast('success', t('已把「{name}」接到 {clip} 上', { name: t(TRANSITION_LABEL_KEY[value as never] ?? value), clip: target.name }));
+      });
+      void exec('selection.set', { ids: [target.id] });
+      return;
+    }
+    void exec('animation.applyPreset', { id: target.id, preset: value, duration: 600 }).then((res) => {
+      if (!res.ok) pushToast('error', res.error?.message ?? t('套不上特效'));
+    });
+    void exec('selection.set', { ids: [target.id] });
+  };
+
+  /** Ctrl/⌘ + 滚轮缩放时间轴：剪映的手感，光标位置不动 */
+  const onLaneWheel = (e: React.WheelEvent) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    e.preventDefault();
+    const next = clamp(zoom * (e.deltaY > 0 ? 0.88 : 1.14), 1, 8);
+    updateUi((ui) => {
+      ui.timelineZoom = Math.round(next * 10) / 10;
+    });
+  };
+
   return (
     <section
       className={cx(
         'border-ink-700/80 bg-ink-900/90 flex shrink-0 flex-col border-t',
-        tier === 'narrow' ? 'h-[168px]' : tier === 'mid' ? 'h-[204px]' : 'h-[230px]',
+        tier === 'narrow' ? 'h-[188px]' : tier === 'mid' ? 'h-[224px]' : 'h-[252px]',
       )}
     >
-      <div className="border-ink-700/70 flex h-8 shrink-0 items-center gap-2 border-b px-2">
-        <IconButton size={22} active={playing} onClick={() => void exec(playing ? 'timeline.pause' : 'timeline.play')} title={t('播放 / 暂停')}>
+      {/* 工具条：照剪映的顺序 —— 撤销重做 / 剪辑动作 / 时间码 / 吸附与缩放 */}
+      <div className="border-ink-700/70 flex h-9 shrink-0 items-center gap-0.5 border-b px-1.5">
+        <IconButton size={24} title={t('撤销 (Ctrl+Z)')} onClick={() => void exec('history.undo', { steps: 1 })}>
+          <Undo2 size={13} />
+        </IconButton>
+        <IconButton size={24} title={t('重做 (Ctrl+Shift+Z)')} onClick={() => void exec('history.redo', { steps: 1 })}>
+          <Redo2 size={13} />
+        </IconButton>
+        <div className="bg-ink-700 mx-1 h-4 w-px" />
+        <IconButton
+          size={24}
+          title={t('在播放头切开选中片段（S）')}
+          testId="timeline-split"
+          disabled={!selectedIds.length}
+          onClick={() => {
+            const id = selectedIds[0];
+            if (!id) return;
+            void exec('layer.split', { id, at: Math.round(playhead) }).then((res) => {
+              if (!res.ok) pushToast('warn', res.error?.message ?? t('切不开'));
+            });
+          }}
+        >
+          <Scissors size={13} />
+        </IconButton>
+        <IconButton
+          size={24}
+          title={t('删除选中片段')}
+          disabled={!selectedIds.length}
+          onClick={() => void exec('layer.delete', { ids: selectedIds, force: false })}
+        >
+          <Trash2 size={13} />
+        </IconButton>
+        <IconButton size={24} title={t('复制选中片段 (Ctrl+D)')} disabled={!selectedIds.length} onClick={() => void exec('layer.duplicate', { ids: selectedIds })}>
+          <Copy size={13} />
+        </IconButton>
+        <div className="bg-ink-700 mx-1 h-4 w-px" />
+        <IconButton size={24} active={playing} onClick={() => void exec(playing ? 'timeline.pause' : 'timeline.play')} title={t('播放 / 暂停')}>
           {playing ? <Pause size={12} /> : <Play size={12} />}
         </IconButton>
-        <span className="font-mono text-[10.5px] tabular-nums text-zinc-400">{fmt(playhead)}</span>
-        <span className="text-[10px] text-zinc-600">/ {fmt(project.duration)}</span>
-        <div className="bg-ink-700 mx-1 h-4 w-px" />
-        <Toggle value={project.loop} onChange={(loop) => void exec('timeline.setLoop', { loop })} label={t('循环')} />
-        <span className="text-[10px] text-zinc-600">{project.fps}fps</span>
-        <div className="bg-ink-700 mx-1 h-4 w-px" />
-        <span className="text-[9.5px] text-zinc-600">{t('缩放')}</span>
-        <input
-          type="range"
-          min={1}
-          max={8}
-          step={0.5}
-          value={zoom}
-          onChange={(e) => updateUi((ui) => { ui.timelineZoom = Number(e.target.value); })}
-          className="accent-accent h-1 w-16"
-          title={t('时间轴缩放')}
-        />
-        <span className="w-6 font-mono text-[9.5px] text-zinc-500">{zoom.toFixed(1)}×</span>
+        <span className="font-mono text-[10.5px] tabular-nums text-zinc-300">{fmt(playhead)}</span>
+        <span className="font-mono text-[10px] tabular-nums text-zinc-600">/ {fmt(project.duration)}</span>
+        <div className="flex-1" />
+
         {overflow.length > 0 && (
           <button
             type="button"
@@ -341,7 +449,6 @@ export function Timeline() {
             {t('{n} 个图层越界 · 修复', { n: overflow.length })}
           </button>
         )}
-        <div className="flex-1" />
         {single && (
           <>
             <span className="text-[9.5px] text-zinc-500">
@@ -381,9 +488,21 @@ export function Timeline() {
             </IconButton>
           </>
         )}
-        {selectedKeyframes.length > 1 && (
-          <span className="text-[9.5px] text-zinc-500">{t('已选 {n} 个关键帧', { n: selectedKeyframes.length })}</span>
-        )}
+        {selectedKeyframes.length > 1 && <span className="text-[9.5px] text-zinc-500">{t('已选 {n} 个关键帧', { n: selectedKeyframes.length })}</span>}
+
+        <Toggle value={project.loop} onChange={(loop) => void exec('timeline.setLoop', { loop })} label={t('循环')} />
+        <div className="bg-ink-700 mx-1 h-4 w-px" />
+        <input
+          type="range"
+          min={1}
+          max={8}
+          step={0.5}
+          value={zoom}
+          onChange={(e) => updateUi((ui) => { ui.timelineZoom = Number(e.target.value); })}
+          className="accent-accent h-1 w-20"
+          title={t('时间轴缩放（Ctrl + 滚轮）')}
+        />
+        <span className="w-7 font-mono text-[9.5px] text-zinc-500">{zoom.toFixed(1)}×</span>
         <IconButton size={22} title={t('收起时间轴')} onClick={() => updateUi((ui) => { ui.showTimeline = false; })}>
           <ChevronDown size={12} />
         </IconButton>
@@ -392,23 +511,7 @@ export function Timeline() {
       <div className="flex min-h-0 flex-1">
         <div className="border-ink-700/60 flex w-[168px] shrink-0 flex-col border-r">
           <div className="border-ink-700/60 flex h-5 items-center justify-between border-b px-2 text-[9px] tracking-wider text-zinc-600">
-            <span>TRACKS</span>
-            <button
-              type="button"
-              data-testid="timeline-split"
-              title={t('在播放头切开选中片段（S）')}
-              className="text-zinc-600 hover:text-accent-soft disabled:opacity-30"
-              disabled={!selectedIds.length}
-              onClick={() => {
-                const id = selectedIds[0];
-                if (!id) return;
-                void exec('layer.split', { id, at: Math.round(playhead) }).then((res) => {
-                  if (!res.ok) pushToast('warn', res.error?.message ?? t('切不开'));
-                });
-              }}
-            >
-              <Scissors size={11} />
-            </button>
+            <span className="tracking-[0.14em]">TRACKS</span>
           </div>
           <div className="ml-scroll flex-1 overflow-y-auto">
             {rows.map((row) =>
@@ -548,7 +651,15 @@ export function Timeline() {
             ))}
           </div>
 
-          <div ref={laneRef} className="ml-scroll h-[calc(100%-20px)] overflow-auto" onPointerDown={(e) => { if (e.target === e.currentTarget) { setDrag(true); seek(e.clientX); } }}>
+          <div
+            ref={laneRef}
+            className="ml-scroll h-[calc(100%-20px)] overflow-auto"
+            onPointerDown={(e) => { if (e.target === e.currentTarget) { setDrag(true); seek(e.clientX); } }}
+            onDragOver={onLaneDragOver}
+            onDragLeave={() => setDropAt(null)}
+            onDrop={onLaneDrop}
+            onWheel={onLaneWheel}
+          >
             <div ref={contentRef} className="relative" style={{ width: `${zoom * 100}%`, minWidth: '100%' }}>
               {rows.map((row) => {
                 if (row.kind === 'layer') {
@@ -571,19 +682,24 @@ export function Timeline() {
                     <div key={row.layer.id} className="group relative h-6">
                       <div
                         className={cx(
-                          'absolute top-1 h-4 overflow-hidden rounded-sm border transition',
+                          'absolute top-1 h-4 overflow-hidden rounded border transition',
                           draggable ? 'cursor-grab active:cursor-grabbing' : 'cursor-pointer',
+                          /* 配色照剪映：视频蓝、图片靛、音频青、文本紫、代码水绿；选中时整块提亮 + 白边 */
                           bad
                             ? 'border-rose-500 bg-rose-500/30'
                             : active
-                              ? 'border-accent bg-accent/40'
+                              ? 'border-white/70 bg-accent/40 shadow-[0_0_0_1px_rgba(92,200,255,.5)]'
                               : row.layer.type === 'code'
-                                ? 'border-cyan/40 bg-cyan/15 hover:bg-cyan/25'
+                                ? 'border-cyan-400/45 bg-cyan-500/20 hover:bg-cyan-500/30'
                                 : row.layer.type === 'audio'
-                                  ? 'border-emerald-500/40 bg-emerald-500/15 hover:bg-emerald-500/25'
+                                  ? 'border-teal-400/50 bg-teal-500/25 hover:bg-teal-500/35'
                                   : row.layer.type === 'video'
-                                    ? 'border-violet-400/40 bg-violet-400/15 hover:bg-violet-400/25'
-                                    : 'border-ink-600 bg-ink-700/80 hover:bg-ink-600',
+                                    ? 'border-sky-400/50 bg-sky-500/25 hover:bg-sky-500/35'
+                                    : row.layer.type === 'text'
+                                      ? 'border-violet-400/50 bg-violet-500/25 hover:bg-violet-500/35'
+                                      : row.layer.type === 'image'
+                                        ? 'border-indigo-400/45 bg-indigo-500/20 hover:bg-indigo-500/30'
+                                        : 'border-ink-600 bg-ink-700/80 hover:bg-ink-600',
                         )}
                         style={{ left: `${left}%`, width: `${width}%` }}
                         onPointerDown={(e) => startClipDrag(e, 'move')}
@@ -679,6 +795,15 @@ export function Timeline() {
               })}
             </div>
           </div>
+
+          {dropAt && (
+            <div className="pointer-events-none absolute top-0 bottom-0 z-20" style={{ left: `${(dropAt.time / project.duration) * 100}%` }}>
+              <div className="bg-accent-soft/90 h-full w-px" />
+              <div className="bg-accent text-[9px] whitespace-nowrap rounded px-1 py-0.5 text-white">
+                {fmt(dropAt.time)}
+              </div>
+            </div>
+          )}
 
           <div
             className="bg-accent-soft pointer-events-none absolute top-0 bottom-0 z-10 w-px"

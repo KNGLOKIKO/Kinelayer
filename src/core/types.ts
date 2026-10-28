@@ -492,7 +492,52 @@ export interface AudioLayer extends BaseLayer {
   fadeIn: number;
   fadeOut: number;
   tone: ToneSpec;
+  /**
+   * 人声（文本 → 共振峰合成）。
+   *
+   * 三个音源是互斥的，优先级：`voice` > `assetId` > `tone`。
+   * 这样「把一层从人声改回程序化音源」只要把 voice 设成 null，不用清别的字段。
+   */
+  voice: VoiceSpec | null;
 }
+
+/* ------------------------------------------------------------------ 人声 */
+
+/**
+ * 人声参数（**可序列化**，工程 JSON 里只有这一小段）。
+ *
+ * 为什么不存音频：合成参数几十字节，同一份参数在任何机器上算出同一段声音 ——
+ * 这是能进离线渲染的前提，也保住了「零外部资源」。详见 docs/14-voice.md。
+ */
+export interface VoiceSpec {
+  /** 词或句子。中文、拼音、英文混写都行 */
+  text: string;
+  mode: VoiceMode;
+  preset: VoicePreset;
+  /** 基频（Hz）。女声 220 / 男声 110 / 童声 300 */
+  root: number;
+  /** 语速倍率。演唱模式下只影响停顿，不改音符时长 */
+  rate: number;
+  /** 音高偏移（半音） */
+  pitch: number;
+  /** 颤音深度 0..1（对应 DiffSinger 的 pexp） */
+  vibrato: number;
+  /** 气声比例 0..1（对应 DiffSinger 的 breathiness） */
+  breath: number;
+  /** 演唱旋律（相对 root 的半音数），按音节循环；空数组 = 自动五声音阶 */
+  melody: number[];
+  /** 演唱时每个音节占几拍 */
+  beatsPerSyllable: number;
+  /** 速度网格（BPM） */
+  bpm: number;
+}
+
+export type VoiceMode = 'speak' | 'sing';
+export type VoicePreset = 'female' | 'male' | 'child' | 'robot';
+
+export const VOICE_MODES: VoiceMode[] = ['speak', 'sing'];
+export const VOICE_PRESETS: VoicePreset[] = ['female', 'male', 'child', 'robot'];
+
 
 export type Layer = BackgroundLayer | TextLayer | ImageLayer | VideoLayer | CodeLayer | AudioLayer;
 
@@ -594,7 +639,23 @@ export interface Project {
 
 /* ---------------------------------------------------------------- ui / runtime */
 
-export type LeftTab = 'layers' | 'assets' | 'fonts' | 'commands' | 'custom';
+/**
+ * 左侧面板的页签。
+ *
+ * 顺序照剪映：素材 → 音频（含人声）→ 文本 → 特效 → 转场，
+ * 后面才是本项目自己的图层树、字体、命令。前五个是「往里加东西」，
+ * 后三个是「看已经有什么」—— 两类不该混在一起。
+ */
+export type LeftTab =
+  | 'assets'
+  | 'audio'
+  | 'text'
+  | 'effects'
+  | 'transitions'
+  | 'layers'
+  | 'fonts'
+  | 'commands'
+  | 'custom';
 export type RightTab = 'inspect' | 'ai' | 'audit';
 export type WindowMode = 'popup' | 'pip' | 'panel';
 

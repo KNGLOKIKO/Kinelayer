@@ -184,6 +184,27 @@ export const zToneSpec = z.object({
   marks: z.array(z.number().min(0).max(600_000)).max(128),
 });
 
+/**
+ * 人声参数。
+ *
+ * 上限都写死在这里而不是留给 handler：`text` 是会被合成器逐个音节算一遍的，
+ * 给一段十万字的文本进来，界面会卡到用户以为崩了（而且那不是「一句词」的用法）。
+ * 旋律限制 64 个音，够一段主歌 + 副歌轮替。
+ */
+export const zVoiceSpec = z.object({
+  text: z.string().min(1).max(400),
+  mode: z.enum(['speak', 'sing']),
+  preset: z.enum(['female', 'male', 'child', 'robot']),
+  root: z.number().min(55).max(660),
+  rate: z.number().min(0.5).max(2),
+  pitch: z.number().min(-24).max(24),
+  vibrato: z.number().min(0).max(1),
+  breath: z.number().min(0).max(1),
+  melody: z.array(z.number().min(-24).max(24)).max(64),
+  beatsPerSyllable: z.number().min(0.25).max(8),
+  bpm: z.number().min(30).max(300),
+});
+
 export const zBindTarget = z.enum(['x', 'y', 'width', 'height', 'rotation', 'opacity', 'scale']);
 
 export const zBindings = z

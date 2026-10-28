@@ -21,8 +21,9 @@
  * 主时钟、导出、波形三条链路复用同一个 scheduleRange，一行都没另写。
  */
 
-import type { AssetMeta, AudioLayer, Layer, Project, Tempo } from '../core/types';
+import type { AssetMeta, AudioLayer, Layer, Project, Tempo, VoiceSpec } from '../core/types';
 import { getAudioBuffer, preloadAudioAssets } from './assets';
+import { ensureVoiceBuffer, getVoiceBuffer, preloadVoiceLayers } from './voiceSynth';
 
 /** 每次 tick 往后排多远（秒）。后台被节流到 1 秒一次也不至于断音 */
 const LOOKAHEAD = 1.2;
@@ -248,11 +249,14 @@ function scheduleRange(m: Mixer, hostProject: AudioHost, s: Session, fromMs: num
     const limit = Math.min(toMs, end);
 
     /*
-     * 导入的音频文件：按片段裁剪（trimIn）+ 淡入淡出排一段 AudioBuffer。
-     * 没解码完就这轮先不排 —— 下次 tick 会重试，不要在这里 await（排程必须同步）。
+     * 「有一段现成采样要放」的两条路：导入的音频文件、算出来的人声。
+     * 二者的时间语义完全一样（trimIn / 淡入淡出 / 截取），所以合成一条分支 ——
+     * 少写一份，就少一处「人声裁了但导入音频没裁」这种不对称的 bug。
+     *
+     * 缓冲区没就绪就这轮先不排：下次 tick 会重试（排程必须同步，不能在这里 await）。
      */
-    if (layer.assetId) {
-      const buf = getAudioBuffer(layer.assetId);
+    const buf = layer.voice ? getVoiceBuffer(layer.voice) : layer.assetId ? getAudioBuffer(layer.assetId) : null;
+    if (layer.voice || layer.assetId) {
       if (!buf) continue;
       const cursor = s.bufferAt?.get(layer.id) ?? 0;
       const segFrom = Math.max(fromMs, start, cursor);
@@ -449,12 +453,48 @@ export function previewAudioLayer(layer: AudioLayer): void {
   const g = ensureGraph();
   if (!g) return;
   void g.ctx.resume().catch(() => undefined);
+
+  /* 人声要先把缓冲算出来（几十毫秒），算完再排 —— 试听按钮不该毫无反应地静一会儿 */
+  if (layer.voice) {
+    void ensureVoiceBuffer(layer.voice, { sampleRate: g.ctx.sampleRate }).then((buf) => {
+      if (buf) previewBuffer(layer);
+    });
+    return;
+  }
+  previewBuffer(layer);
+}
+
+function previewBuffer(layer: AudioLayer): void {
+  const g = ensureGraph();
+  if (!g) return;
   const length = layer.outPoint > layer.inPoint ? layer.outPoint - layer.inPoint : 1600;
   /* 试听时强制不静音、去掉淡入：按下按钮就该立刻听见 */
   const brief: AudioLayer = { ...layer, muted: false, fadeIn: 40 };
   const tmp: AudioHost = { duration: Math.max(length, 1600), layers: [brief] };
   const s: Session = { anchorCtx: g.ctx.currentTime + 0.03, fromMs: 0, cursorMs: 0, started: new Set() };
   scheduleRange(g, tmp, s, 0, Math.min(length, 1600));
+}
+
+/**
+ * 试听一段「还没落到时间轴上」的人声（面板里调参数时用）。
+ *
+ * 与 `previewAudioLayer` 分开：那个吃的是一个已有图层，这个吃的是面板里的当前参数 ——
+ * 用户改一个字就想听一遍，不该为了试听往工程里塞一层再删掉。
+ */
+export function previewVoiceSpec(spec: Partial<VoiceSpec>): void {
+  const g = ensureGraph();
+  if (!g) return;
+  void g.ctx.resume().catch(() => undefined);
+  void ensureVoiceBuffer(spec, { sampleRate: g.ctx.sampleRate }).then((buf) => {
+    if (!buf) return;
+    const src = g.ctx.createBufferSource();
+    src.buffer = buf;
+    const gain = g.ctx.createGain();
+    gain.gain.value = 0.9;
+    src.connect(gain).connect(g.master);
+    track(src);
+    src.start();
+  });
 }
 
 /**
@@ -478,6 +518,8 @@ export async function renderOfflineAudio(
   try {
     /* 导入音频必须先解码完再排程：scheduleRange 是同步的，不能在里面 await */
     await preloadAudioAssets(hostProject.assets ?? []);
+    /* 人声同理，而且要按这次渲染的采样率算 —— 否则导出会拿 44.1k 的缓冲区去 48k 的上下文里重采样 */
+    await preloadVoiceLayers(hostProject.layers, { sampleRate });
     const ctx = new Ctor(Math.max(1, Math.min(2, opts.channels ?? 1)), frames, sampleRate);
     const master = ctx.createGain();
     master.gain.value = MASTER_GAIN;
@@ -678,8 +720,9 @@ export function describeAudioAt(project: Project, timeMs: number): { id: string;
      * 只按 inPoint/outPoint 判断会把它报成「一直在响」，那样这个函数就答不了
      * 「此刻到底有没有声音」——这正是它唯一的用途。所以按最近的标记点算尾音。
      */
+    /* 人声是「一口气唱完」，区间内一直有声，不需要 chime 那套标记点判断 */
     let at = localMs;
-    if (layer.tone.preset === 'chime') {
+    if (!layer.voice && !layer.assetId && layer.tone.preset === 'chime') {
       const last = layer.tone.marks.filter((m) => m <= localMs && localMs - m < BELL_TAIL_MS).pop();
       if (last === undefined) continue;
       at = last;
@@ -688,7 +731,7 @@ export function describeAudioAt(project: Project, timeMs: number): { id: string;
     out.push({
       id: layer.id,
       name: layer.name,
-      preset: layer.tone.preset,
+      preset: layer.voice ? `voice:${layer.voice.preset}` : layer.assetId ? 'asset' : layer.tone.preset,
       gain: Number(envelopeAt(layer, at, end - start).toFixed(3)),
     });
   }

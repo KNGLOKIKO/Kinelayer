@@ -27,6 +27,19 @@ export const TRANSITION_LABEL_KEY: Record<TransitionKind, string> = {
   wipe: '擦除',
 };
 
+/**
+ * 转场面板的卡片数据。
+ *
+ * `hint` 是给非专业用户的一句话 —— 他们不该靠名字猜「下陷黑场」和「叠化」的区别。
+ * 顺序也照「最常用 → 最不常用」排，第一个是默认选择。
+ */
+export const TRANSITIONS: { kind: TransitionKind; label: string; hint: string }[] = [
+  { kind: 'crossfade', label: '叠化', hint: '前后两段同时存在，最通用的接法' },
+  { kind: 'dip', label: '下陷黑场', hint: '中间短暂变黑，适合换场景' },
+  { kind: 'slide', label: '滑入', hint: '新画面从右侧推进来' },
+  { kind: 'wipe', label: '擦除', hint: '从左往右擦出新画面' },
+];
+
 export function clipEnd(layer: Layer, project: Project): number {
   if (layer.type === 'background') return project.duration;
   return layer.outPoint > 0 ? Math.min(layer.outPoint, project.duration) : project.duration;
