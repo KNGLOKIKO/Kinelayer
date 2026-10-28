@@ -507,14 +507,24 @@ export function previewVoiceSpec(spec: Partial<VoiceSpec>): void {
  */
 export async function renderOfflineAudio(
   hostProject: AudioHost,
-  opts: { sampleRate?: number; channels?: number } = {},
+  opts: { sampleRate?: number; channels?: number; from?: number; to?: number } = {},
 ): Promise<AudioBuffer | null> {
   const Ctor =
     window.OfflineAudioContext ??
     (window as unknown as { webkitOfflineAudioContext?: typeof OfflineAudioContext }).webkitOfflineAudioContext;
   if (!Ctor) return null;
   const sampleRate = Math.max(8000, Math.min(96000, Math.round(opts.sampleRate ?? 44100)));
-  const frames = Math.max(1, Math.ceil((hostProject.duration / 1000) * sampleRate));
+  /*
+   * 只渲染一段（导出区间）。
+   *
+   * 关键在 `fromMs` 一起传进 Session：`toCtx(ms)` 是相对它的，
+   * 落在这个区间之前的图层因此会自动被排到负数时间 —— 由 OfflineAudioContext 丢掉，
+   * 而不是「排在第 0 帧上一起响」。区间起点正好切在长音中间时，包络也从真实起点算，
+   * 不会在区间开头莫名其妙地重新淡入。
+   */
+  const fromMs = Math.max(0, Math.min(opts.from ?? 0, hostProject.duration));
+  const toMs = Math.max(fromMs, Math.min(opts.to ?? hostProject.duration, hostProject.duration));
+  const frames = Math.max(1, Math.ceil(((toMs - fromMs) / 1000) * sampleRate));
   try {
     /* 导入音频必须先解码完再排程：scheduleRange 是同步的，不能在里面 await */
     await preloadAudioAssets(hostProject.assets ?? []);
@@ -525,8 +535,8 @@ export async function renderOfflineAudio(
     master.gain.value = MASTER_GAIN;
     master.connect(ctx.destination);
     const mixer: Mixer = { ctx, master, noise: makeNoise(ctx) };
-    const s: Session = { anchorCtx: 0, fromMs: 0, cursorMs: 0, started: new Set() };
-    scheduleRange(mixer, hostProject, s, 0, hostProject.duration);
+    const s: Session = { anchorCtx: 0, fromMs, cursorMs: fromMs, started: new Set() };
+    scheduleRange(mixer, hostProject, s, fromMs, toMs);
     return await ctx.startRendering();
   } catch {
     return null;
@@ -534,21 +544,24 @@ export async function renderOfflineAudio(
 }
 
 /**
- * 把整条音轨渲染成 16bit PCM WAV。
+ * 把整条音轨（或其中一段）渲染成 16bit PCM WAV。
  *
  * 为什么需要它：离线渲染出去的每一帧是图，声音得单独给一份**无压缩**的，
  * 才好在外部编码器（ffmpeg）里跟画面按同一条时间轴合起来 ——
  * WebM 那条路是浏览器自己封装的，外部编码器读不了。
+ *
+ * 它也服务「只要声音」的场景：配音、给别人的剪辑软件、检查混音。
+ * 传 `from`/`to` 时输出从 0 开始，与同区间的画面文件对齐。
  *
  * 交错写入（L,R,L,R）而不是先写左再写右：WAV 的 data 块就是交错的，
  * 拆开来写等于自己再拼一遍，没必要。
  */
 export async function renderWav(
   project: AudioHost,
-  opts: { sampleRate?: number } = {},
+  opts: { sampleRate?: number; from?: number; to?: number } = {},
 ): Promise<Uint8Array | null> {
   const sampleRate = Math.max(8000, Math.min(96000, Math.round(opts.sampleRate ?? 48000)));
-  const buffer = await renderOfflineAudio(project, { sampleRate, channels: 2 });
+  const buffer = await renderOfflineAudio(project, { sampleRate, channels: 2, from: opts.from, to: opts.to });
   if (!buffer) return null;
   const channels = buffer.numberOfChannels;
   const frames = buffer.length;
@@ -663,13 +676,27 @@ export interface AudioCapture {
   stop: () => void;
 }
 
-export async function createAudioCapture(project: Project): Promise<AudioCapture | null> {
+export async function createAudioCapture(
+  project: Project,
+  range?: { in: number; out: number } | null,
+): Promise<AudioCapture | null> {
   const g = ensureGraph();
   if (!g) return null;
   try {
     /* 导出时用户可能在预览播放：先停掉，免得两路声音叠在一起录进去 */
     stopProjectAudio(40);
-    const buffer = await renderOfflineAudio(project, { sampleRate: g.ctx.sampleRate, channels: 2 });
+    /*
+     * 按出片区间**只渲染这一段**，而不是整条渲染完再寻址到区间起点再放。
+     * 后者看着也行，但 MediaRecorder 从 `src.start()` 开始计时，
+     * 中间任何一次解码抖动都会把音画错开；而且区间是 40 秒里的 3 秒时，
+     * 白渲染那 37 秒也是纯粹的等待。
+     */
+    const buffer = await renderOfflineAudio(project, {
+      sampleRate: g.ctx.sampleRate,
+      channels: 2,
+      from: range?.in,
+      to: range?.out,
+    });
     if (!buffer) return null;
     if (!g.capture) g.capture = g.ctx.createMediaStreamDestination();
     const src = g.ctx.createBufferSource();

@@ -10,9 +10,12 @@ import { setActiveLocale } from './i18n';
 import { dispatch } from './core/commandBus';
 import { listCommands } from './core/registry';
 import { audioStatus, createAudioCapture, describeAudioAt, measureOfflineAudio, peaksFor, renderWav, type AudioCapture } from './render/audioEngine';
-import { acquireScratch, renderInto, renderToCanvas } from './render/exporters';
+import { acquireScratch, exportWindow, renderInto, renderToCanvas } from './render/exporters';
 import { buildVoicePlan, syllablesOf } from './core/voice';
 import { clearVoiceCache, renderVoiceBuffer } from './render/voiceSynth';
+import { clipCues, cuesFromLyrics, formatSubtitles, parseSubtitles, timecodeOf } from './core/subtitles';
+import { buildEdl, edlTimecode } from './core/edl';
+import { lyricsOf } from './core/score';
 
 registerAllCommands();
 // 先按浏览器语言/上次选择初始化，再渲染（避免首帧闪一下默认语言）
@@ -223,6 +226,38 @@ if (import.meta.env.DEV) {
         return { lenA: x.length, lenB: y.length, maxDiff, over };
       },
       clear: () => clearVoiceCache(),
+    },
+    /**
+     * 交付物（出片区间 / 字幕 / 剪辑表）的纯函数出口。
+     *
+     * 这三件事产出的都是「一段文本」，没法靠截图断言：字幕对不对得逐条比时间，
+     * EDL 对不对得看时间码那几列。所以直接把函数露出来给脚本调，
+     * 而不是让它先点按钮、再等下载、再从磁盘上把文件读回来解析。
+     */
+    deliverables: {
+      window: () => exportWindow(useEditor.getState().project),
+      cues: (granularity: 'line' | 'unit' = 'line') => {
+        const p = useEditor.getState().project;
+        return clipCues(cuesFromLyrics(lyricsOf(p), granularity), p.range ?? null);
+      },
+      text: (format: 'srt' | 'vtt', granularity: 'line' | 'unit' = 'line') => {
+        const p = useEditor.getState().project;
+        return formatSubtitles(clipCues(cuesFromLyrics(lyricsOf(p), granularity), p.range ?? null), format);
+      },
+      parse: (text: string) => parseSubtitles(text, useEditor.getState().project.duration),
+      edl: () => {
+        const p = useEditor.getState().project;
+        return buildEdl(p, p.range ?? null);
+      },
+      timecode: (ms: number, format: 'srt' | 'vtt' = 'srt') => timecodeOf(ms, format),
+      edlTimecode: (ms: number) => edlTimecode(ms, useEditor.getState().project.fps),
+      /** 区间音频：给「同一次导出里音画同段」这条断言一个读数口 */
+      wavBytes: async (sampleRate = 8000) => {
+        const p = useEditor.getState().project;
+        const w = exportWindow(p);
+        const bytes = await renderWav(p, { sampleRate, from: w.from, to: w.to });
+        return bytes ? { bytes: bytes.length, ms: w.to - w.from } : null;
+      },
     },
   };
 }

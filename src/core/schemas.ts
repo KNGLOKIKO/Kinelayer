@@ -175,6 +175,19 @@ export const zLyricLine = z.object({
 
 export const zLyrics = z.array(zLyricLine).max(512);
 
+/**
+ * 出片区间（毫秒）。工程里存的是 `Project.range`，null 表示整条时间轴。
+ *
+ * 为什么它进文档而不是进 UI 状态：这段片子要出哪一段，是**工程数据**。
+ * 存 ui 里会导致「换台机器打开，导出范围没了」——而导出的正是这一段。
+ */
+export const zTimeRange = z.object({
+  in: z.number().min(0).max(3_600_000),
+  out: z.number().min(0).max(3_600_000),
+});
+
+export const zMarkerKind = z.enum(['beat', 'note', 'cut']);
+
 /** 程序化音源。marks 是「相对图层起点」的毫秒数组，chime 用它标章节切换 */
 export const zToneSpec = z.object({
   preset: z.enum(['pad', 'pulse', 'chime']),

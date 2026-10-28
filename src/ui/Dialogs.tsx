@@ -14,6 +14,7 @@ import { recoverLegacyProject } from '@/persist/projects';
 import { pickImportFile } from './importFlow';
 import { IMPORT_ACCEPT } from '@/core/bundle';
 import { lsGet, lsSet } from '@/persist/storage';
+import { timecode } from './timecode';
 
 import { AgentAccessPanel } from './AgentAccessPanel';
 import { t } from '@/i18n';
@@ -255,10 +256,17 @@ export function ExportDialog() {
   const [transparent, setTransparent] = useState(false);
   const [fps, setFps] = useState(project.fps);
   const [quality, setQuality] = useState(75);
-  const [busy, setBusy] = useState<'png' | 'webm' | null>(null);
+  const [subFormat, setSubFormat] = useState<'srt' | 'vtt'>('srt');
+  const [subGranularity, setSubGranularity] = useState<'line' | 'unit'>('line');
+  const [busy, setBusy] = useState<'png' | 'webm' | 'wav' | 'subs' | 'edl' | null>(null);
 
   if (!open) return null;
   const close = () => updateUi((ui) => { ui.showExport = false; });
+  /* 出片区间：所有出口都读它，所以界面上必须写清楚「这一次导的是哪一段」 */
+  const inPoint = project.range ? Math.max(0, Math.min(project.range.in, project.duration)) : 0;
+  const outPoint = project.range ? Math.max(inPoint, Math.min(project.range.out, project.duration)) : project.duration;
+  const spanMs = outPoint - inPoint;
+  const lyricCount = project.lyrics?.length ?? 0;
 
   return (
     <Modal
@@ -300,6 +308,29 @@ export function ExportDialog() {
       <div className="space-y-4">
         <div className="rounded-lg border border-ink-700 bg-ink-900/60 p-3 text-[11px] leading-relaxed text-zinc-500">
           {t('导出走与预览完全相同的 renderScene()，只是换了一个离屏 Canvas；导出前会 await 所有字体、视频帧与 HTML 栅格化。')}
+        </div>
+
+        {/* 出片区间：视频 / 声音 / 字幕 / 剪辑表 四个出口共用这一段 */}
+        <div className="border-ink-700 bg-ink-900/60 rounded-lg border p-2.5" data-testid="export-range">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-semibold tracking-wider text-zinc-400">{t('出片区间')}</span>
+            {project.range ? (
+              <button type="button" className="text-[10px] text-zinc-500 hover:text-rose-300" onClick={() => void exec('timeline.clearRange', {})}>
+                {t('改回整条')}
+              </button>
+            ) : (
+              <span className="text-[10px] text-zinc-600">{t('整条时间轴')}</span>
+            )}
+          </div>
+          <div className="mt-1 flex items-baseline gap-2 font-mono text-[11.5px] tabular-nums text-zinc-300">
+            <span>{timecode(inPoint, project.fps)}</span>
+            <span className="text-zinc-600">→</span>
+            <span>{timecode(outPoint, project.fps)}</span>
+            <span className="text-[10px] text-zinc-500">({(spanMs / 1000).toFixed(1)}s)</span>
+          </div>
+          <p className="mt-1 text-[10px] leading-relaxed text-zinc-600">
+            {t('在时间轴上按 I / O 打入出点，拖标尺上的蓝条两端也能改。四个出口（视频 / 声音 / 字幕 / 剪辑表）都只处理这一段。')}
+          </p>
         </div>
 
         <div className="space-y-2">
@@ -345,7 +376,77 @@ export function ExportDialog() {
             </Field>
           </div>
           <p className="text-[10.5px] leading-relaxed text-zinc-600">
-            {t('逐帧手动推帧（captureStream(0) + requestFrame）。导出耗时约等于视频时长，导出期间命令总线仍会串行等待。')}
+            {t('逐帧手动推帧（captureStream(0) + requestFrame）。导出耗时约等于视频时长，导出期间命令总线仍会串行等待。渲染跟不上时会跳帧保时长，跳了多少会写在提示里。')}
+          </p>
+        </div>
+
+        {/* 声音 / 字幕 / 剪辑表：都是「只要一样东西」的出口，不该逼人先出视频 */}
+        <div className="space-y-2">
+          <div className="text-[11px] font-semibold tracking-wider text-zinc-400">{t('声音与字幕')}</div>
+          <div className="grid grid-cols-2 gap-2">
+            <Field label={t('字幕格式')}>
+              <Select
+                value={subFormat}
+                options={[
+                  { value: 'srt', label: 'SRT' },
+                  { value: 'vtt', label: 'WebVTT' },
+                ]}
+                onChange={(v) => setSubFormat(v as 'srt' | 'vtt')}
+              />
+            </Field>
+            <Field label={t('断句粒度')}>
+              <Select
+                value={subGranularity}
+                options={[
+                  { value: 'line', label: t('一行一条') },
+                  { value: 'unit', label: t('逐字一条（用逐字时间）') },
+                ]}
+                onChange={(v) => setSubGranularity(v as 'line' | 'unit')}
+              />
+            </Field>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              disabled={!!busy}
+              onClick={async () => {
+                setBusy('wav');
+                await exec('export.wav', { sampleRate: 48000 });
+                setBusy(null);
+              }}
+            >
+              {busy === 'wav' ? <Loader2 size={12} className="ml-spin" /> : null}
+              {t('导出 WAV')}
+            </Button>
+            <Button
+              variant="outline"
+              disabled={!!busy || !lyricCount}
+              title={lyricCount ? undefined : t('这个工程还没有歌词')}
+              onClick={async () => {
+                setBusy('subs');
+                const res = await exec('export.subtitles', { format: subFormat, granularity: subGranularity });
+                if (!res.ok) pushToast('warn', res.error?.message ?? t('字幕导出失败'));
+                setBusy(null);
+              }}
+            >
+              {busy === 'subs' ? <Loader2 size={12} className="ml-spin" /> : null}
+              {t('导出字幕')}
+            </Button>
+            <Button
+              variant="outline"
+              disabled={!!busy}
+              onClick={async () => {
+                setBusy('edl');
+                await exec('export.edl', {});
+                setBusy(null);
+              }}
+            >
+              {busy === 'edl' ? <Loader2 size={12} className="ml-spin" /> : null}
+              {t('导出剪辑表')}
+            </Button>
+          </div>
+          <p className="text-[10.5px] leading-relaxed text-zinc-600">
+            {t('字幕用工程里的歌词与逐字时间，时间相对导出片段起点。剪辑表是 CMX 3600 EDL：只有带素材文件的图层能进表，文本与代码层已经烘焙在成片里。')}
           </p>
         </div>
 

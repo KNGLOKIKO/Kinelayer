@@ -16,7 +16,7 @@ import { PromptDialog } from '@/ui/PromptDialog';
 import { FloatingLayerPanels } from '@/ui/FloatingLayerPanels';
 import { exec } from '@/core/commandBus';
 import { setBroadcastHandler } from '@/core/commandBus';
-import { updateRuntime, updateUi, useEditor } from '@/core/store';
+import { pushToast, updateRuntime, updateUi, useEditor } from '@/core/store';
 import {
   ensureProjectRecorded,
   getLastProjectId,
@@ -33,6 +33,7 @@ import { getLayerWindowHost } from '@/windows/host';
 import { resetAudio, syncProjectAudio } from '@/render/audioEngine';
 import { ensureServices } from '@/app/services';
 import { getServices } from '@/core/services';
+import { clamp } from '@/core/geometry';
 import { cx } from '@/ui/primitives';
 import { useLayoutTier } from '@/ui/layout';
 
@@ -199,21 +200,44 @@ export function EditorApp() {
         syncProjectAudio(state.project, state.runtime.playhead, false);
         return;
       }
-      let next = state.runtime.playhead + dt;
-      if (next >= state.project.duration) {
+      const rate = state.runtime.playRate || 1;
+      /*
+       * 播放窗口：有出片区间就按区间走，否则整条时间轴。
+       *
+       * 为什么让播放**停在出点**而不是继续往下播：区间是「这次要出哪一段」的权威，
+       * 预览它才有意义。播过出点继续走，用户会以为那部分也会进成片。
+       * 想通看全片：清除区间（工具条上的 ✕）或直接拖播放头。
+       */
+      const range = state.project.range;
+      const winIn = range ? Math.max(0, Math.min(range.in, state.project.duration)) : 0;
+      const winOut = range ? Math.max(winIn + 1, Math.min(range.out, state.project.duration)) : state.project.duration;
+      let next = state.runtime.playhead + dt * rate;
+      /* 倒放没有声音：音频图不能倒着跑。画面倒着看是剪辑里的常规操作，
+         硬要给声音就会变成「刺啦一声」，不如安静。 */
+      const audible = rate > 0;
+      if (rate > 0 && next >= winOut) {
         if (state.project.loop) {
-          next = next % state.project.duration;
+          next = winIn + ((next - winIn) % (winOut - winIn));
         } else {
-          useEditor.setState({ runtime: { ...state.runtime, playhead: state.project.duration, playing: false } });
-          host.broadcastTime(state.project.duration, false);
-          syncProjectAudio(state.project, state.project.duration, false);
+          useEditor.setState({ runtime: { ...state.runtime, playhead: winOut, playing: false, playRate: 1 } });
+          host.broadcastTime(winOut, false);
+          syncProjectAudio(state.project, winOut, false);
+          return;
+        }
+      } else if (rate < 0 && next <= winIn) {
+        if (state.project.loop) {
+          next = winOut - ((winIn - next) % (winOut - winIn));
+        } else {
+          useEditor.setState({ runtime: { ...state.runtime, playhead: winIn, playing: false, playRate: 1 } });
+          host.broadcastTime(winIn, false);
+          syncProjectAudio(state.project, winIn, false);
           return;
         }
       }
       useEditor.setState({ runtime: { ...state.runtime, playhead: next } });
       host.broadcastTime(next, true);
       /* 声音跟着同一根时间轴走；seek / 循环回绕由它自己重锚 */
-      syncProjectAudio(state.project, next, true);
+      syncProjectAudio(state.project, next, audible);
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
@@ -305,6 +329,61 @@ export function EditorApp() {
       }
       if (e.key === 'Escape') {
         void exec('selection.clear', {});
+        return;
+      }
+
+      /* ---------------------------------------------------- 走带与入出点
+       *
+       * J/K/L 是所有剪辑软件共同的手势，不用解释：
+       *   K 停，L 正放（连按加速度：1→2→4→8），J 倒放（同样连按加速）。
+       * 这里只推播放头与倍速，声音在倒放时自动静音（见主时钟里的 audible）。
+       *
+       * I/O 打入出点、,/。 逐帧、M 打标记、Home/End 跳首尾 —— 都是「手不离键盘」的动作。
+       * 全部走命令层，所以 AI 与宏拿到的语义和用户按键完全一致。
+       */
+      const { project: pj, runtime: rt } = useEditor.getState();
+      if (e.key === 'k' && !mod) {
+        e.preventDefault();
+        void exec('timeline.pause', {});
+        updateRuntime((r) => {
+          r.playRate = 1;
+        });
+        return;
+      }
+      if ((e.key === 'l' || e.key === 'j') && !mod) {
+        e.preventDefault();
+        const dir = e.key === 'l' ? 1 : -1;
+        /* 连按同向加速；换向或从停住开始，从 1 倍起 */
+        const same = rt.playing && Math.sign(rt.playRate) === dir;
+        const speed = same ? Math.min(8, Math.abs(rt.playRate) * 2) : 1;
+        updateRuntime((r) => {
+          r.playing = true;
+          r.playRate = dir * speed;
+        });
+        return;
+      }
+      if ((e.key === 'i' || e.key === 'o') && !mod) {
+        e.preventDefault();
+        void exec(e.key === 'i' ? 'timeline.markIn' : 'timeline.markOut', { time: Math.round(rt.playhead) }).then((res) => {
+          if (!res.ok) pushToast('warn', res.error?.message ?? t('设不了入出点'));
+        });
+        return;
+      }
+      if (e.key === ',' || e.key === '.') {
+        e.preventDefault();
+        const step = 1000 / Math.max(1, Math.round(pj.fps));
+        const frame = Math.round(rt.playhead / step) + (e.key === '.' ? 1 : -1);
+        void exec('timeline.seek', { time: clamp(Math.round(frame * step), 0, pj.duration) });
+        return;
+      }
+      if (e.key === 'm' && !mod) {
+        e.preventDefault();
+        void exec('timeline.addMarker', { time: Math.round(rt.playhead) });
+        return;
+      }
+      if (e.key === 'Home' || e.key === 'End') {
+        e.preventDefault();
+        void exec('timeline.seek', { time: e.key === 'Home' ? 0 : pj.duration });
         return;
       }
       if (e.key === 's' && !mod) {

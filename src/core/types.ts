@@ -614,6 +614,34 @@ export interface LyricUnit {
   offset: number;
 }
 
+/** 毫秒区间，`out` 可以等于 `duration` */
+export interface TimeRange {
+  in: number;
+  out: number;
+}
+
+/**
+ * 出片区间的最短长度（毫秒）。
+ *
+ * 40ms ≈ 25fps 的一帧。短于此的区间导出只会得到一张重复帧，
+ * 多半是「想打 O 结果打成了 I」的误操作，所以在规范化和命令层都按它兜底，
+ * 而不是让用户得到一个 1 毫秒的空片。
+ */
+export const MIN_RANGE_MS = 40;
+
+/** 时间轴标记点。`kind` 只影响颜色与文案，不影响渲染 */
+export interface Marker {
+  id: string;
+  time: number;
+  label: string;
+  kind: 'beat' | 'note' | 'cut';
+}
+
+export const MARKER_KINDS: Marker['kind'][] = ['beat', 'note', 'cut'];
+
+/** 标记点上限。够标满一支三分钟片子的每个小节，再多就是数据没清干净 */
+export const MAX_MARKERS = 400;
+
 export interface Project {
   /** 缺省视为 1（v1 的工程文件没有这个字段） */
   schemaVersion: number;
@@ -632,6 +660,16 @@ export interface Project {
   tempo?: Tempo;
   /** 词级时间（可为空）。缺省 = 这支片子没有歌词，代码层的 api.lyrics 会返回空结构 */
   lyrics?: LyricLine[];
+  /**
+   * 导出区间（工作区）。null / 缺省 = 整片导出。
+   *
+   * 它是**出片区间的唯一权威**：导出、字幕导出、EDL 都读它，
+   * 界面上那条半透明的范围条只是它的投影。存进工程而不是存进 ui，
+   * 是因为「这段片子要出哪一段」是工程的一部分 —— 换台机器打开还要在。
+   */
+  range?: TimeRange | null;
+  /** 时间轴标记点（拍点、待办、切点）。故事板阶段靠它对齐，删了不影响渲染 */
+  markers?: Marker[];
   version: number;
   createdAt: number;
   updatedAt: number;
@@ -723,6 +761,14 @@ export interface ToastItem {
 export interface RuntimeState {
   playhead: number;
   playing: boolean;
+  /**
+   * 播放倍速，负数表示倒放。
+   *
+   * 只给 J/K/L 三个键用（1/2/4/8 与 -1/-2/-4/-8）。为什么放进 runtime 而不是
+   * 命令层：它不是工程数据 —— 「我刚才用 4 倍速看了一遍」不该跟着工程存下来，
+   * 更不该进撤销栈。
+   */
+  playRate: number;
   measuredFps: number;
   exportProgress: ExportProgress;
   bridge: BridgeStatus;

@@ -134,26 +134,26 @@ Kinelayer/
 
 ---
 
-## 命令一览（97 条）
+## 命令一览（109 条）
 
 | 分类  | 条数 | 代表命令                                                                                                                                                                                                                          |
 | --- | -- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 图层  | 13 | `layer.create` `layer.update` `layer.delete` `layer.duplicate` `layer.reorder` `layer.align` `layer.rename` `layer.fixAll` `layer.setVisible` `layer.setLocked` `layer.setBlendMode` `layer.setAnimation` `layer.setBindings` |
-| 剪辑  | 3  | `layer.trim`（入点 / 出点 / 素材入点 / 速度）`layer.split`（在播放头切开）`layer.setTransition`（叠化 / 下陷 / 滑入 / 擦除）                                                                                                        |
+| 剪辑  | 3  | `layer.trim`（入点 / 出点 / 素材入点 / 速度）`layer.split`（在播放头切开）`layer.setTransition`（叠化 / 下陷 / 滑入 / 擦除）—— 分类上算「时间轴」 |
 | 文本  | 3  | `text.setContent` `text.setStyle` `text.fitBox`                                                                                                                                                                               |
-| 代码  | 4  | `code.setSource` `code.setEngine` `code.setParams` `code.resetRuntime`                                                                                                                                                        |
+| 代码  | 6  | `code.setSource` `code.setEngine` `code.setParams` `code.resetRuntime`                                                                                                                                                        |
 | 背景  | 2  | `background.set` `background.setCode`                                                                                                                                                                                         |
 | 画布  | 3  | `canvas.resize` `canvas.setDuration` `canvas.setFps`                                                                                                                                                                          |
-| 项目  | 11 | `project.new` `project.load` `project.create` `project.open` `project.rename` `project.duplicate` `project.deleteLocal` `project.listRecent` `project.seedSample` `project.exportBundle` `project.importBundle` |
+| 项目  | 13 | `project.new` `project.load` `project.create` `project.open` `project.rename` `project.duplicate` `project.deleteLocal` `project.listRecent` `project.seedSample` `project.exportBundle` `project.importBundle` |
 | 资源  | 4  | `asset.import` `asset.place` `asset.assign` `asset.remove`                                                                                                                                                                    |
 | 字体  | 3  | `font.register` `font.load` `font.remove`                                                                                                                                                                                     |
-| 时间轴 | 5  | `timeline.play` `timeline.pause` `timeline.seek` `timeline.setLayerTiming` `timeline.setLoop`                                                                                                                                 |
+| 时间轴 | 17 | `timeline.play` `timeline.pause` `timeline.seek` `timeline.setLoop` `timeline.setLayerTiming` `timeline.setRange`（出片区间）`timeline.markIn` / `timeline.markOut`（I / O）`timeline.addMarker` / `moveMarker` / `updateMarker` / `removeMarker` / `clearMarkers` |
 | 动画  | 8  | `animation.setKeyframe` `animation.removeKeyframe` `animation.moveKeyframes` `animation.setEasing` `animation.setKeyframeValue` `animation.clearTrack` `animation.setAutoKeyframe` `animation.applyPreset`                     |
 | 选择  | 4  | `selection.set` `selection.toggle` `selection.add` `selection.clear`                                                                                                                                                          |
 | 历史  | 3  | `history.undo` `history.redo` `history.clear`                                                                                                                                                                                 |
 | 窗口  | 4  | `window.openLayer` `window.closeLayer` `window.focusLayer` `window.setMode`                                                                                                                                                   |
-| 导出  | 4  | `export.png` `export.webm` `export.json` `export.commands`                                                                                                                                                                    |
-| 查询  | 4  | `query.project` `query.layer` `query.registry` `query.capture`                                                                                                                                                                |
+| 导出  | 7  | `export.png` `export.webm` `export.wav` `export.subtitles`（SRT / VTT）`export.edl`（剪辑表）`export.json` `export.commands`                                                                                                     |
+| 查询  | 5  | `query.project` `query.layer` `query.registry` `query.capture`                                                                                                                                                                |
 | AI  | 5  | `ai.inspectImport` `ai.importProject` `ai.exportProject` `ai.queryCodeLayer` `ai.exportRemotionKit`                                                                                                                                    |
 | 自定义 | 4  | `custom.list` `custom.define` `custom.remove` `custom.run`（宏：一串已有命令 + 参数，存独立 IndexedDB）                                                                                                                                                |
 | 音频  | 1  | `audio.set`（音量 / 静音 / 淡入淡出 / 程序化音源参数） |
@@ -757,6 +757,82 @@ sourceTimeMs(t)   = trimIn + (t - inPoint) × playbackRate
 
 ---
 
+## v2.15 · 交付：区间、标记点、字幕、剪辑表
+
+对标 `openfilm`（MIT，3.3k★）。它的 README 里写了 `openfilm render [a-b]` 与
+「导出视频、GIF、声音或分轨、字幕、静帧、幻灯片、透明视频，或时间轴本身给 FCP / Premiere / DaVinci」。
+在此之前 Kinelayer 只有「视频 + 静帧 + 工程包」。
+
+### 出片区间进了工程，不是界面状态
+
+```ts
+Project.range?: { in: number; out: number } | null
+Project.markers?: { id, time, label, kind: 'beat' | 'note' | 'cut' }[]
+```
+
+「这段片子要出哪一段」是这支片子的一部分：换台机器打开、隔一周再来、AI 接手改，都得还在。
+放进 `ui` 会变成「关掉标签页就没了」，而它恰是导出时最要紧的参数。
+
+四条硬约束在读入、命令层、不变量检查三处同一口径：越界的 `out` 夹到片长；
+`out - in` 不足 40ms（`MIN_RANGE_MS`）或入点已经越过片长，**整块丢掉退回全片**。
+不「修成看起来合理的值」是刻意的 —— 半个坏区间比没有区间更像导出坏了。
+
+**区间同时是播放窗口**：播到出点停住，开循环在区间内绕回，`timeline.play` 在播放头
+落在区间外时从入点开始。播放条上挂一个小标解释，否则用户只会觉得「播到一半自己停了」。
+
+新命令 12 条：`timeline.setRange` / `clearRange` / `markIn` / `markOut` / `addMarker` /
+`moveMarker` / `updateMarker` / `removeMarker` / `clearMarkers` / `export.wav` /
+`export.subtitles` / `export.edl`。拖动把手的命令带 `coalesce`，一次拖动只留一个撤销点。
+
+### 字幕：两种粒度，时间一律归零
+
+`src/core/subtitles.ts` 是纯函数层：歌词 → `Cue[]` → 裁到区间并**平移到 0** → SRT / VTT。
+平移这一步不能省：导出的视频从 0 开始，字幕若还按工程时间写，播放器里整条错位，
+而且错得很像「字幕生成错了」。
+
+| 粒度 | 来源 | 用在哪 |
+| --- | --- | --- |
+| `line` | `project.lyrics` 一行一条 | 常规字幕 |
+| `unit` | `lyricUnits()` 按字符权重切的逐字时间，一个单元一条 | 短视频、卡拉 OK |
+
+解析（`parseSubtitles`）是宽松的：BOM、CRLF、序号行可有可无、cue 设置忽略、VTT 内联标签剥掉、
+`NOTE`/`STYLE` 跳过。唯一不做的是猜时间 —— 认不出时间码的块直接丢，不按平均长度补。
+
+### 剪辑表：EDL，不是 FCPXML
+
+这工程里没有「素材库 + 源路径」：图层是「在某时刻画一个东西」，视频只有 `trimIn`，
+音频可能压根没有文件。FCPXML 要把每个素材登记成 resource 并给出真实路径 ——
+这里没有路径可给，写出来的文件导入剪映后全是离线素材，比没有更糟。
+
+所以出 CMX 3600：只有带素材文件的层（视频 / 音频 / 图片）进表，卷号统一 `AX`，
+录机时间从 0 起、源时间含 `trimIn`；文本、代码、程序化音源、人声在文件头注释里逐条列明
+「为什么没进表」。整数帧率之外的（29.97 / 59.94）降级并写明。
+
+### 导出时长不再漂
+
+`MediaRecorder` 的帧时间戳取的是 `requestFrame()` 的**墙钟时刻**。旧实现「推一帧 sleep 一帧」，
+某帧渲染超过一帧时长时误差会累积 —— 30 秒的片子能导出成 35 秒（慢放）。
+现在对齐绝对时间格，落后就跳过相应数量的内容帧，跳了多少写进完成提示。
+取舍很明确：**丢帧可以补渲，时长错了得重导**。
+
+音频同段：`createAudioCapture(project, range)` 只离线渲染区间那一段，不再整条渲完再寻址播放。
+
+### 走带
+
+`J` / `K` / `L`（倒放 / 停 / 正放，连按加速 1→2→4→8）、`I` / `O` 打入出点、
+`,` / `.` 逐帧（按 fps 对齐，不漂半帧）、`M` 打标记、`Home` / `End` 跳首尾。
+倒放自动静音 —— 音频图不能倒着跑。时间码也收成了一份（`src/ui/timecode.ts`）：
+播放器口径带帧号，刻度口径十分之一秒，导出摘要带毫秒。
+
+顺带修了时间轴的一处坐标错误：标尺原本是滚动视口上方的兄弟节点，zoom > 1 时内容变宽可横向滚，
+标尺却按视口宽度算百分比 —— 滚两下刻度就和片段对不上了。现在标尺在**内容层里** sticky 钉在顶上。
+
+`scripts/export-check.mjs` 63 条断言全绿（区间 / 标记点 / 字幕往返 / EDL 合法性 / 丢帧 / 界面接线 / 快捷键）。
+
+细节（每条约束的成因、EDL 字段语义、明确不做的五件事）见 [docs/15-deliver.md](docs/15-deliver.md)。
+
+---
+
 ## 快捷键
 
 | 操作            | 快捷键                                     |
@@ -765,7 +841,11 @@ sourceTimeMs(t)   = trimIn + (t - inPoint) × playbackRate
 | 复制选中图层        | `Ctrl/Cmd + D`                          |
 | 打开工程库（覆盖层）    | `Ctrl/Cmd + O`                          |
 | 导出工程包 `.kly` | `Ctrl/Cmd + S`                          |
-| 播放 / 暂停       | `Space`                                 |
+| 播放 / 暂停       | `Space`（或 `K` 停、`L` 正放、`J` 倒放；连按 L/J 加速 1→2→4→8） |
+| 打入点 / 出点      | `I` / `O`                               |
+| 逐帧前后          | `,` / `.`（按 fps 对齐）                    |
+| 加标记点          | `M`                                     |
+| 跳到开头 / 结尾     | `Home` / `End`                          |
 | 删除选中          | `Delete` / `Backspace`                  |
 | 取消选择          | `Esc`                                   |
 | 适配画布          | `Shift + !`                             |
@@ -878,6 +958,7 @@ VITE_BASE=/Kinelayer/ npm run build   # 项目页需要这个前缀
 - [离线渲染](docs/12-render.md) —— 与 mexicat/pdoom-video 的 Render the Video 逐项对位：子帧采样、双浏览器分块、背压、四种模式、4K，以及对不齐的三处是为什么
 - [剪辑](docs/13-editing.md) —— 六个开源剪辑项目的路线对比与选型、`trimIn` / 分割 / 转场的时间语义、界面取舍、四阶段开发计划、像素级验证
 - [人声](docs/14-voice.md) —— 五个开源语音项目的三条路线、为什么不上神经网络、四段式规则合成、共振峰参数、每条限制的成因
+- [交付](docs/15-deliver.md) —— 出片区间为什么进工程不进 ui、字幕为什么要平移到 0、为什么是 EDL 而不是 FCPXML、丢帧与时长到底保哪个
 
 ## 许可
 

@@ -1,6 +1,6 @@
 import type { AudioLayer, ImageLayer, Layer, Project, TextLayer, VideoLayer, CodeLayer, LayerAnimation } from '../types';
 import { CommandFailure } from '../registry';
-import { getBackground } from '../types';
+import { getBackground, MIN_RANGE_MS } from '../types';
 
 export function findLayer(draft: Project, id: string): Layer {
   const layer = draft.layers.find((l) => l.id === id);
@@ -102,6 +102,27 @@ export function enforceInvariants(draft: Project): void {
       layer.height = Math.max(1, layer.height);
       layer.opacity = Math.min(1, Math.max(0, layer.opacity));
     }
+  }
+
+  /* 出片区间：只夹边界，不"修"语义。区间退化了（片长被改短到装不下）就整块丢掉，
+     让导出回到整条时间轴 —— 留一个 in > out 的残骸比没有区间更糟。 */
+  if (draft.range) {
+    const a = Math.max(0, Math.round(draft.range.in));
+    const b = Math.min(draft.duration, Math.round(draft.range.out));
+    if (b < a + MIN_RANGE_MS) draft.range = null;
+    else {
+      draft.range.in = a;
+      draft.range.out = b;
+    }
+  }
+  if (draft.markers) {
+    const markerIds = new Set<string>();
+    for (const m of draft.markers) {
+      if (markerIds.has(m.id)) m.id += `_${Math.random().toString(36).slice(2, 7)}`;
+      markerIds.add(m.id);
+      m.time = Math.max(0, Math.min(Math.round(m.time), draft.duration));
+    }
+    draft.markers.sort((x, y) => x.time - y.time);
   }
 }
 

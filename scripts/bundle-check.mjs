@@ -151,6 +151,7 @@ const main = async () => {
     await cdp.waitFor(`!!document.querySelector('[data-testid="launcher"]')`, 10000);
     const launcherOpen = await cdp.ev(`!!document.querySelector('[data-testid="launcher"]')`);
     check('启动页可由 URL 直接打开', launcherOpen);
+
     const cards = await cdp.ev(`document.querySelectorAll('[data-testid="launcher-grid"] [data-project-id]').length`);
     check('启动页列出本机工程卡片', cards >= 1, `${cards} 张`);
 
@@ -204,7 +205,20 @@ const main = async () => {
     })()`);
     check('旧版裸 JSON 仍可载入', legacy.ok && legacy.name === 'LEGACY-JSON', JSON.stringify(legacy));
 
+    /* 文档配图放在最后拍：先把这一轮造出来的测试工程删掉、重新加载让列表刷新、
+       提示条也随重载消失 —— 否则图上是四个红色错误提示加一堆 BUNDLE-SRC 卡片。 */
+    await cdp.ev(`(async () => {
+      const list = await window.__kly.dispatch('project.listRecent', { limit: 50 });
+      const junk = (list.data?.projects || []).filter((p) => /^(BUNDLE-SRC|LEGACY-JSON|剪辑自检|出片自检|UI 检查)/.test(p.name || ''));
+      for (const p of junk) await window.__kly.dispatch('project.deleteLocal', { projectId: p.id, confirm: true });
+      return junk.length;
+    })()`);
+    await cdp.conn.call('Page.navigate', { url: `${base}?view=launcher` });
+    await cdp.waitFor('typeof window.__kly !== "undefined"', 20000);
+    await cdp.waitFor(`!!document.querySelector('[data-testid="launcher"]')`, 10000);
+    await sleep(2400);
     await cdp.shot(new URL('../docs/v3-launcher.png', import.meta.url));
+
   } finally {
     try {
       cdp.edge.kill();

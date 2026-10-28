@@ -2,7 +2,17 @@ import { setServices } from '@/core/services';
 import { pushToast, updateUi, useEditor } from '@/core/store';
 import { exec } from '@/core/commandBus';
 import { uid } from '@/core/ids';
-import { captureFrame, exportPng, exportProjectJson, exportWebm, buildFilename, downloadBlob } from '@/render/exporters';
+import {
+  captureFrame,
+  exportEdl,
+  exportPng,
+  exportProjectJson,
+  exportSubtitles,
+  exportWav,
+  exportWebm,
+  buildFilename,
+  downloadBlob,
+} from '@/render/exporters';
 import { blobOf, looksLikeZip } from '@/core/bundle';
 import { preloadAssets, ensureAsset, ensureAudioBuffer } from '@/render/assets';
 import { idbDeleteAsset, idbDeleteCommand, idbGetAsset, idbListCommands, idbPutAsset, idbPutCommand } from '@/persist/idb';
@@ -82,7 +92,37 @@ export function ensureServices(): void {
     async exportWebm(opts, onProgress) {
       const project = useEditor.getState().project;
       const result = await exportWebm(project, opts, onProgress);
-      pushToast('success', t('已导出 {name}（{n} 帧）', { name: result.filename, n: result.frames }));
+      /* 丢帧要说出来：不说的话用户只会觉得「导出有点卡」，而不知道是渲染跟不上 */
+      if (result.dropped > 0) {
+        pushToast(
+          'warn',
+          t('已导出 {name}（{n} 帧，渲染跟不上跳过 {d} 帧）', { name: result.filename, n: result.frames, d: result.dropped }),
+        );
+      } else {
+        pushToast('success', t('已导出 {name}（{n} 帧）', { name: result.filename, n: result.frames }));
+      }
+      return result;
+    },
+    async exportWav(opts) {
+      const project = useEditor.getState().project;
+      const result = await exportWav(project, opts);
+      pushToast('success', t('已导出 {name}（{s} 秒）', { name: result.filename, s: (result.ms / 1000).toFixed(1) }));
+      return result;
+    },
+    async exportSubtitles(opts) {
+      const project = useEditor.getState().project;
+      const result = exportSubtitles(project, opts);
+      pushToast('success', t('已导出 {name}（{n} 条）', { name: result.filename, n: result.cues }));
+      return result;
+    },
+    async exportEdl() {
+      const project = useEditor.getState().project;
+      const result = exportEdl(project);
+      if (result.events === 0) {
+        pushToast('warn', t('剪辑表里没有任何素材层，只有程序化内容——成片已烘焙，但没有可指认的源文件'));
+      } else {
+        pushToast('success', t('已导出 {name}（{n} 条事件）', { name: result.filename, n: result.events }));
+      }
       return result;
     },
     async exportJson() {

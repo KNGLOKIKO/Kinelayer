@@ -7,6 +7,8 @@ import {
   BLEND_MODES,
   LAYER_TYPES,
   LIMITS,
+  MAX_MARKERS,
+  MIN_RANGE_MS,
   PROJECT_SCHEMA_VERSION,
   TRANSITION_KINDS,
   type AssetMeta,
@@ -19,11 +21,13 @@ import {
   type ImageLayer,
   type Layer,
   type LayerAnimation,
+  type Marker,
   type Project,
   type PropertyTrack,
   type TextLayer,
   type TextStyle,
   type Tempo,
+  type TimeRange,
   type ToneSpec,
   type VoiceSpec,
   type VideoLayer,
@@ -306,6 +310,8 @@ export function createEmptyProject(name = '未命名织层项目'): Project {
     fonts: [],
     tempo: { ...DEFAULT_TEMPO },
     lyrics: [],
+    range: null,
+    markers: [],
     version: 1,
     createdAt: now,
     updatedAt: now,
@@ -530,6 +536,45 @@ function bool(v: unknown, fallback: boolean): boolean {
  * 读取宽容、写入严格（借自 Doory 的动画模型纪律）：
  * 外来项目文件可能缺字段/多字段/数值越界，这里只做修复，不抛错。
  */
+/**
+ * 导出区间的读宽容。
+ *
+ * 区间的两条硬约束：`0 <= in < out <= duration`。任何一条不满足就整块丢掉（null），
+ * 而不是「修成看起来合理的值」—— 半个坏区间比没有区间更容易让人以为导出坏了。
+ * 唯一例外是 `out > duration`：工程被裁短过，这时把 out 夹到 duration 是有意义的修复。
+ */
+function normalizeRange(raw: unknown, duration: number): TimeRange | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>;
+  const a = Math.round(num(r.in, 0, 0, LIMITS.duration.max));
+  const b = Math.round(num(r.out, 0, 0, LIMITS.duration.max));
+  const out = Math.min(b, duration);
+  if (!(a >= 0) || !(out >= a + MIN_RANGE_MS)) return null;
+  return { in: a, out };
+}
+
+/** 标记点：越界的夹回片内、脏数据丢掉、id 去重 */
+function normalizeMarkers(raw: unknown, duration: number): Marker[] {
+  if (!Array.isArray(raw)) return [];
+  const out: Marker[] = [];
+  const seen = new Set<string>();
+  for (const item of raw.slice(0, MAX_MARKERS)) {
+    if (!item || typeof item !== 'object') continue;
+    const m = item as Partial<Marker>;
+    if (typeof m.time !== 'number' || !Number.isFinite(m.time)) continue;
+    const id = typeof m.id === 'string' && m.id ? m.id : uid('mk');
+    if (seen.has(id)) continue;
+    seen.add(id);
+    out.push({
+      id,
+      time: Math.round(Math.max(0, Math.min(m.time, duration))),
+      label: typeof m.label === 'string' ? m.label.slice(0, 60) : '',
+      kind: m.kind === 'beat' || m.kind === 'cut' ? m.kind : 'note',
+    });
+  }
+  return out.sort((x, y) => x.time - y.time);
+}
+
 export function normalizeProject(raw: unknown): Project {
   const base = createEmptyProject();
   if (!raw || typeof raw !== 'object') return base;
@@ -590,6 +635,8 @@ export function normalizeProject(raw: unknown): Project {
      */
     tempo: clampTempo(r.tempo as Partial<Tempo> | undefined),
     lyrics: normalizeLyrics(r.lyrics, duration),
+    range: normalizeRange(r.range, duration),
+    markers: normalizeMarkers(r.markers, duration),
     version: Math.max(1, Math.round(num(r.version, 1, 1, Number.MAX_SAFE_INTEGER))),
     createdAt: num(r.createdAt, Date.now(), 0, Number.MAX_SAFE_INTEGER),
     updatedAt: Date.now(),

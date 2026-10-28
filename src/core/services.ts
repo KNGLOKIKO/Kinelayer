@@ -1,4 +1,5 @@
 import type { AssetMeta, CustomCommand, Project } from './types';
+import type { CueGranularity, SubtitleFormat } from './subtitles';
 
 export interface ExportPngOptions {
   scale: number;
@@ -12,10 +13,47 @@ export interface ExportWebmOptions {
   time: number;
 }
 
+export interface SubtitleExportOptions {
+  format: SubtitleFormat;
+  granularity: CueGranularity;
+}
+
 export interface CaptureOptions {
   maxWidth?: number;
   layerId?: string | null;
   time: number;
+}
+
+/** 导出视频的结果。`dropped > 0` 表示渲染跟不上，本次是丢帧保时长 */
+export interface ExportWebmResult {
+  filename: string;
+  bytes: number;
+  frames: number;
+  dropped: number;
+  from: number;
+  to: number;
+}
+
+export interface ExportWavResult {
+  filename: string;
+  bytes: number;
+  ms: number;
+}
+
+export interface ExportSubtitleResult {
+  filename: string;
+  bytes: number;
+  cues: number;
+  from: number;
+  to: number;
+}
+
+export interface ExportEdlResult {
+  filename: string;
+  bytes: number;
+  events: number;
+  /** 没能进 EDL 的图层（文本/代码/程序化音源），附原因 */
+  skipped: { name: string; reason: string }[];
 }
 
 export interface ImportAssetInput {
@@ -43,10 +81,13 @@ export interface OpenWindowResult {
  */
 export interface Services {
   exportPng(o: ExportPngOptions): Promise<{ filename: string; bytes: number; width: number; height: number }>;
-  exportWebm(
-    o: ExportWebmOptions,
-    onProgress: (p: number) => void,
-  ): Promise<{ filename: string; bytes: number; frames: number }>;
+  exportWebm(o: ExportWebmOptions, onProgress: (p: number) => void): Promise<ExportWebmResult>;
+  /** 只出声音。区间跟着 `project.range` 走，与视频口径一致 */
+  exportWav(o: { sampleRate?: number }): Promise<ExportWavResult>;
+  /** 出字幕。`granularity: 'unit'` 用工程里的逐字时间，一条一个单元 */
+  exportSubtitles(o: SubtitleExportOptions): Promise<ExportSubtitleResult>;
+  /** 出剪辑表（CMX 3600 EDL） */
+  exportEdl(): Promise<ExportEdlResult>;
   exportJson(): Promise<{ filename: string; bytes: number }>;
   /** 工程包（.kly / ZIP）下载。打包在命令层做，这里只负责落盘 */
   saveBundle(bytes: Uint8Array, project: Project): Promise<{ filename: string; bytes: number }>;

@@ -10,6 +10,7 @@ import { subscribeAssets } from '@/render/assets';
 import type { CodeLayer, Layer, Project } from '@/core/types';
 
 import { t } from '@/i18n';
+import { timecode } from '@/ui/timecode';
 import { cx } from '@/ui/primitives';
 type Handle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'rotate';
 
@@ -41,6 +42,7 @@ function PlayBar() {
   const duration = useEditor((s) => s.project.duration);
   const loop = useEditor((s) => s.project.loop);
   const fps = useEditor((s) => s.project.fps);
+  const range = useEditor((s) => s.project.range);
 
   const step = Math.max(1, Math.round(1000 / Math.max(1, fps)));
   /* 帧号对齐：时间轴上的播放头是连续毫秒，逐帧步进要落在整帧上，否则按十几下会漂出半帧 */
@@ -83,6 +85,25 @@ function PlayBar() {
           {timecode(playhead, fps)}
           <span className="text-zinc-600"> / {timecode(duration, fps)}</span>
         </div>
+
+        {/*
+         * 有出片区间时挂一个小标：播放会在出点停住，这件事必须在屏幕上有个解释，
+         * 否则用户只会觉得「播到一半自己停了」。
+         */}
+        {range && (
+          <button
+            type="button"
+            data-testid="playbar-range"
+            title={t('出片区间 {from} → {to}：播放到这里会停住，导出也只出这一段', {
+              from: timecode(range.in, fps),
+              to: timecode(range.out, fps),
+            })}
+            onClick={() => seek(Math.max(0, range.in))}
+            className="ml-1 rounded-full border border-accent/40 bg-accent/15 px-1.5 py-0.5 font-mono text-[9px] leading-none text-accent-soft"
+          >
+            {t('区间')} {timecode(range.in, fps)}
+          </button>
+        )}
       </div>
 
       <div
@@ -127,16 +148,6 @@ function BarButton({
 }
 
 /** 00:00:00:00 式的专业时序码（分:秒:帧），剪映里播放头读数就是这个口径 */
-function timecode(ms: number, fps: number): string {
-  const safe = Math.max(0, ms);
-  const totalFrames = Math.round((safe / 1000) * fps);
-  const f = totalFrames % Math.max(1, Math.round(fps));
-  const totalSec = Math.floor(safe / 1000);
-  const mm = String(Math.floor(totalSec / 60)).padStart(2, '0');
-  const ss = String(totalSec % 60).padStart(2, '0');
-  return `${mm}:${ss}:${String(f).padStart(2, '0')}`;
-}
-
 function getFrame(project: Project, id: string) {
   const index = project.layers.findIndex((l) => l.id === id);
   const layer = project.layers[index];

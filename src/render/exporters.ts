@@ -6,7 +6,11 @@ import { preloadFonts } from './text';
 import { rasterizeHtml } from './htmlRaster';
 import { ensureAsset, getImage } from './assets';
 import type { Drawable } from './assets';
-import { createAudioCapture } from './audioEngine';
+import { createAudioCapture, renderWav } from './audioEngine';
+import { clipCues, cuesFromLyrics, formatSubtitles, type CueGranularity, type SubtitleFormat } from '@/core/subtitles';
+import { buildEdl } from '@/core/edl';
+import { blobOf } from '@/core/bundle';
+import { lyricsOf } from '@/core/score';
 
 export interface PngResult {
   filename: string;
@@ -19,6 +23,32 @@ export interface WebmResult {
   filename: string;
   bytes: number;
   frames: number;
+  /** 因为渲染跟不上而被跳过的帧数。0 表示逐帧完整 */
+  dropped: number;
+  /** 成片实际覆盖的区间（毫秒） */
+  from: number;
+  to: number;
+}
+
+export interface WavResult {
+  filename: string;
+  bytes: number;
+  ms: number;
+}
+
+export interface SubtitleResult {
+  filename: string;
+  bytes: number;
+  cues: number;
+  from: number;
+  to: number;
+}
+
+export interface EdlFileResult {
+  filename: string;
+  bytes: number;
+  events: number;
+  skipped: { name: string; reason: string }[];
 }
 
 function safeName(name: string): string {
@@ -31,6 +61,20 @@ export function buildFilename(project: Project, ext: string): string {
     d.getHours(),
   ).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}${String(d.getSeconds()).padStart(2, '0')}`;
   return `${safeName(project.name)}-${stamp}.${ext}`;
+}
+
+/**
+ * 这次导出到底覆盖哪一段。
+ *
+ * 所有出口（视频 / 声音 / 字幕 / 剪辑表）都必须问它，而不是各自读 `project.range`
+ * —— 四处各写一遍「没有区间就用全长」的那一天，就是它们开始不一致的那一天。
+ */
+export function exportWindow(project: Project): { from: number; to: number; ranged: boolean } {
+  const r = project.range;
+  if (!r) return { from: 0, to: project.duration, ranged: false };
+  const from = Math.max(0, Math.min(Math.round(r.in), project.duration));
+  const to = Math.max(from + 1, Math.min(Math.round(r.out), project.duration));
+  return { from, to, ranged: true };
 }
 
 export function downloadBlob(blob: Blob, filename: string): void {
@@ -160,10 +204,19 @@ function pickMime(): string {
 const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /**
- * 手动推帧导出：
+ * 手动推帧导出（只出 `project.range` 那一段，没有区间就整条）。
+ *
  * canvas.captureStream(0) 拿到可手动 requestFrame 的 VideoTrack，逐帧渲染后推一帧。
- * 相比 captureStream(30) 的自动采样，这种方式能保证「内容按 fps 精确推进」；
- * 但 MediaRecorder 的帧时间戳来自推帧时刻，所以每帧之间必须等待真实时间。
+ * 相比 captureStream(30) 的自动采样，这种方式能保证「内容按 fps 精确推进」。
+ *
+ * **时长与帧数的取舍**（这条是 v2.15 改的，以前是错的）：
+ * MediaRecorder 的帧时间戳取的是 `requestFrame()` 的**墙钟时刻**，不是我们想要的
+ * 「第 i 帧应在 i/fps 秒」。所以每帧必须等到它那一格再推。旧实现是「推完 sleep 一帧」，
+ * 一旦某帧渲染超过一帧时长，后面的每一帧都往后顺延 —— 误差会累积，
+ * 一段 30 秒的片子能导出成 35 秒（画面变慢，像慢放）。
+ * 现在的做法是：**对齐绝对时间格**，落后就跳过相应数量的内容帧。
+ * 代价是渲染跟不上时会丢帧，换来的是「成片时长永远对得上」——
+ * 这也是所有录屏/实时导出工具的取舍，丢帧可以补渲，时长错了得重导。
  */
 export async function exportWebm(
   project: Project,
@@ -172,8 +225,9 @@ export async function exportWebm(
 ): Promise<WebmResult> {
   if (typeof MediaRecorder === 'undefined') throw new Error('当前浏览器不支持 MediaRecorder');
   const fps = Math.min(60, Math.max(1, Math.round(opts.fps || project.fps)));
-  const total = Math.max(1, Math.round((project.duration / 1000) * fps));
-  const canvas = await renderToCanvas(project, 0, 1, false);
+  const win = exportWindow(project);
+  const total = Math.max(1, Math.round(((win.to - win.from) / 1000) * fps));
+  const canvas = await renderToCanvas(project, win.from, 1, false);
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('无法创建导出画布上下文');
 
@@ -184,10 +238,10 @@ export async function exportWebm(
   }
 
   /*
-   * 音频：离线渲染一份，然后原样放出来录进同一条 stream。
+   * 音频：离线渲染一份（同样只渲区间），然后原样放出来录进同一条 stream。
    * 没有音频层、浏览器不支持、或者渲染失败，都只是「导出成无声视频」——不该让整个导出失败。
    */
-  const audio = await createAudioCapture(project);
+  const audio = await createAudioCapture(project, win.ranged ? { in: win.from, out: win.to } : null);
   if (audio) for (const t of audio.stream.getAudioTracks()) stream.addTrack(t);
 
   const bitrate = Math.round(2_000_000 + (opts.quality / 100) * 10_000_000);
@@ -206,15 +260,27 @@ export async function exportWebm(
 
   recorder.start();
   const frameDelay = 1000 / fps;
-  for (let i = 0; i < total; i++) {
-    const t = (i / fps) * 1000;
+  const anchor = performance.now();
+  let dropped = 0;
+  for (let i = 0; i < total; ) {
+    const slot = anchor + i * frameDelay;
+    const now = performance.now();
+    if (now < slot) {
+      await sleep(slot - now);
+    } else if (now - slot >= frameDelay) {
+      /* 已经过了至少一整格：这次直接跳到当前该出的一帧上，跳过的算丢帧 */
+      const skip = Math.min(total - i - 1, Math.floor((now - slot) / frameDelay));
+      dropped += skip;
+      i += skip;
+    }
+    const t = win.from + (i / fps) * 1000;
     await prepareVideos(project, t);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
     renderScene(ctx, project, { time: t, scale: 1, transparent: false });
     track.requestFrame();
     onProgress((i + 1) / total);
-    await sleep(frameDelay);
+    i += 1;
   }
   // 多推几帧，避免末端被截断
   await sleep(frameDelay * 2);
@@ -226,7 +292,75 @@ export async function exportWebm(
   const blob = new Blob(chunks, { type: 'video/webm' });
   const filename = buildFilename(project, 'webm');
   downloadBlob(blob, filename);
-  return { filename, bytes: blob.size, frames: total };
+  return { filename, bytes: blob.size, frames: total, dropped, from: win.from, to: win.to };
+}
+
+/**
+ * 只出声音（16bit PCM WAV）。
+ *
+ * 用途不是「导出视频时顺便」，而是三条真实需求：
+ * 1. 给人声/配乐单独拿一份，进别的剪辑软件；
+ * 2. 和「静帧序列」一起交给外部编码器（本机没有 ffmpeg，见 docs/12）；
+ * 3. 检查混音 —— WAV 拖进任何工具都能一眼看出削波。
+ */
+export async function exportWav(
+  project: Project,
+  opts: { sampleRate?: number } = {},
+): Promise<WavResult> {
+  const win = exportWindow(project);
+  const bytes = await renderWav(project, {
+    sampleRate: opts.sampleRate ?? 48000,
+    from: win.from,
+    to: win.to,
+  });
+  if (!bytes) throw new Error('音频渲染失败（工程里可能没有任何声音）');
+  const blob = blobOf(bytes, 'audio/wav');
+  const filename = buildFilename(project, 'wav');
+  downloadBlob(blob, filename);
+  return { filename, bytes: blob.size, ms: win.to - win.from };
+}
+
+/**
+ * 出字幕（SRT / VTT）。
+ *
+ * 时间一律相对导出片段起点 —— 导出的视频从 0 开始，字幕若还按工程时间写，
+ * 播放器里会整条错位（而且看起来像「字幕生成错了」）。
+ * 没有任何歌词时直接报错，而不是导出一个空文件：空字幕文件比没有更让人困惑。
+ */
+export function exportSubtitles(
+  project: Project,
+  opts: { format: SubtitleFormat; granularity: CueGranularity },
+): SubtitleResult {
+  const lines = lyricsOf(project);
+  if (!lines.length) throw new Error('这个工程还没有歌词，没有可导出的字幕');
+  const win = exportWindow(project);
+  const cues = clipCues(cuesFromLyrics(lines, opts.granularity), win.ranged ? { in: win.from, out: win.to } : null);
+  if (!cues.length) throw new Error('当前出片区间里没有落在范围内的歌词');
+  const text = formatSubtitles(cues, opts.format);
+  const blob = new Blob([text], { type: opts.format === 'vtt' ? 'text/vtt;charset=utf-8' : 'application/x-subrip;charset=utf-8' });
+  const filename = buildFilename(project, opts.format);
+  downloadBlob(blob, filename);
+  return { filename, bytes: blob.size, cues: cues.length, from: win.from, to: win.to };
+}
+
+/**
+ * 出剪辑表（CMX 3600 EDL）。
+ *
+ * 只写得出**有源素材**的层（视频/音频/图片）。文本与代码层是算出来的，
+ * 没有文件可指 —— 它们在成片里已经烘焙好了，EDL 里列出来只会让剪辑师去找不存在的素材。
+ * 有素材但没素材文件的层（比如导入失败）也不算，会在 `skipped` 里说明。
+ */
+export function exportEdl(project: Project): EdlFileResult {
+  const result = buildEdl(project, project.range ?? null);
+  const blob = new Blob([result.text], { type: 'text/plain;charset=utf-8' });
+  const filename = buildFilename(project, 'edl');
+  downloadBlob(blob, filename);
+  return {
+    filename,
+    bytes: blob.size,
+    events: result.events,
+    skipped: result.skipped.map((s) => ({ name: s.name, reason: s.reason })),
+  };
 }
 
 export async function captureFrame(

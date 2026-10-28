@@ -1,16 +1,17 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
-import { Boxes, ChevronDown, ChevronRight, ChevronUp, Copy, Diamond, Pause, Play, Redo2, Repeat, Scissors, Trash2, Undo2 } from 'lucide-react';
+import { Boxes, ChevronDown, ChevronRight, ChevronUp, Copy, Diamond, Flag, Pause, Play, Redo2, Repeat, Scissors, Trash2, Undo2, X } from 'lucide-react';
 import { exec } from '@/core/commandBus';
 import { pushToast, updateUi, useEditor } from '@/core/store';
 import { clamp } from '@/core/geometry';
 import { MIN_CLIP_MS, TRANSITION_LABEL_KEY } from '@/core/media';
-import { ANIMATABLE_PROPERTIES, PROPERTY_LABELS, type AnimatableProperty, type Keyframe, type Layer } from '@/core/types';
+import { ANIMATABLE_PROPERTIES, MIN_RANGE_MS, PROPERTY_LABELS, type AnimatableProperty, type Keyframe, type Layer } from '@/core/types';
 import { currentValue, trackOf, ANIM_PRESET_TRACKS, type AnimPresetTrack } from '@/core/commands/animation';
 import { peaksFor } from '@/render/audioEngine';
 import { IconButton, Toggle, cx } from './primitives';
 import { useLayoutTier } from './layout';
 import { t } from '@/i18n';
 import { beatMs, tempoOf } from '@/core/score';
+import { clock, timecode } from './timecode';
 import { DRAG_ASSET, DRAG_EFFECT, DRAG_TRANSITION, hasDragKind } from './dnd';
 
 /** remotion 组件层：内部不可编辑，时间轴只表示「这段时间它可见」 */
@@ -53,13 +54,6 @@ function AudioWave({ peaks, from, to }: { peaks: Float32Array; from: number; to:
       <path d={path} stroke="currentColor" strokeWidth={0.5} vectorEffect="non-scaling-stroke" className="text-emerald-300/50" fill="none" />
     </svg>
   );
-}
-
-function fmt(ms: number): string {
-  const s = Math.max(0, ms) / 1000;
-  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}.${String(
-    Math.floor((s % 1) * 10),
-  )}`;
 }
 
 type Row =
@@ -107,6 +101,10 @@ export function Timeline() {
   } | null>(null);
   const clipDragRef = useRef<typeof clipDrag>(null);
   clipDragRef.current = clipDrag;
+  /** 拖区间把手时的本地预览（松手才提交 timeline.setRange） */
+  const [rangeDrag, setRangeDrag] = useState<{ edge: 'in' | 'out'; time: number } | null>(null);
+  const rangeDragRef = useRef(rangeDrag);
+  rangeDragRef.current = rangeDrag;
   /** 片段几何在**内容层**里算：laneRef 是滚动视口，zoom>1 时两者宽度不同 */
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -131,11 +129,18 @@ export function Timeline() {
     };
   }, [hasAudio, project]);
 
+  /**
+   * 像素 → 时间。
+   *
+   * 用**内容层**的矩形而不是滚动视口：zoom > 1 时内容比视口宽，
+   * 按视口算的话「点到 60% 处」会跳到 60% 的位置而不管已经横向滚到哪，
+   * 越滚越偏（缩放一开，点击定位就整个失准）。
+   */
   const seek = (clientX: number) => {
-    const el = laneRef.current;
+    const el = contentRef.current ?? laneRef.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
-    const ratio = clamp((clientX - rect.left) / rect.width, 0, 1);
+    const ratio = clamp((clientX - rect.left) / Math.max(1, rect.width), 0, 1);
     void exec('timeline.seek', { time: ratio * project.duration });
   };
 
@@ -155,7 +160,7 @@ export function Timeline() {
   useEffect(() => {
     if (!kfDrag) return;
     const move = (e: PointerEvent) => {
-      const el = laneRef.current;
+      const el = contentRef.current ?? laneRef.current;
       if (!el) return;
       const rect = el.getBoundingClientRect();
       const msPerPx = project.duration / Math.max(1, rect.width);
@@ -260,8 +265,71 @@ export function Timeline() {
     return { inPoint: layer.inPoint, out: clamp(out + d.delta, layer.inPoint + MIN_CLIP_MS, project.duration) };
   };
 
-  const rows = useMemo<Row[]>(() => {
-    const out: Row[] = [];
+  /* -------------------------------------------------------------- 出片区间
+   *
+   * 区间本身是工程数据（`project.range`，命令层管），这里只做两件事：
+   * 算出拖动中的预览几何、松手时提交一条命令。拖动中不 dispatch，
+   * 理由和片段拖动一致 —— 一次拖动不该在撤销栈里堆几十条记录。
+   */
+  const previewRange = useMemo<{ in: number; out: number } | null>(() => {
+    if (rangeDrag) {
+      const base = project.range ?? { in: 0, out: project.duration };
+      return rangeDrag.edge === 'in'
+        ? { in: rangeDrag.time, out: base.out }
+        : { in: base.in, out: rangeDrag.time };
+    }
+    return project.range ?? null;
+  }, [rangeDrag, project.range, project.duration]);
+
+  const startRangeDrag = (e: ReactPointerEvent<HTMLDivElement>, edge: 'in' | 'out') => {
+    e.stopPropagation();
+    e.preventDefault();
+    const base = project.range ?? { in: 0, out: project.duration };
+    setRangeDrag({ edge, time: edge === 'in' ? base.in : base.out });
+  };
+
+  useEffect(() => {
+    if (!rangeDrag) return;
+    const move = (e: PointerEvent) => {
+      const el = contentRef.current ?? laneRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      const raw = ((e.clientX - rect.left) / Math.max(1, rect.width)) * project.duration;
+      const base = project.range ?? { in: 0, out: project.duration };
+      setRangeDrag((d) =>
+        d
+          ? {
+              edge: d.edge,
+              /* 两个把手不能交叉：互相顶到最短长度就停住，而不是互换位置 */
+              time:
+                d.edge === 'in'
+                  ? clamp(Math.round(raw), 0, base.out - MIN_RANGE_MS)
+                  : clamp(Math.round(raw), base.in + MIN_RANGE_MS, project.duration),
+            }
+          : d,
+      );
+    };
+    const up = () => {
+      const cur = rangeDragRef.current;
+      setRangeDrag(null);
+      if (!cur) return;
+      const base = project.range ?? { in: 0, out: project.duration };
+      const inPoint = cur.edge === 'in' ? cur.time : base.in;
+      const outPoint = cur.edge === 'out' ? cur.time : base.out;
+      if (inPoint === base.in && outPoint === base.out) return;
+      void exec('timeline.setRange', { in: inPoint, out: outPoint }).then((res) => {
+        if (!res.ok) pushToast('warn', res.error?.message ?? t('设不了出片区间'));
+      });
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    return () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+  }, [rangeDrag, project.range, project.duration]);
+
+  const rows = useMemo<Row[]>(() => {    const out: Row[] = [];
     for (const layer of [...project.layers.slice(1)].reverse()) {
       out.push({ kind: 'layer', layer });
       if (!expanded.includes(layer.id)) continue;
@@ -427,8 +495,47 @@ export function Timeline() {
         <IconButton size={24} active={playing} onClick={() => void exec(playing ? 'timeline.pause' : 'timeline.play')} title={t('播放 / 暂停')}>
           {playing ? <Pause size={12} /> : <Play size={12} />}
         </IconButton>
-        <span className="font-mono text-[10.5px] tabular-nums text-zinc-300">{fmt(playhead)}</span>
-        <span className="font-mono text-[10px] tabular-nums text-zinc-600">/ {fmt(project.duration)}</span>
+        <span className="font-mono text-[10.5px] tabular-nums text-zinc-300" data-testid="timeline-timecode">
+          {timecode(playhead, project.fps)}
+        </span>
+        <span className="font-mono text-[10px] tabular-nums text-zinc-600">/ {timecode(project.duration, project.fps)}</span>
+        <div className="bg-ink-700 mx-1 h-4 w-px" />
+
+        {/* 入点 / 出点 / 标记点：三个键的鼠标版。读数也在这一行，不用去别处找 */}
+        <button
+          type="button"
+          data-testid="timeline-mark-in"
+          title={t('在播放头打入点 (I)')}
+          onClick={() => void exec('timeline.markIn', { time: Math.round(playhead) })}
+          className="border-ink-700 hover:border-accent/60 hover:text-accent-soft h-5 rounded border px-1 font-mono text-[9px] text-zinc-400"
+        >
+          IN
+        </button>
+        <button
+          type="button"
+          data-testid="timeline-mark-out"
+          title={t('在播放头打出点 (O)')}
+          onClick={() => void exec('timeline.markOut', { time: Math.round(playhead) })}
+          className="border-ink-700 hover:border-accent/60 hover:text-accent-soft h-5 rounded border px-1 font-mono text-[9px] text-zinc-400"
+        >
+          OUT
+        </button>
+        <IconButton size={24} title={t('在播放头加标记点 (M)')} testId="timeline-add-marker" onClick={() => void exec('timeline.addMarker', { time: Math.round(playhead) })}>
+          <Flag size={12} />
+        </IconButton>
+        {previewRange && (
+          <span className="text-accent-soft flex items-center gap-0.5 font-mono text-[9.5px] tabular-nums" data-testid="timeline-range-readout">
+            {timecode(previewRange.in, project.fps)}→{timecode(previewRange.out, project.fps)}
+            <button
+              type="button"
+              title={t('清除出片区间（导回整条）')}
+              onClick={() => void exec('timeline.clearRange', {})}
+              className="text-zinc-500 hover:text-rose-300"
+            >
+              <X size={10} />
+            </button>
+          </span>
+        )}
         <div className="flex-1" />
 
         {overflow.length > 0 && (
@@ -624,43 +731,116 @@ export function Timeline() {
           </div>
         </div>
 
-        <div className="relative min-w-0 flex-1">
-          <div
-            className="border-ink-700/60 relative h-5 cursor-ew-resize overflow-hidden border-b"
-            onPointerDown={(e) => {
-              setDrag(true);
-              seek(e.clientX);
-            }}
-          >
-            {showBeats &&
-              Array.from({ length: beatCount }, (_, i) => tempo.offsetMs + i * beat)
-                .filter((ms) => ms >= 0 && ms <= project.duration)
-                .map((ms, i) => (
-                  <div
-                    key={`b${i}`}
-                    data-beat={i % tempo.meter === 0 ? 'bar' : 'beat'}
-                    className={cx('absolute top-0 bottom-0 w-px', i % tempo.meter === 0 ? 'bg-accent/40' : 'bg-ink-600/70')}
-                    style={{ left: `${(ms / project.duration) * 100}%` }}
-                  />
-                ))}
-            {ticks.map((tk, i) => (
-              <div key={i} className="absolute top-0 bottom-0" style={{ left: `${(tk / project.duration) * 100}%` }}>
-                <div className="bg-ink-600 h-1.5 w-px" />
-                <span className="absolute left-1 text-[9px] text-zinc-600">{Math.round(tk / 100) / 10}s</span>
-              </div>
-            ))}
-          </div>
-
+        <div className="relative flex min-w-0 flex-1 flex-col">
           <div
             ref={laneRef}
-            className="ml-scroll h-[calc(100%-20px)] overflow-auto"
+            className="ml-scroll min-h-0 flex-1 overflow-auto"
             onPointerDown={(e) => { if (e.target === e.currentTarget) { setDrag(true); seek(e.clientX); } }}
             onDragOver={onLaneDragOver}
             onDragLeave={() => setDropAt(null)}
             onDrop={onLaneDrop}
             onWheel={onLaneWheel}
           >
-            <div ref={contentRef} className="relative" style={{ width: `${zoom * 100}%`, minWidth: '100%' }}>
+            <div ref={contentRef} className="relative min-h-full" style={{ width: `${zoom * 100}%`, minWidth: '100%' }}>
+              {/*
+               * 标尺在**内容层里**、sticky 钉在顶上。
+               *
+               * 以前它是滚动视口上方的兄弟节点：zoom > 1 时内容变宽、可以横向滚，
+               * 标尺却按视口宽度算百分比 —— 滚两下刻度就和片段对不上了。挪进来以后
+               * 横向跟着滚、纵向钉住，两种缩放都不会错位。
+               */}
+              <div
+                className="border-ink-700/60 bg-ink-900/95 sticky top-0 z-30 h-5 cursor-ew-resize overflow-hidden border-b"
+                onPointerDown={(e) => {
+                  if ((e.target as HTMLElement).dataset.handle) return;
+                  setDrag(true);
+                  seek(e.clientX);
+                }}
+                data-testid="timeline-ruler"
+              >
+                {showBeats &&
+                  Array.from({ length: beatCount }, (_, i) => tempo.offsetMs + i * beat)
+                    .filter((ms) => ms >= 0 && ms <= project.duration)
+                    .map((ms, i) => (
+                      <div
+                        key={`b${i}`}
+                        data-beat={i % tempo.meter === 0 ? 'bar' : 'beat'}
+                        className={cx('absolute top-0 bottom-0 w-px', i % tempo.meter === 0 ? 'bg-accent/40' : 'bg-ink-600/70')}
+                        style={{ left: `${(ms / project.duration) * 100}%` }}
+                      />
+                    ))}
+                {ticks.map((tk, i) => (
+                  <div key={i} className="absolute top-0 bottom-0" style={{ left: `${(tk / project.duration) * 100}%` }}>
+                    <div className="bg-ink-600 h-1.5 w-px" />
+                    <span className="absolute left-1 text-[9px] text-zinc-500">{clock(tk)}</span>
+                  </div>
+                ))}
+
+                {/* 出片区间的底条：一句话说明「这段才出片」 */}
+                {previewRange && (
+                  <div
+                    data-testid="range-bar"
+                    className="bg-accent/60 pointer-events-none absolute bottom-0 h-[3px]"
+                    style={{
+                      left: `${(previewRange.in / project.duration) * 100}%`,
+                      width: `${Math.max(0.2, ((previewRange.out - previewRange.in) / project.duration) * 100)}%`,
+                    }}
+                  />
+                )}
+
+                {/* 标记点：钉在标尺上沿，点一下跳过去，右键删掉 */}
+                {(project.markers ?? []).map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    data-testid="timeline-marker"
+                    data-kind={m.kind}
+                    className="absolute top-0 z-20 -ml-[3px] h-2.5 w-1.5 rounded-b-sm"
+                    style={{
+                      left: `${(m.time / project.duration) * 100}%`,
+                      background:
+                        m.kind === 'beat' ? '#0aa7ff' : m.kind === 'cut' ? '#f5b544' : 'rgba(255,255,255,.45)',
+                    }}
+                    title={`${m.label || t('标记点')} · ${timecode(m.time, project.fps)}\n${t('点击跳到 · 右键删除')}`}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void exec('timeline.seek', { time: m.time });
+                    }}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      void exec('timeline.removeMarker', { id: m.id });
+                    }}
+                  />
+                ))}
+
+                {/* 区间把手：拖完才提交一条命令，撤销一次就回去 */}
+                {previewRange && (
+                  <>
+                    <div
+                      data-handle="in"
+                      data-testid="range-handle-in"
+                      className="absolute bottom-0 z-40 -ml-[4px] h-full w-2 cursor-ew-resize"
+                      style={{ left: `${(previewRange.in / project.duration) * 100}%` }}
+                      title={t('拖动改入点')}
+                      onPointerDown={(e) => startRangeDrag(e, 'in')}
+                    >
+                      <div className="bg-accent mx-auto h-full w-[2px]" />
+                    </div>
+                    <div
+                      data-handle="out"
+                      data-testid="range-handle-out"
+                      className="absolute bottom-0 z-40 -ml-[4px] h-full w-2 cursor-ew-resize"
+                      style={{ left: `${(previewRange.out / project.duration) * 100}%` }}
+                      title={t('拖动改出点')}
+                      onPointerDown={(e) => startRangeDrag(e, 'out')}
+                    >
+                      <div className="bg-accent mx-auto h-full w-[2px]" />
+                    </div>
+                  </>
+                )}
+              </div>
               {rows.map((row) => {
                 if (row.kind === 'layer') {
                   const out = row.layer.outPoint > 0 ? row.layer.outPoint : project.duration;
@@ -793,23 +973,38 @@ export function Timeline() {
                   </div>
                 );
               })}
-            </div>
-          </div>
 
-          {dropAt && (
-            <div className="pointer-events-none absolute top-0 bottom-0 z-20" style={{ left: `${(dropAt.time / project.duration) * 100}%` }}>
-              <div className="bg-accent-soft/90 h-full w-px" />
-              <div className="bg-accent text-[9px] whitespace-nowrap rounded px-1 py-0.5 text-white">
-                {fmt(dropAt.time)}
+              {/* 区间外压暗：一眼看出「这段不出片」。放在行后面，天然盖在片段上 */}
+              {previewRange && previewRange.in > 0 && (
+                <div
+                  className="bg-ink-950/70 pointer-events-none absolute top-5 bottom-0 left-0 z-20"
+                  style={{ width: `${(previewRange.in / project.duration) * 100}%` }}
+                />
+              )}
+              {previewRange && previewRange.out < project.duration && (
+                <div
+                  className="bg-ink-950/70 pointer-events-none absolute top-5 right-0 bottom-0 z-20"
+                  style={{ width: `${((project.duration - previewRange.out) / project.duration) * 100}%` }}
+                />
+              )}
+
+              {dropAt && (
+                <div className="pointer-events-none absolute top-0 bottom-0 z-20" style={{ left: `${(dropAt.time / project.duration) * 100}%` }}>
+                  <div className="bg-accent-soft/90 h-full w-px" />
+                  <div className="bg-accent absolute top-0 rounded px-1 py-0.5 text-[9px] whitespace-nowrap text-white">
+                    {clock(dropAt.time)}
+                  </div>
+                </div>
+              )}
+
+              <div
+                data-testid="timeline-playhead"
+                className="bg-accent-soft pointer-events-none absolute top-0 bottom-0 z-30 w-px"
+                style={{ left: `${(playhead / project.duration) * 100}%` }}
+              >
+                <div className="-ml-[5px] h-2.5 w-2.5 rounded-sm bg-accent-soft" />
               </div>
             </div>
-          )}
-
-          <div
-            className="bg-accent-soft pointer-events-none absolute top-0 bottom-0 z-10 w-px"
-            style={{ left: `${(playhead / project.duration) * 100}%` }}
-          >
-            <div className="-ml-[5px] h-2.5 w-2.5 rounded-sm bg-accent-soft" />
           </div>
         </div>
       </div>

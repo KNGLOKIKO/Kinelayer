@@ -61,6 +61,48 @@ export const exportCommands = [
   }),
 
   defineCommand({
+    type: 'export.wav',
+    category: '导出',
+    mutating: false,
+    undoable: false,
+    description:
+      '只导出声音（16bit PCM WAV）。区间与视频一致，都读工程的出片区间 —— 同一次导出里画面和声音必须覆盖同一段，否则合起来才发现对不上。',
+    schema: z.object({
+      sampleRate: z.union([z.literal(44100), z.literal(48000)]).default(48000),
+    }),
+    example: { sampleRate: 48000 },
+    handler: async (_draft, payload, ctx) => ctx.services.exportWav({ sampleRate: payload.sampleRate }),
+  }),
+
+  defineCommand({
+    type: 'export.subtitles',
+    category: '导出',
+    mutating: false,
+    undoable: false,
+    description:
+      '导出字幕文件（SRT / VTT）。granularity=line 一行一条；unit 用工程里的逐字时间，一个单元一条（短视频与卡拉 OK 用这个）。时间相对导出片段起点。',
+    schema: z.object({
+      format: z.enum(['srt', 'vtt']).default('srt'),
+      granularity: z.enum(['line', 'unit']).default('line'),
+    }),
+    example: { format: 'srt', granularity: 'line' },
+    handler: async (_draft, payload, ctx) =>
+      ctx.services.exportSubtitles({ format: payload.format, granularity: payload.granularity }),
+  }),
+
+  defineCommand({
+    type: 'export.edl',
+    category: '导出',
+    mutating: false,
+    undoable: false,
+    description:
+      '导出剪辑表（CMX 3600 EDL），给 Premiere / DaVinci / 剪映。只有带素材文件的图层进表；文本、代码、程序化音源是算出来的，成片里已烘焙，会在注释里列明。',
+    schema: z.object({}),
+    example: {},
+    handler: async (_draft, _payload, ctx) => ctx.services.exportEdl(),
+  }),
+
+  defineCommand({
     type: 'export.json',
     category: '导出',
     mutating: false,

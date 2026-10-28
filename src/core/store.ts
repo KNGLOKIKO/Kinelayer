@@ -31,6 +31,7 @@ const demo = createDemoProject();
 const initialRuntime: RuntimeState = {
   playhead: 0,
   playing: false,
+  playRate: 1,
   measuredFps: 0,
   exportProgress: { active: false, label: '', progress: 0 },
   bridge: { state: 'off', message: '', agents: 0 },
