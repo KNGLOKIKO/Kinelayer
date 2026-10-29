@@ -736,6 +736,14 @@ export interface UiState {
   floatingWindows: string[];
   snapping: boolean;
   showSafeArea: boolean;
+  /**
+   * 崩溃后安全模式：上一次求值没正常收尾（被 while(true) 之类冻死），
+   * 这次以「代码层不参与渲染」的方式打开，先让人能进去改代码。
+   *
+   * 放 ui 而不是工程数据：它是「这台机器这一次怎么打开」的临时决定，
+   * 不该跟着 .kly 传给别人的机器 —— 那边可能根本没有那段死循环的触发条件。
+   */
+  codeSafeMode: boolean;
   inspectorSection: Record<string, boolean>;
 }
 

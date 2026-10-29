@@ -1,8 +1,10 @@
 import { z } from 'zod';
-import { defineCommand } from '../registry';
+import { defineCommand, CommandFailure } from '../registry';
 import { zCodeSpec, zEngine, zId } from '../schemas';
 import { requireCode } from './_helpers';
 import { resetCodeRuntime } from '@/render/codeEngine';
+import { clearCodeSafeMode, isCodeSafeMode, markCodeSafeMode } from '@/persist/projects';
+import { clearCrashMarker } from '@/core/loopProtect';
 
 export const codeCommands = [
   defineCommand({
@@ -107,6 +109,54 @@ export const codeCommands = [
     handler: (_draft, payload) => {
       resetCodeRuntime(payload.id);
       return { reset: payload.id ?? 'all' };
+    },
+  }),
+
+  defineCommand({
+    type: 'code.setSafeMode',
+    category: '代码',
+    mutating: false,
+    undoable: false,
+    asyncHandler: true,
+    description:
+      '开关「代码层安全模式」：开启后预览不再求值代码层（死循环把编辑器冻住时的自救出口），并把这件事记进本机的工程偏好 —— 关掉浏览器再打开也还记得。关闭时同时清掉那条持久记忆与会话内的崩溃标记，代码层下一帧按带保护的源码重新编译。它不改文档、不进撤销栈；不带 projectId 时操作当前工程。',
+    schema: z.object({
+      projectId: z.string().min(1).max(80).optional(),
+      enabled: z.boolean(),
+    }),
+    example: { enabled: false },
+    handler: async (draft, payload, ctx) => {
+      /* asyncHandler 拿到的是纯克隆，读字段安全；下面仍先落成普通变量，
+         好让 ctx.ui 的闭包不碰 draft（那条铁律对克隆同样适用，省得以后改回 immer 忘掉） */
+      const currentId = draft.id;
+      const targetId = payload.projectId ?? currentId;
+      if (!targetId) throw new CommandFailure('INVARIANT', '没有可操作的工程：传 projectId，或先打开一个工程');
+
+      if (payload.enabled) {
+        await markCodeSafeMode(targetId);
+      } else {
+        /* 会话内标记一起清：否则下一轮刷新还会被它判成「上次崩过」 */
+        clearCrashMarker(targetId);
+        await clearCodeSafeMode(targetId);
+      }
+
+      /* 开关只对当前打开的工程有意义；给别的工程留记号是上面那两行的事 */
+      if (targetId !== currentId) {
+        return { projectId: targetId, enabled: payload.enabled, applied: false };
+      }
+
+      const next = payload.enabled;
+      ctx.ui((ui) => {
+        ui.codeSafeMode = next;
+      });
+      /* 无论开还是关，旧运行时都作废：开是白占显存，关是必须按带保护的源码重编 */
+      resetCodeRuntime();
+      return {
+        projectId: targetId,
+        enabled: next,
+        applied: true,
+        persisted: await isCodeSafeMode(targetId),
+      };
     },
   }),
 ];

@@ -12,6 +12,7 @@ import { uid } from '../ids';
 import { idbGetAsset, idbPutAsset } from '@/persist/idb';
 import { listStoredFonts, registerFontFace } from '@/persist/fonts';
 import {
+  clearCodeSafeMode,
   createProjectRecord,
   markSampleVersion,
   seededVersionOf,
@@ -515,6 +516,9 @@ export const projectCommands = [
       if (ctx.dryRun) return { projectId: payload.projectId, name: meta.name, wasCurrent, dryRun: true };
 
       const { removedAssets } = await deleteProjectRecord(payload.projectId);
+      /* 安全模式标记是「本机对这个工程的前科记忆」，得跟着工程一起消失：
+         留着它只是多一条死键，但 id 一旦被复用就会莫名其妙地以安全模式打开。 */
+      await clearCodeSafeMode(payload.projectId);
       if (wasCurrent) {
         detachProject(draft.id);
         await setLastProjectId(null);

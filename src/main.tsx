@@ -1,4 +1,7 @@
 import { createRoot } from 'react-dom/client';
+import { getRuntimeInfo } from '@/render/codeEngine';
+import { beginEvaluation, hasCrashMarker, isLoopProtectReady, protectLoops } from '@/core/loopProtect';
+import { clearCodeSafeMode, isCodeSafeMode, markCodeSafeMode, noteSafeCodeFrame } from '@/persist/projects';
 import './styles.css';
 import App from './App';
 import { registerAllCommands } from './core/commands';
@@ -259,6 +262,33 @@ if (import.meta.env.DEV) {
         return bytes ? { bytes: bytes.length, ms: w.to - w.from } : null;
       },
     },
+    /**
+     * 循环保护的白盒探针。
+     *
+     * 纯函数那一半（probe）比「让页面真冻一次」好用得多：注入是否命中、
+     * 字符串里的 while 有没有被误伤、语法错误时代码是否原样返回，
+     * 都能当面断言，而不是靠「跑起来没卡」这种间接证据。
+     */
+    loopProtect: {
+      ready: () => isLoopProtectReady(),
+      probe: (source: string) => protectLoops(source),
+      hasMarker: (projectId: string) => hasCrashMarker(projectId),
+      mark: (projectId: string) => beginEvaluation(projectId),
+    },
+    /**
+     * 持久安全模式标记的探针。
+     *
+     * 它落在 IndexedDB 的 prefs 里，检查脚本从外面看不到内部状态，
+     * 只靠「UI 有没有变黄条」间接推断太脆，所以单开一个读写口。
+     */
+    safeMode: {
+      is: (projectId: string) => isCodeSafeMode(projectId),
+      mark: (projectId: string) => markCodeSafeMode(projectId),
+      clear: (projectId: string) => clearCodeSafeMode(projectId),
+      note: (projectId: string) => noteSafeCodeFrame(projectId),
+    },
+    /** 代码层的运行时错误/熔断次数，检查脚本靠它判断「进的是错误态而不是冻死」 */
+    codeRuntime: (layerId: string) => getRuntimeInfo(layerId),
   };
 }
 

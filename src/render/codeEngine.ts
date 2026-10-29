@@ -23,6 +23,22 @@ import type {
   LyricUnit,
   Tempo,
 } from '@/core/types';
+import {
+  LOOP_BUDGET_MS,
+  LOOP_TIMEOUT_MARK,
+  isLoopProtectReady,
+  onLoopProtectUpgraded,
+  protectLoops,
+} from '@/core/loopProtect';
+
+/*
+ * 解析器迟到（降级后重试成功）时，把已经编好的层全部作废重来。
+ *
+ * 不做这一步的后果很隐蔽：那几层是按**没有注入检查**的源码编出来的，
+ * 编译缓存（compiledSource === source）会让它一直跑下去 —— 表面上「保护装好了」，
+ * 实际那几层永久裸奔。
+ */
+onLoopProtectUpgraded(() => resetCodeRuntime());
 
 /**
  * 代码层能拿到的「谱面上下文」。
@@ -176,6 +192,13 @@ function compileCanvas2D(rt: Runtime, source: string): void {
   rt.compiledSource = source;
   rt.compileError = null;
   rt.fn = null;
+  /*
+   * 编译期注入循环超时检查。注入是**改源码**，所以它有两条自我约束：
+   *   · 解析失败（语法本身有问题）时原样返回，让 new Function 去报编译错误，不抢着报；
+   *   · 注入数量为 0 时也是原样返回 —— 没有循环就没有可保护的东西。
+   * 两种情况下行为都与加这层保护之前完全一致。
+   */
+  const guarded = protectLoops(source);
   try {
     rt.fn = new Function(
       'ctx',
@@ -187,7 +210,8 @@ function compileCanvas2D(rt: Runtime, source: string): void {
       'frame',
       'state',
       'output',
-      `${SANDBOX_SHADOW}\n${source}\n`,
+      '__klyDeadline',
+      `${SANDBOX_SHADOW}\n${guarded.code}\n`,
     ) as (...args: unknown[]) => void;
   } catch (err) {
     rt.compileError = `编译失败：${(err as Error).message}`;
@@ -491,6 +515,12 @@ function frameOnce(rt: Runtime, layer: CodeLayer, time: number, frame: number, e
       signalBus.set(channel, value);
       rt.outputs[channel] = value;
     },
+    /*
+     * 循环保护的截止时刻：**每次绘制各算一份**，不是整帧共用。
+     * 共用的话，32 次子帧的运动模糊会被合法的累计耗时误判成死循环；
+     * 各算一份则「单次绘制超过 50ms」才拦，正常画面永远碰不到。
+     */
+    performance.now() + LOOP_BUDGET_MS,
   );
 }
 
@@ -513,6 +543,16 @@ export function runCodeLayer(
   }
   if (rt.disabled) {
     return { ok: false, error: rt.error, disabled: true };
+  }
+  /*
+   * 编译器没就绪时**不求值**。
+   *
+   * 这是整套保护里最不能省的一步：宁可这一帧不画代码层，也绝不能拿没注入检查的源码
+   * 去跑 —— 那正是我们要防的那次冻结。预热在编辑器启动时 await 过一次，
+   * 所以正常只会在最开头的几帧命中（表现为代码层晚一两帧出现）。
+   */
+  if (!isLoopProtectReady()) {
+    return { ok: true, error: null, disabled: false };
   }
   /*
    * 内部分辨率 = 外部倍率（预览 zoom*dpr / 导出 scale）× 图层自带的 renderScale。
@@ -572,7 +612,14 @@ export function runCodeLayer(
       failOnly(rt, err.message);
       return { ok: false, error: rt.error, disabled: rt.disabled };
     }
-    fail(rt, `运行时异常：${(err as Error).message}`);
+    /* 循环保护抛的错要翻译成人话：原文案是给机器认的标记，不是给用户看的 */
+    const message = (err as Error).message;
+    fail(
+      rt,
+      message === LOOP_TIMEOUT_MARK
+        ? `循环超时：单帧内的循环超过 ${LOOP_BUDGET_MS}ms 已被中断（检查 while(true) 或不会收敛的循环）`
+        : `运行时异常：${message}`,
+    );
     return { ok: false, error: rt.error, disabled: rt.disabled };
   }
 }

@@ -204,6 +204,13 @@ export interface AppPrefs {
    * 一份停在旧版不会拖住另一份，也不会每次刷新都把没动过的那份重建一遍。
    */
   sampleVersions?: Record<string, number>;
+  /**
+   * 崩溃安全模式：键 = 工程 id，值 = 下次打开时是否禁用代码层。
+   *
+   * 与 `sampleVersions` 一样用**映射字段**，不用 `codeSafeMode:<id>` 这种带冒号的扁平键 ——
+   * 扁平键在「列出所有工程」时没法一次取回，删除工程时也没法按前缀可靠清理。
+   */
+  codeSafeMode?: Record<string, boolean>;
 }
 
 /** 从裸 Project 抽元信息。idb 层不做 normalize，字段缺失就给保守默认值 */

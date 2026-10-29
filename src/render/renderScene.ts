@@ -5,6 +5,7 @@ import { getImage, getVideo, isAssetMissing, syncVideoTime, type Drawable } from
 import { codeEnvOf, runCodeLayer, type CodeEnv } from './codeEngine';
 import { buildGradient, drawTextLayer } from './text';
 import { FONT_STACK_FALLBACK } from '@/core/defaults';
+import { beginEvaluation, endEvaluation } from '@/core/loopProtect';
 
 export interface RenderOptions {
   time: number;
@@ -362,7 +363,7 @@ function drawBackground(
  * 唯一的场景渲染入口。
  * 编辑预览（StageCanvas）、PNG 导出、WebM 逐帧导出、图层窗口镜像全部调用它。
  */
-export function renderScene(ctx: CanvasRenderingContext2D, project: Project, opts: RenderOptions): void {
+function drawScene(ctx: CanvasRenderingContext2D, project: Project, opts: RenderOptions): void {
   const time = opts.time;
   const scale = opts.scale ?? 1;
   /* 一帧一份谱面：九个代码层读到的拍号必须是同一个数 */
@@ -416,6 +417,38 @@ export function renderScene(ctx: CanvasRenderingContext2D, project: Project, opt
   }
   ctx.globalCompositeOperation = 'source-over';
   ctx.globalAlpha = 1;
+}
+
+/**
+ * 含代码层的工程才需要求值期标记。
+ *
+ * 为什么不在启动时一次性打标记：那个标记的含义是「此刻正卡在求值里」，
+ * 只有进入/离开 renderScene 才是它的准确边界。只对含代码层的工程做，
+ * 是因为普通工程白花两次 sessionStorage 操作。
+ */
+function hasCodeLayers(project: Project): boolean {
+  for (const layer of project.layers) {
+    if (layer.type === 'code') return true;
+  }
+  return false;
+}
+
+/**
+ * 唯一的场景渲染入口（对外）。
+ *
+ * 真正的绘制在 `drawScene` 里，这层壳只做一件事：**求值期标记**。
+ * 进来先写 sessionStorage，正常返回再清掉；万一代码层把主线程钉死在这个函数里，
+ * 清不掉的那条标记就是下次启动判定「上次是被冻死的」的唯一证据 ——
+ * 没有它，安全模式无从触发，用户一开工程就再冻一次，连改代码的机会都没有。
+ */
+export function renderScene(ctx: CanvasRenderingContext2D, project: Project, opts: RenderOptions): void {
+  const guarding = hasCodeLayers(project);
+  if (guarding) beginEvaluation(project.id);
+  try {
+    drawScene(ctx, project, opts);
+  } finally {
+    if (guarding) endEvaluation(project.id);
+  }
 }
 
 /** 视频层需要先 seek 到当前时间，渲染才是确定的 */

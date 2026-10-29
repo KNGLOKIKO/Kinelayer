@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, Maximize2, MousePointer2, Pause, Play, Repeat, SkipBack, SkipForward } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Maximize2, MousePointer2, Pause, Play, Repeat, SkipBack, SkipForward, TriangleAlert } from 'lucide-react';
 import { exec } from '@/core/commandBus';
 import { clamp, fitViewport, hitLayer, layerCenter, rotatePoint, screenToWorld, snapValue, type Vec } from '@/core/geometry';
 import { updateUi, useEditor } from '@/core/store';
+import { noteSafeCodeFrame } from '@/persist/projects';
 import { computeLayerFrame } from '@/render/animation';
 import { renderScene, prepareVideos } from '@/render/renderScene';
 import { bridgeToken, injectBridge } from '@/render/htmlBridge';
@@ -215,6 +216,8 @@ export function Stage() {
   const selectedIds = useEditor((s) => s.ui.selectedIds);
   const showSafeArea = useEditor((s) => s.ui.showSafeArea);
   const snapping = useEditor((s) => s.ui.snapping);
+  /* 只在安全模式开关变化时重渲染：整棵 Stage 跟着 60fps 走代价太大 */
+  const codeSafeMode = useEditor((s) => s.ui.codeSafeMode);
 
   /* --------------------------------------------------------- resize + fit */
 
@@ -297,6 +300,8 @@ export function Stage() {
           ? `m${marqueeRef.current.a.x.toFixed(1)},${marqueeRef.current.b.y.toFixed(1)}`
           : '',
         ui.showSafeArea ? 's' : '',
+        /* 安全模式开关必须进签名：不进的话切了也不会重画，用户会以为开关没生效 */
+        ui.codeSafeMode ? 'm' : '',
       ].join('|');
       if (sig === lastSigRef.current) return;
       lastSigRef.current = sig;
@@ -370,10 +375,20 @@ export function Stage() {
         time: runtime.playhead,
         scale: clamp(ui.zoom * dpr, 0.5, 2),
         overrides: overridesRef.current,
+        /* 崩溃后安全模式：预览不跑代码层，先让人能打开工程去改代码 */
+        skipCode: ui.codeSafeMode,
         /* html 层由下面的 iframe 实时渲染，canvas 不要再画占位（会盖住原生层） */
         htmlLive: true,
       });
       ctx.restore();
+
+      /*
+       * 首帧求值成功 = 这个工程的代码层不再把页面钉死，清掉持久的安全模式标记。
+       *
+       * 安全模式下代码层根本没跑，所以这里绝不能清 —— 否则安全模式只活一帧，
+       * 下一帧死循环又回来了。清理是「异步 + 每工程每会话一次」，不进渲染关键路径。
+       */
+      if (!ui.codeSafeMode) noteSafeCodeFrame(p.id);
 
       // 安全区
       if (ui.showSafeArea) {
@@ -1032,6 +1047,28 @@ export function Stage() {
 
       {/* 剪映式播放控制条：悬浮在预览区底部，不参与画布拖拽 */}
       <PlayBar />
+
+      {/*
+       * 安全模式横幅。必须给一条明确的出口：标记是持久的（关标签页重开也算数），
+       * 没有这个按钮的话用户改完代码也永远出不来 —— 那比冻死更难受。
+       */}
+      {codeSafeMode && (
+        <div className="absolute top-3 left-3 flex items-center gap-2 rounded-md border border-amber-500/40 bg-[#1a1205]/90 px-2.5 py-1.5 text-[11px] text-amber-200 backdrop-blur">
+          <TriangleAlert size={12} />
+          <span>{t('安全模式：代码层已停用')}</span>
+          <button
+            type="button"
+            className="rounded-sm border border-amber-400/50 px-1.5 py-0.5 text-[10.5px] text-amber-100 hover:bg-amber-400/15"
+            /* 预览区按住就走拖拽/框选，按钮必须自己吃掉事件 */
+            onPointerDown={(e) => e.stopPropagation()}
+            /* 走命令而不是直接 updateUi：清持久标记 + 清会话标记 + 作废运行时是一件事，
+               散在界面里写就成了第二套实现，AI/Agent 也没法用同一条路径恢复 */
+            onClick={() => void exec('code.setSafeMode', { enabled: false })}
+          >
+            {t('重新启用代码层')}
+          </button>
+        </div>
+      )}
 
       {/* 操作提示：挪到预览区顶部。底部已经是播放控制条的地盘，两条并排会互相挤 */}
       {selectedIds.length === 0 && !editingText && (

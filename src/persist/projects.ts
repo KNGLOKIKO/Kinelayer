@@ -136,7 +136,7 @@ export async function maybeThumbnail(project: Project): Promise<string | undefin
  * 先删记录再清资源 —— 反过来的话，删记录失败就会留下「图片没了、工程还在」的死工程。
  */
 export async function deleteProjectRecord(id: string): Promise<{ removedAssets: number }> {
-  return withLock(async () => {
+  const result = await withLock(async () => {
     const index = await idbGetIndex();
     const target = index.find((m) => m.id === id);
     const remaining = index.filter((m) => m.id !== id);
@@ -158,6 +158,13 @@ export async function deleteProjectRecord(id: string): Promise<{ removedAssets: 
     }
     return { removedAssets: removed };
   });
+  /*
+   * 级联清掉安全模式标记。不做的话会留一条指向已删工程 id 的残留条目：
+   * 导入/复制工程时 id 有可能复用，届时那个新工程会被当成「崩过的」而以安全模式打开。
+   * 放在锁外做：里面用的是 idbSetPrefs，跟 withLock 抢同一把锁会把自己锁死。
+   */
+  await clearCodeSafeMode(id).catch(() => undefined);
+  return result;
 }
 
 /** 深拷贝：资源只引用不复制（assetId 复用），避免同一张图在库里存两份 */
@@ -234,6 +241,69 @@ export async function markSampleVersion(id: string, version: number): Promise<vo
   const prefs = await idbGetPrefs();
   const map = { ...(prefs.sampleVersions ?? {}), [id]: version };
   await idbSetPrefs({ sampleSeeded: true, sampleVersion: version, sampleVersions: map } satisfies AppPrefs);
+}
+
+/* ------------------------------------------------------- 代码层安全模式 */
+
+/**
+ * 这个工程上次是不是被代码层卡死过。
+ *
+ * 与 sessionStorage 里的「求值中」标记分工不同：那个只活过一次标签页重载，
+ * 关掉浏览器就没了；这个字段是「这个工程在本机有问题」的持久记忆 ——
+ * 否则用户关掉标签页重开，等于又冻一次。
+ */
+export async function isCodeSafeMode(id: string): Promise<boolean> {
+  const prefs = await idbGetPrefs();
+  return prefs.codeSafeMode?.[id] === true;
+}
+
+/*
+ * 「首帧求值成功」的那一次清理。
+ *
+ * 每帧都去读一次 IndexedDB 是不可能的，而只在开启时才清又会让「改了代码但没成功」
+ * 也把标记抹掉。所以按工程记一个内存集：一个会话里每个工程最多查一次。
+ *
+ * 进安全模式时要把这个工程从集合里摘掉（见 markCodeSafeMode）：同一个会话里可能
+ * 「崩 → 安全模式 → 改好 → 恢复 → 再崩」走两轮，摘不掉的话第二轮恢复时就不清了。
+ */
+const safeFrameNoted = new Set<string>();
+
+/**
+ * 启动时的安全模式判定做完了没有。
+ *
+ * 为什么要这道闸：编辑器一打开就会画首帧，那一刻 ui.codeSafeMode 还是默认的 false，
+ * 于是 noteSafeCodeFrame 会把「刚判定出崩溃」的标记当成「求值成功了」清掉 —— 实测过，
+ * 结果就是安全模式只在第一帧生效、标记却已经没了。判定完成后才允许清。
+ */
+let safeModeSettled = false;
+
+export function settleSafeCodeMode(): void {
+  safeModeSettled = true;
+}
+
+export async function markCodeSafeMode(id: string): Promise<void> {
+  safeFrameNoted.delete(id);
+  const prefs = await idbGetPrefs();
+  if (prefs.codeSafeMode?.[id] === true) return;
+  const map = { ...(prefs.codeSafeMode ?? {}), [id]: true };
+  await idbSetPrefs({ codeSafeMode: map } satisfies AppPrefs);
+}
+
+/** 首帧求值成功、或用户手动恢复代码层时清掉；没有这个键就不写盘 */
+export async function clearCodeSafeMode(id: string): Promise<void> {
+  const prefs = await idbGetPrefs();
+  const map = prefs.codeSafeMode;
+  if (!map || map[id] === undefined) return;
+  const next = { ...map };
+  delete next[id];
+  await idbSetPrefs({ codeSafeMode: next } satisfies AppPrefs);
+}
+
+export function noteSafeCodeFrame(id: string): void {
+  /* 判定还没做完时不许清：首帧一定早于判定，见 settleSafeCodeMode 的注释 */
+  if (!safeModeSettled || safeFrameNoted.has(id)) return;
+  safeFrameNoted.add(id);
+  void clearCodeSafeMode(id).catch(() => undefined);
 }
 
 export async function getLastProjectId(): Promise<string | null> {

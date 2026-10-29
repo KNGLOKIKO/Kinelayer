@@ -60,6 +60,7 @@ const initialUi: UiState = {
   narrowDrawer: null,
   showExport: false,
   showPrompt: false,
+  codeSafeMode: false,
   locale: detectLocale(),
   codeEditorFor: null,
   customEditorFor: null,

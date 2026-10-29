@@ -1200,6 +1200,10 @@ export const en: Record<string, string> = {
   '不支持倒放时的音频': 'Audio is muted while playing backwards',
   '出片区间 {from} → {to}：播放到这里会停住，导出也只出这一段': 'Export range {from} → {to}: playback stops at the out point, and export covers only this span',
   '区间': 'Range',
+  '上次打开时被代码层卡死了，已用安全模式打开：代码层暂不渲染，改完代码点「重新启用代码层」':
+    'A code layer froze the editor last time, so it opened in safe mode: code layers are not rendered. Fix the code, then click "Re-enable code layers".',
+  '安全模式：代码层已停用': 'Safe mode: code layers are off',
+  '重新启用代码层': 'Re-enable code layers',
 };
 
 export type EnDict = typeof en;

@@ -1,4 +1,5 @@
 import type { Project } from '@/core/types';
+import { ensureLoopProtect } from '@/core/loopProtect';
 import { isCode, isText } from '@/core/types';
 import { packProject } from '@/core/projectFile';
 import { prepareVideos, renderScene } from './renderScene';
@@ -139,6 +140,11 @@ export async function renderInto(
   project: Project,
   opts: { time: number; scale: number; transparent: boolean; layerId?: string | null },
 ): Promise<void> {
+  /*
+   * 导出前必须等循环保护编译器就绪：没有它代码层根本不会求值（见 codeEngine），
+   * 那导出的就是一片空白 —— 而导出是最不能出「静默少了几层」的地方。
+   */
+  await ensureLoopProtect();
   const { time, scale, transparent, layerId = null } = opts;
   const htmlBitmaps = await prepare(project, time, scale);
   const ctx = canvas.getContext('2d');

@@ -17,13 +17,17 @@ import { FloatingLayerPanels } from '@/ui/FloatingLayerPanels';
 import { exec } from '@/core/commandBus';
 import { setBroadcastHandler } from '@/core/commandBus';
 import { pushToast, updateRuntime, updateUi, useEditor } from '@/core/store';
+import { clearCrashMarker, ensureLoopProtect, hasCrashMarker } from '@/core/loopProtect';
 import {
   ensureProjectRecorded,
   getLastProjectId,
+  isCodeSafeMode,
   isDetached,
+  markCodeSafeMode,
   maybeThumbnail,
   saveProject,
   setLastProjectId,
+  settleSafeCodeMode,
 } from '@/persist/projects';
 import { lsGet } from '@/persist/storage';
 import { restoreFonts } from '@/persist/fonts';
@@ -98,6 +102,11 @@ export function EditorApp() {
     let disposed = false;
 
     const boot = async () => {
+      /*
+       * 循环保护编译器预热。不 await：让它和后面的字体/命令读取并行跑，
+       * 真正的门槛在打开工程之前 —— 没有它就不能求值代码层（见 codeEngine）。
+       */
+      const warmCompiler = ensureLoopProtect();
       await initAI();
       await restoreFonts().catch(() => []);
       /* 自定义命令是全局的（不属于任何工程），跟字体一样在启动时读一次。
@@ -125,6 +134,7 @@ export function EditorApp() {
         go(launcherUrl());
         return;
       }
+      await warmCompiler;
       const opened = await exec('project.open', { projectId: wanted });
       if (!opened || !opened.ok) {
         /* 记录被删了/索引被清过：不要卡在「正在打开」。没有可回退的工程就回启动页。 */
@@ -136,6 +146,35 @@ export function EditorApp() {
         await ensureProjectRecorded(current);
         await setLastProjectId(current.id);
       }
+      /*
+       * 崩溃回路保护：两处证据，任何一处成立就以「代码层不渲染」的安全模式打开 ——
+       * 否则一进来又冻，用户连改代码的机会都没有。
+       *
+       *   1）sessionStorage 里残留的「求值中」标记：上一轮求值没正常收尾，被冻死/强杀；
+       *   2）工程偏好里的持久标记：这个工程在本机崩过，关掉标签页重开也还记得。
+       *
+       * 只有 1）成立时补写 2）—— 否则「换个标签页重开」就等于把保护丢了。
+       * 1）随即清掉：它只代表「上一次」，留着会让每次刷新都重复弹这条提示。
+       */
+      const liveProject = useEditor.getState().project;
+      const liveId = liveProject.id;
+      if (liveId) {
+        const crashed = hasCrashMarker(liveId);
+        if (crashed) {
+          clearCrashMarker(liveId);
+          /* 必须 await：紧接着的判定要读到它，否则「刚崩过」会读成「没崩过」 */
+          await markCodeSafeMode(liveId).catch(() => undefined);
+        }
+        const safe = crashed || (await isCodeSafeMode(liveId).catch(() => false));
+        if (safe && !disposed) {
+          updateUi((ui) => {
+            ui.codeSafeMode = true;
+          });
+          pushToast('error', t('上次打开时被代码层卡死了，已用安全模式打开：代码层暂不渲染，改完代码点「重新启用代码层」'), 9000);
+        }
+      }
+      /* 判定结束：从这里起「求值成功」才可以清标记（首帧早于判定，见 settleSafeCodeMode） */
+      settleSafeCodeMode();
       /* 把 projectId 补进地址栏：刷新才停在编辑器，而不是掉回启动页 */
       if (!fromUrl) {
         const id = useEditor.getState().project.id;
