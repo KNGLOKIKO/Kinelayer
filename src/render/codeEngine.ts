@@ -441,6 +441,11 @@ export interface CodeRenderResult {
   disabled: boolean;
 }
 
+/** 代码层跑完一帧的产物：是画布还是错误，以及**该合成哪张画布**（模糊走累加画布） */
+export interface CodeCanvasResult extends CodeRenderResult {
+  canvas: HTMLCanvasElement | null;
+}
+
 /** 画一帧到 rt.canvas（不碰目标 ctx）。子帧超采样就是把它调 N 次 */
 function frameOnce(rt: Runtime, layer: CodeLayer, time: number, frame: number, env: CodeEnv): void {
   const source = layer.code.source;
@@ -495,24 +500,29 @@ function frameOnce(rt: Runtime, layer: CodeLayer, time: number, frame: number, e
 }
 
 /**
- * 把代码层渲染到它自己的离屏画布，再合成到目标 ctx。
- * 预览与导出走同一个函数，只是 scale 不同。
+ * 把代码层画到**它自己的**离屏画布上，然后告诉调用方那张画布是哪张。
+ *
+ * 为什么把「算」和「合成」拆开：代码层要能被执行在别的线程里，那时主线程拿到的
+ * 只能是一张位图/一片像素，不可能让子线程直接画到主线程的 ctx 上。所以这里只负责
+ * 「这一层自己长什么样」，`drawImage` 到目标画布由渲染器（CodeRuntime 的消费方）做。
+ *
+ * 注意返回的是**哪张画布**：开了运动模糊时，最终画面在累加画布上，主画布
+ * 只剩最后一个子帧（那是给图层独立窗口/调试口看的）。合成必须用累加那张。
  */
-export function runCodeLayer(
-  target: CanvasRenderingContext2D,
+export function renderLayerCanvas(
   layer: CodeLayer,
   time: number,
   frame: number,
   scale = 1,
   env: CodeEnv = EMPTY_ENV,
-): CodeRenderResult {
+): CodeCanvasResult {
   const rt = getRuntime(layer);
   const source = layer.code.source;
   if (!source.trim()) {
-    return { ok: true, error: null, disabled: false };
+    return { ok: true, error: null, disabled: false, canvas: null };
   }
   if (rt.disabled) {
-    return { ok: false, error: rt.error, disabled: true };
+    return { ok: false, error: rt.error, disabled: true, canvas: null };
   }
   /*
    * 内部分辨率 = 外部倍率（预览 zoom*dpr / 导出 scale）× 图层自带的 renderScale。
@@ -527,12 +537,12 @@ export function runCodeLayer(
   const samples = blur && typeof blur.samples === 'number' ? Math.min(32, Math.max(2, Math.round(blur.samples))) : 1;
 
   try {
+    let out: HTMLCanvasElement;
     if (!blur) {
       frameOnce(rt, layer, time, frame, env);
-      target.drawImage(rt.canvas, 0, 0, layer.width, layer.height);
+      out = rt.canvas;
     } else if (auto) {
-      drawAdaptive(rt, layer, time, frame, env, target, blur.shutter, blur.tol ?? 3);
-      /* 主画布恢复成最后一帧的样子：图层独立窗口/调试口会直接看它 */
+      out = drawAdaptive(rt, layer, time, frame, env, blur.shutter, blur.tol ?? 3);
     } else {
       /*
        * 子帧超采样 = 时间上的抗锯齿。
@@ -557,8 +567,7 @@ export function runCodeLayer(
         actx.drawImage(rt.canvas, 0, 0);
       }
       actx.globalAlpha = 1;
-      target.drawImage(accum.canvas, 0, 0, layer.width, layer.height);
-      /* 主画布恢复成最后一帧的样子：图层独立窗口/调试口会直接看它 */
+      out = accum.canvas;
     }
     rt.strikes = 0;
     if (rt.error) {
@@ -566,14 +575,14 @@ export function runCodeLayer(
       emit();
     }
     rt.lastRunMs = performance.now() - started;
-    return { ok: true, error: null, disabled: false };
+    return { ok: true, error: null, disabled: false, canvas: out };
   } catch (err) {
     if (err instanceof CodeCompileError) {
       failOnly(rt, err.message);
-      return { ok: false, error: rt.error, disabled: rt.disabled };
+      return { ok: false, error: rt.error, disabled: rt.disabled, canvas: null };
     }
     fail(rt, `运行时异常：${(err as Error).message}`);
-    return { ok: false, error: rt.error, disabled: rt.disabled };
+    return { ok: false, error: rt.error, disabled: rt.disabled, canvas: null };
   }
 }
 
@@ -610,10 +619,9 @@ function drawAdaptive(
   time: number,
   frame: number,
   env: CodeEnv,
-  target: CanvasRenderingContext2D,
   shutterMs: number,
   tol: number,
-): void {
+): HTMLCanvasElement {
   const shutter = Math.max(1, shutterMs);
   const accum = ensureAccum(rt);
   const actx = accum.ctx;
@@ -651,7 +659,7 @@ function drawAdaptive(
   }
 
   actx.globalAlpha = 1;
-  target.drawImage(accum.canvas, 0, 0, layer.width, layer.height);
+  return accum.canvas;
 }
 
 /**

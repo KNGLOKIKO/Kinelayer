@@ -146,10 +146,13 @@ export async function renderInto(
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.setTransform(scale, 0, 0, scale, 0, 0);
-  renderScene(ctx, project, {
+  /* 两段式：预备（HTML 栅格化 + 代码层）都在 await 里做完，绘制是同步的一次。
+     导出走 export 模式，将来 Worker 化时按模式决定缓存与超时预算 */
+  await renderScene(ctx, project, {
     time,
     scale,
     transparent,
+    mode: 'export',
     htmlBitmaps,
     onlyLayerId: layerId,
   });
@@ -277,7 +280,7 @@ export async function exportWebm(
     await prepareVideos(project, t);
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    renderScene(ctx, project, { time: t, scale: 1, transparent: false });
+    await renderScene(ctx, project, { time: t, scale: 1, transparent: false, mode: 'export' });
     track.requestFrame();
     onProgress((i + 1) / total);
     i += 1;

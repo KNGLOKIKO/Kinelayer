@@ -3,7 +3,7 @@ import { Code2, Image as ImageIcon, Layers, Square, Type, Video } from 'lucide-r
 import type { CommandResult } from '@/core/registry';
 import type { Layer, Project } from '@/core/types';
 import { computeLayerFrame } from '@/render/animation';
-import { renderScene } from '@/render/renderScene';
+import { drawScene, prepareScene } from '@/render/renderScene';
 import { Badge, NumberInput, Slider, TextInput, cx } from '@/ui/primitives';
 import { LayerTimeline } from './LayerTimeline';
 
@@ -73,16 +73,23 @@ export function LayerMirror({
         l.id === layer.id ? ({ ...l, x: 0, y: 0, rotation: frame.rotation, opacity: frame.opacity } as Layer) : l,
       ),
     };
-    renderScene(ctx, shifted, {
-      time,
-      scale: Math.max(0.5, zoom * dpr),
-      transparent: true,
-      onlyLayerId: layer.id,
-    });
-    // 边框
-    ctx.strokeStyle = 'rgba(124,92,255,.45)';
-    ctx.lineWidth = 1 / zoom;
-    ctx.strokeRect(0, 0, layer.width, layer.height);
+    /* 两段式：预备是异步的（代码层经 CodeRuntime），绘制仍是同步的一次。
+       这个 effect 是同步的，所以用 void 派出去——换了工程/时刻会重新跑一遍，
+       晚到的那一帧最多画一次，随后被新的覆盖，不会叠加。 */
+    void (async () => {
+      const scene = await prepareScene(shifted, {
+        time,
+        scale: Math.max(0.5, zoom * dpr),
+        transparent: true,
+        onlyLayerId: layer.id,
+        mode: 'preview',
+      });
+      drawScene(ctx, shifted, scene.t, scene);
+      // 边框
+      ctx.strokeStyle = 'rgba(124,92,255,.45)';
+      ctx.lineWidth = 1 / zoom;
+      ctx.strokeRect(0, 0, layer.width, layer.height);
+    })();
   }, [project, layer, time]);
 
   if (!layer) {

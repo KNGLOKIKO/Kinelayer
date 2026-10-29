@@ -1,0 +1,179 @@
+{
+  "schema": 1,
+  "base": "http://localhost:5273/",
+  "project": "prj_sample_revision",
+  "scenes": [
+    {
+      "key": "code2d",
+      "note": "2D 代码层 · 示例工程「图层树」段（ly_rev_2_0）",
+      "project": "prj_sample_revision",
+      "layer": "ly_rev_2_0",
+      "full": [
+        {
+          "ms": 12600,
+          "width": 1920,
+          "height": 1080,
+          "sha": "5702c5028180f054eaed09f9c1e994df1a5a642ab9719fcfde94a2ea926d3365",
+          "png": "8cfca2892952a5d0"
+        },
+        {
+          "ms": 15000,
+          "width": 1920,
+          "height": 1080,
+          "sha": "e16a5416e01e4426574d90ba9c8660b99b971a3b7bbb4cdc5f1b08f685c66d91",
+          "png": "cbb8e13d1e275ddc"
+        },
+        {
+          "ms": 18000,
+          "width": 1920,
+          "height": 1080,
+          "sha": "5678b0161d379347507773a1578e7fe6ad9c9f1f1777eda16763ff830acddafc",
+          "png": "26fe5c1ba10adbf1"
+        }
+      ],
+      "solo": [
+        {
+          "ms": 12600,
+          "width": 1920,
+          "height": 1080,
+          "sha": "f21dcc6d868f43ca970f1d18d1e8809981c2ab8c197ede002bf35cebb163e4ea",
+          "png": "0c3fb0e16a27cd33"
+        },
+        {
+          "ms": 15000,
+          "width": 1920,
+          "height": 1080,
+          "sha": "70cec9a2f634414e16ed304524d6d0d8364abaf494b6ac2390c76efde9d45042",
+          "png": "14c30d9bc419feed"
+        },
+        {
+          "ms": 18000,
+          "width": 1920,
+          "height": 1080,
+          "sha": "9347e4895ddc77267a7776ca08441c268bf9d598ea78a6e269392d39caf5f1de",
+          "png": "98d7e3c61402fa5c"
+        }
+      ]
+    },
+    {
+      "key": "glsl",
+      "note": "GLSL 片元着色器 · 示例工程「引爆」段（ly_rev_6_0，renderScale 0.5）",
+      "project": "prj_sample_revision",
+      "layer": "ly_rev_6_0",
+      "full": [
+        {
+          "ms": 41700,
+          "width": 1920,
+          "height": 1080,
+          "sha": "adde43921a200c22eb381f1314b8a0112530b970fdeb0eb21e313914b6562aca",
+          "png": "5a85a3c6de01ab37"
+        },
+        {
+          "ms": 43000,
+          "width": 1920,
+          "height": 1080,
+          "sha": "1269829bc7457ff7ee02829bf66b01aaa5974365f9e48b8627fe777d09c807b7",
+          "png": "00816d6d24d1904a"
+        },
+        {
+          "ms": 44600,
+          "width": 1920,
+          "height": 1080,
+          "sha": "16fbd6343b29ea3c775d669dfc0cc7b19d04f6ec235ea7076cee9d0f21978d29",
+          "png": "dd5a77fea51c0ee4"
+        }
+      ],
+      "solo": [
+        {
+          "ms": 41700,
+          "width": 1920,
+          "height": 1080,
+          "sha": "0b592dd8d3e9b49d36e78ed282609b59b83f92638ad3539b2aceb99d829b8d24",
+          "png": "86fedd47547220d6"
+        },
+        {
+          "ms": 43000,
+          "width": 1920,
+          "height": 1080,
+          "sha": "06a1784b72381115a690854da7ffe879058c9244ed249a8525866cd42388ae23",
+          "png": "8e2b48425459b1d2"
+        },
+        {
+          "ms": 44600,
+          "width": 1920,
+          "height": 1080,
+          "sha": "e2082bc0bfc816285b998221b48622d67f0d1338a6335f497b8399a09039d521",
+          "png": "ce01720d91a87f39"
+        }
+      ]
+    },
+    {
+      "key": "motionblur",
+      "note": "2D 代码层 + 4 子帧运动模糊（ly_rev_6_1，shutter 44ms）",
+      "project": "prj_sample_revision",
+      "layer": "ly_rev_6_1",
+      "full": [
+        {
+          "ms": 41900,
+          "width": 1920,
+          "height": 1080,
+          "sha": "50aeb5bbba5a83ceff08c7bf64518523a01e2111abd12279eae5fb9db99fa185",
+          "png": "c0f74f2f2124cd43"
+        },
+        {
+          "ms": 43400,
+          "width": 1920,
+          "height": 1080,
+          "sha": "0289a73ab3938159433a58787c4d6d7a72ff461cfad91743bf389a79cc47d405",
+          "png": "2a5f5d88176af0ba"
+        }
+      ],
+      "solo": [
+        {
+          "ms": 41900,
+          "width": 1920,
+          "height": 1080,
+          "sha": "c1d5be5243471bcd73359f3ac898fef656eed891536739e377b3572d63944de5",
+          "png": "98ae4c20219daaf8"
+        },
+        {
+          "ms": 43400,
+          "width": 1920,
+          "height": 1080,
+          "sha": "c1d5be5243471bcd73359f3ac898fef656eed891536739e377b3572d63944de5",
+          "png": "98ae4c20219daaf8"
+        }
+      ]
+    },
+    {
+      "key": "imported",
+      "note": "导入工程（HTML 绝对定位：标题 / 三块色块 / 一张内联 PNG）",
+      "project": "prj_zhczxfkte43",
+      "layer": null,
+      "full": [
+        {
+          "ms": 0,
+          "width": 1080,
+          "height": 1350,
+          "sha": "696342d233bf337f95d5f5f02931cc0822234fd10c30f71c33ad6574f4eede63",
+          "png": "eb4f2ed2d0d7a2d1"
+        },
+        {
+          "ms": 500,
+          "width": 1080,
+          "height": 1350,
+          "sha": "696342d233bf337f95d5f5f02931cc0822234fd10c30f71c33ad6574f4eede63",
+          "png": "eb4f2ed2d0d7a2d1"
+        },
+        {
+          "ms": 1200,
+          "width": 1080,
+          "height": 1350,
+          "sha": "696342d233bf337f95d5f5f02931cc0822234fd10c30f71c33ad6574f4eede63",
+          "png": "eb4f2ed2d0d7a2d1"
+        }
+      ],
+      "solo": null
+    }
+  ]
+}

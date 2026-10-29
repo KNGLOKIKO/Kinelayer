@@ -4,7 +4,7 @@ import { exec } from '@/core/commandBus';
 import { clamp, fitViewport, hitLayer, layerCenter, rotatePoint, screenToWorld, snapValue, type Vec } from '@/core/geometry';
 import { updateUi, useEditor } from '@/core/store';
 import { computeLayerFrame } from '@/render/animation';
-import { renderScene, prepareVideos } from '@/render/renderScene';
+import { drawScene, prepareScene, prepareVideos } from '@/render/renderScene';
 import { bridgeToken, injectBridge } from '@/render/htmlBridge';
 import { subscribeAssets } from '@/render/assets';
 import type { CodeLayer, Layer, Project } from '@/core/types';
@@ -276,6 +276,8 @@ export function Stage() {
 
   useEffect(() => {
     let raf = 0;
+    /* 一帧还没预备完时不要再起一帧（见 draw 里的说明） */
+    let busy = false;
     const draw = () => {
       raf = requestAnimationFrame(draw);
       const canvas = canvasRef.current;
@@ -283,7 +285,6 @@ export function Stage() {
       if (!canvas || !ctx) return;
       const state = useEditor.getState();
       const { project: p, ui, runtime } = state;
-      const dpr = Math.min(2.5, window.devicePixelRatio || 1);
       const sig = [
         `${canvas.width}x${canvas.height}`,
         p.version,
@@ -299,7 +300,34 @@ export function Stage() {
         ui.showSafeArea ? 's' : '',
       ].join('|');
       if (sig === lastSigRef.current) return;
+      /*
+       * 预备是异步的（代码层经 CodeRuntime）。上一帧还没回来就**跳过**这一帧：
+       * 既不排队（排队会在拖动时越积越多，最后追不上手）也不叠加
+       * （canvas 的 save/clip/混合模式都是同步语义，两帧交错进去就乱了）。
+       * 画布上因此永远是一张完整的帧，不会是画到一半的样子。
+       */
+      if (busy) return;
+      busy = true;
       lastSigRef.current = sig;
+      void paint(canvas, ctx)
+        .catch(() => {
+          /* 画失败就把签名清掉，下一个 rAF 重来一遍，别卡死在空白画布上 */
+          lastSigRef.current = '';
+        })
+        .finally(() => {
+          busy = false;
+        });
+    };
+
+    /**
+     * 真正画一帧：读一次状态，预备（异步）→ 绘制（同步）→ 叠加辅助线。
+     *
+     * 预备放在**清空画布之前**：慢帧时画布上留着上一帧，而不是先闪一下白。
+     */
+    const paint = async (canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D) => {
+      const state = useEditor.getState();
+      const { project: p, ui, runtime } = state;
+      const dpr = Math.min(2.5, window.devicePixelRatio || 1);
 
       /*
        * html 代码层：把播放头推给 iframe。
@@ -312,6 +340,17 @@ export function Stage() {
           htmlFrameRefs.current.get(entry.id)?.contentWindow?.postMessage({ kly: entry.token, type: 'time', ms: htmlMs }, '*');
         }
       }
+
+      /* 预备：代码层（含背景里的代码）在这里算出这一帧的画面。
+         InlineRuntime 阶段它是同一个微任务里 resolve 的，所以这一行不会真的让出帧。 */
+      const scene = await prepareScene(p, {
+        time: runtime.playhead,
+        scale: clamp(ui.zoom * dpr, 0.5, 2),
+        overrides: overridesRef.current,
+        /* html 层由下面的 iframe 实时渲染，canvas 不要再画占位（会盖住原生层） */
+        htmlLive: true,
+        mode: 'preview',
+      });
 
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -366,13 +405,7 @@ export function Stage() {
       ctx.beginPath();
       ctx.rect(0, 0, p.width, p.height);
       ctx.clip();
-      renderScene(ctx, p, {
-        time: runtime.playhead,
-        scale: clamp(ui.zoom * dpr, 0.5, 2),
-        overrides: overridesRef.current,
-        /* html 层由下面的 iframe 实时渲染，canvas 不要再画占位（会盖住原生层） */
-        htmlLive: true,
-      });
+      drawScene(ctx, p, scene.t, scene);
       ctx.restore();
 
       // 安全区

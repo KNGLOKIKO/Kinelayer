@@ -1,8 +1,10 @@
 import { getBackground, type CodeLayer, type ImageLayer, type Layer, type Project, type RemotionRuntime, type VideoLayer } from '@/core/types';
+import { BACKGROUND_LAYER_ID, isLayerError, type FrameTable, type RenderMode } from '@/core/codeRuntime';
 import { clipAlphaAt, clipEnd, outgoingExtension, sourceTimeMs, transitionAt, transitionOffset } from '@/core/media';
 import { computeLayerFrame, type FrameTransform } from './animation';
 import { getImage, getVideo, isAssetMissing, syncVideoTime, type Drawable } from './assets';
-import { codeEnvOf, runCodeLayer, type CodeEnv } from './codeEngine';
+import { codeEnvOf } from './codeEngine';
+import { getCodeRuntime } from './inlineRuntime';
 import { buildGradient, drawTextLayer } from './text';
 import { FONT_STACK_FALLBACK } from '@/core/defaults';
 
@@ -11,6 +13,11 @@ export interface RenderOptions {
   /** 代码层内部分辨率倍率（预览用 zoom*dpr，导出用 exportScale） */
   scale?: number;
   transparent?: boolean;
+  /**
+   * 这一帧是预览还是导出。只往下传给代码层运行时 ——
+   * 现在两边的绘制完全一样，将来 Worker 化时缓存策略与超时预算可能不同。
+   */
+  mode?: RenderMode;
   /** 导出时预栅格化的 HTML 层 */
   htmlBitmaps?: Map<string, Drawable>;
   /**
@@ -285,13 +292,10 @@ function drawCodeLayer(
   ctx: CanvasRenderingContext2D,
   layer: CodeLayer,
   frame: FrameTransform,
-  time: number,
-  scale: number,
-  opts: RenderOptions,
-  env: CodeEnv,
+  scene: PreparedScene,
 ): void {
-  const htmlBitmaps = opts.htmlBitmaps;  if (layer.code.engine === 'html') {
-    const bitmap = htmlBitmaps?.get(layer.id);
+  if (layer.code.engine === 'html') {
+    const bitmap = scene.html?.get(layer.id);
     if (bitmap) {
       withTransform(ctx, frame, () => {
         ctx.drawImage(bitmap as CanvasImageSource, 0, 0, layer.width, layer.height);
@@ -299,76 +303,107 @@ function drawCodeLayer(
       return;
     }
     /* 编辑态：iframe 已经在上面实时渲染，这里什么都不画 */
-    if (opts.htmlLive) return;
+    if (scene.htmlLive) return;
     withTransform(ctx, frame, () => {
       drawPlaceholder(ctx, layer.width, layer.height, 'HTML 层 · 编辑态为实时 DOM 叠加');
     });
     return;
   }
-  /* remotion 层必须走自己的分支：交给 runCodeLayer 会把 TSX 当 JS 编译，必然炸 */
+  /* remotion 层必须走自己的分支：交给代码层运行时会把 TSX 当 JS 编译，必然炸 */
   if (layer.code.engine === 'remotion-component') {
     drawRemotionLayer(ctx, layer, frame);
     return;
   }
+  /*
+   * canvas2d / glsl：画面在预备阶段就算好了，这里只做合成。
+   *
+   * 三种情况要分开处理，混起来会丢信息：
+   *   · 表里没有这个键 —— 这层这帧本来就不该画（源码空 / 没进预备名单），安静跳过；
+   *   · 键对应一个 LayerError —— 画占位框，让用户知道是这层挂了，不是「这里没内容」；
+   *   · 键对应一张位图 —— 照常合成。
+   */
+  const entry = scene.code.get(layer.id);
+  if (!entry) return;
   withTransform(ctx, frame, () => {
-    const result = runCodeLayer(ctx, layer, time, Math.round(time / 16.67), scale, env);
-    if (!result.ok) {
+    if (isLayerError(entry)) {
       drawPlaceholder(ctx, layer.width, layer.height, '代码层异常 · 见右侧面板');
+      return;
     }
+    ctx.drawImage(entry, 0, 0, layer.width, layer.height);
   });
 }
 
-function drawBackground(
-  ctx: CanvasRenderingContext2D,
-  project: Project,
-  time: number,
-  scale: number,
-  transparent: boolean,
-  env: CodeEnv,
-): void {
+function drawBackground(ctx: CanvasRenderingContext2D, project: Project, scene: PreparedScene): void {
+  if (scene.transparent) return;
   const bg = getBackground(project);
-  if (!transparent) {
-    ctx.save();
-    if (bg.kind === 'solid') {
+  ctx.save();
+  if (bg.kind === 'solid') {
+    ctx.fillStyle = bg.color;
+    ctx.fillRect(0, 0, project.width, project.height);
+  } else if (bg.kind === 'gradient') {
+    ctx.fillStyle = buildGradient(ctx, bg.gradient, 0, 0, project.width, project.height);
+    ctx.fillRect(0, 0, project.width, project.height);
+  } else if (bg.kind === 'image') {
+    const img = getImage(bg.assetId);
+    ctx.fillStyle = bg.color;
+    ctx.fillRect(0, 0, project.width, project.height);
+    if (img) drawFit(ctx, img, project.width, project.height, bg.fit);
+    else if (isAssetMissing(bg.assetId)) drawPlaceholder(ctx, project.width, project.height, '背景图资源缺失');
+  } else if (bg.kind === 'code') {
+    if (bg.code.source.trim()) {
+      /* 背景的代码层跟图层走同一条执行路径（同一个运行时、同一套熔断），
+         只是它没有图层 id，用保留键取。出错时跟以前一样什么都不画 —— 那时
+         连底色都不铺，暴露问题比默默铺一层更诚实。 */
+      const entry = scene.code.get(BACKGROUND_LAYER_ID);
+      if (entry && !isLayerError(entry)) ctx.drawImage(entry, 0, 0, project.width, project.height);
+    } else {
       ctx.fillStyle = bg.color;
       ctx.fillRect(0, 0, project.width, project.height);
-    } else if (bg.kind === 'gradient') {
-      ctx.fillStyle = buildGradient(ctx, bg.gradient, 0, 0, project.width, project.height);
-      ctx.fillRect(0, 0, project.width, project.height);
-    } else if (bg.kind === 'image') {
-      const img = getImage(bg.assetId);
-      ctx.fillStyle = bg.color;
-      ctx.fillRect(0, 0, project.width, project.height);
-      if (img) drawFit(ctx, img, project.width, project.height, bg.fit);
-      else if (isAssetMissing(bg.assetId)) drawPlaceholder(ctx, project.width, project.height, '背景图资源缺失');
-    } else if (bg.kind === 'code') {
-      if (bg.code.source.trim()) {
-        const bgCode: CodeLayer = {
-          ...bg,
-          type: 'code',
-          code: bg.code,
-        } as unknown as CodeLayer;
-        runCodeLayer(ctx, bgCode, time, Math.round(time / 16.67), scale, env);
-      } else {
-        ctx.fillStyle = bg.color;
-        ctx.fillRect(0, 0, project.width, project.height);
-      }
     }
-    ctx.restore();
   }
+  ctx.restore();
 }
 
 /**
- * 唯一的场景渲染入口。
- * 编辑预览（StageCanvas）、PNG 导出、WebM 逐帧导出、图层窗口镜像全部调用它。
+ * 预备好的一帧：所有异步的活都干完了，`drawScene` 只剩同步绘制。
+ *
+ * 带着筛选结果而不是重新读参：绘制阶段必须和预备阶段**判同一批图层**，
+ * 判两次（尤其在 overrides 变了之后）会出现「预备了 A 却画 B」。
  */
-export function renderScene(ctx: CanvasRenderingContext2D, project: Project, opts: RenderOptions): void {
-  const time = opts.time;
-  const scale = opts.scale ?? 1;
-  /* 一帧一份谱面：九个代码层读到的拍号必须是同一个数 */
-  const env = codeEnvOf(project);
-  drawBackground(ctx, project, time, scale, opts.transparent ?? false, env);
+export interface PreparedScene {
+  readonly t: number;
+  readonly scale: number;
+  readonly transparent: boolean;
+  readonly htmlLive: boolean;
+  readonly skipCode: boolean;
+  readonly onlyLayerId: string | null;
+  readonly overrides?: Map<string, Partial<Layer>>;
+  /** 代码层这一帧的结果（含背景层，键为 BACKGROUND_LAYER_ID） */
+  readonly code: FrameTable;
+  /** 导出时预栅格化的 HTML 层 */
+  readonly html?: ReadonlyMap<string, Drawable>;
+}
 
+interface LayerPass {
+  index: number;
+  layer: Layer;
+  frame: FrameTransform;
+}
+
+interface PassOptions {
+  time: number;
+  onlyLayerId?: string | null;
+  overrides?: Map<string, Partial<Layer>>;
+}
+
+/**
+ * 这一帧要过一遍的图层。
+ *
+ * 预备与绘制**共用这一个函数**，不是巧合：代码层有跨帧的 `state`，多跑一层
+ * 就会改动它自己的状态、往信号总线写值，所以「哪些层要画」必须只有一个答案。
+ */
+function layerPasses(project: Project, opts: PassOptions): LayerPass[] {
+  const out: LayerPass[] = [];
   const layers = project.layers;
   for (let i = 1; i < layers.length; i++) {
     const base = layers[i] as Layer;
@@ -381,8 +416,82 @@ export function renderScene(ctx: CanvasRenderingContext2D, project: Project, opt
      */
     const ext = layer.type === 'image' || layer.type === 'video' ? outgoingExtension(project, layer) : 0;
     const drawn = ext > 0 ? ({ ...layer, outPoint: clipEnd(layer, project) + ext } as Layer) : layer;
-    const frame = computeLayerFrame(drawn, i, time, project.duration);
+    const frame = computeLayerFrame(drawn, i, opts.time, project.duration);
     if (!frame.alive || frame.opacity <= 0.001) continue;
+    out.push({ index: i, layer, frame });
+  }
+  return out;
+}
+
+const NO_FRAMES: FrameTable = new Map();
+
+/** 背景里的代码不是图层，没有 id：给它一个保留键，跟图层走同一条执行路径 */
+function backgroundCodeLayer(project: Project): CodeLayer | null {
+  const bg = getBackground(project);
+  if (bg.kind !== 'code' || !bg.code.source.trim()) return null;
+  return { ...bg, id: BACKGROUND_LAYER_ID, type: 'code', code: bg.code } as unknown as CodeLayer;
+}
+
+/**
+ * 预备一帧：把代码层（含背景里的代码）交给运行时算出来。
+ *
+ * 之前的 `renderScene` 是同步的，因为代码层在主线程同步执行。现在执行被
+ * 接口隔开了，将来要跨线程，所以「算」这一步必须是异步的 —— 拆成
+ * `prepareScene` + `drawScene` 两段，绘制那一半仍然是纯同步的。
+ *
+ * 注意这里**不**处理视频 seek（那是 `prepareVideos` 的事，调用方按自己的
+ * 节流策略调）。本阶段也不把 HTML 栅格化搬进来：它已经在导出路径里做了，
+ * 搬进来会把「预备」变成两个真相。
+ */
+export async function prepareScene(project: Project, opts: RenderOptions): Promise<PreparedScene> {
+  const scale = opts.scale ?? 1;
+  const wanted: CodeLayer[] = [];
+  const bgCode = backgroundCodeLayer(project);
+  if (bgCode) wanted.push(bgCode);
+  /* skipCode 只跳图层里的代码层，不跳背景 —— 这是原本的语义，别顺手统一 */
+  if (!opts.skipCode) {
+    for (const pass of layerPasses(project, opts)) {
+      const layer = pass.layer;
+      if (layer.type !== 'code') continue;
+      /* html / remotion 不进运行时：前者由 iframe 或预栅格化的位图负责，
+         后者画的是一张技术卡片，两者都不执行用户代码 */
+      if (layer.code.engine !== 'canvas2d' && layer.code.engine !== 'glsl') continue;
+      wanted.push(layer);
+    }
+  }
+  const code = wanted.length
+    ? await getCodeRuntime().prepare({
+        t: opts.time,
+        frame: Math.round(opts.time / 16.67),
+        layers: wanted,
+        mode: opts.mode ?? 'preview',
+        scale,
+        env: codeEnvOf(project),
+      })
+    : NO_FRAMES;
+  return {
+    t: opts.time,
+    scale,
+    transparent: opts.transparent ?? false,
+    htmlLive: opts.htmlLive ?? false,
+    skipCode: opts.skipCode ?? false,
+    onlyLayerId: opts.onlyLayerId ?? null,
+    overrides: opts.overrides,
+    code,
+    html: opts.htmlBitmaps,
+  };
+}
+
+/**
+ * 同步绘制一帧。**从 prepareScene 拿到的帧表必须原样传进来**：
+ * 这里不会再预备任何东西，所以不存在「绘制时偷偷跑了一遍用户代码」的可能。
+ */
+export function drawScene(ctx: CanvasRenderingContext2D, project: Project, t: number, scene: PreparedScene): void {
+  drawBackground(ctx, project, scene);
+
+  for (const pass of layerPasses(project, { time: t, onlyLayerId: scene.onlyLayerId, overrides: scene.overrides })) {
+    const layer = pass.layer;
+    const frame = pass.frame;
     ctx.globalCompositeOperation = BLEND_MAP[layer.blendMode] ?? 'source-over';
     ctx.save();
     switch (layer.type) {
@@ -401,13 +510,13 @@ export function renderScene(ctx: CanvasRenderingContext2D, project: Project, opt
         });
         break;
       case 'image':
-        drawImageLayer(ctx, layer, frame, scale, mediaTweaks(project, layer, time));
+        drawImageLayer(ctx, layer, frame, scene.scale, mediaTweaks(project, layer, t));
         break;
       case 'video':
-        drawVideoLayer(ctx, layer, frame, mediaTweaks(project, layer, time));
+        drawVideoLayer(ctx, layer, frame, mediaTweaks(project, layer, t));
         break;
       case 'code':
-        if (!opts.skipCode) drawCodeLayer(ctx, layer, frame, time, scale, opts, env);
+        if (!scene.skipCode) drawCodeLayer(ctx, layer, frame, scene);
         break;
       default:
         break;
@@ -416,6 +525,18 @@ export function renderScene(ctx: CanvasRenderingContext2D, project: Project, opt
   }
   ctx.globalCompositeOperation = 'source-over';
   ctx.globalAlpha = 1;
+}
+
+/**
+ * 一次性画完一帧。**预览与导出共用**这条路径 —— 编辑预览（StageCanvas）、
+ * PNG 导出、WebM 逐帧导出、图层窗口镜像全部都调它。
+ *
+ * 已经自己管着绘制节奏的调用方（Stage 的 rAF 循环）应该直接用
+ * `prepareScene` / `drawScene` 两段，因为它们在预备期间要能「跳帧」而不是排队。
+ */
+export async function renderScene(ctx: CanvasRenderingContext2D, project: Project, opts: RenderOptions): Promise<void> {
+  const scene = await prepareScene(project, opts);
+  drawScene(ctx, project, scene.t, scene);
 }
 
 /** 视频层需要先 seek 到当前时间，渲染才是确定的 */
