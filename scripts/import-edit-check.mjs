@@ -19,7 +19,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import zlib from 'node:zlib';
-import { launch, reporter, sleep } from './_cdp.mjs';
+import { enterEditor, launch, reporter, sleep } from './_cdp.mjs';
 
 const base = 'http://localhost:5273/';
 const { check, finish } = reporter();
@@ -185,9 +185,9 @@ const main = async () => {
      * 必须真的进编辑器页：启动页（/）根本没有图层面板和 Inspector，
      * 在那一页上断言 data-testid 只会得到 0 —— 我第一次就是这么白跑的。
      */
-    await cdp.conn.call('Page.navigate', { url: `${base}?view=editor&projectId=${encodeURIComponent(imported.projectId)}` });
-    const inEditor = await cdp.waitFor(`typeof window.__kly !== "undefined" && !!document.querySelector('[data-testid="layer-row"]')`, 25000);
-    check('切到编辑器页并载入导入的工程', inEditor);
+    const entered = await enterEditor(cdp, imported.projectId, { base });
+    const inEditor = entered.ok;
+    check('切到编辑器页并载入导入的工程', inEditor, entered.reason);
     if (!inEditor) return;
     await sleep(400);
 

@@ -193,6 +193,42 @@ export async function launch({
   return { edge, conn, ev, waitFor, shot, setViewport, reload, openTab, port };
 }
 
+/**
+ * 进编辑器，并且**等「要的那份工程」真的进了 store**，再返回。
+ *
+ * `?projectId=` 是深链，但 boot 里的 `project.open` 是异步的：刚上车那一两帧渲染的是
+ * 内存里的示例工程。只等 `[data-testid="layer-row"]` 会在**占位工程**上就「就绪」——
+ * 这时候发命令，改动全落在占位工程上；等 `project.open` 落地，整份状态被替换掉。
+ * 症状极难认：前几条断言都过了，后面突然「命令返回失败 / 层不见了」，而且每次挂的不是同一条。
+ *
+ * 判据只有一条：`state().project.id` 等于请求的 id。
+ * 导航瞬间 `Runtime.evaluate` 可能撞上「上下文已销毁」，所以这里自己重试，不把异常抛给调用方。
+ */
+export async function enterEditor(cdp, projectId, { base = 'http://localhost:5273/', timeoutMs = 25000 } = {}) {
+  await cdp.conn.call('Page.navigate', { url: `${base}?view=editor&projectId=${encodeURIComponent(projectId)}` });
+  const want = JSON.stringify(projectId);
+  const onProject = `(() => {
+    const s = window.__kly && window.__kly.state && window.__kly.state();
+    return !!s && !!s.project && s.project.id === ${want};
+  })()`;
+  const mounted = `document.querySelectorAll('[data-testid="layer-row"]').length > 0`;
+  const poll = async (expr, ms) => {
+    const until = Date.now() + ms;
+    while (Date.now() < until) {
+      try {
+        if (await cdp.ev(expr)) return true;
+      } catch {
+        /* 导航中上下文还没建好，下一次再看 */
+      }
+      await sleep(200);
+    }
+    return false;
+  };
+  if (!(await poll(onProject, timeoutMs))) return { ok: false, reason: '工程没换成请求的那份（boot 的 project.open 没落地）' };
+  if (!(await poll(mounted, 8000))) return { ok: false, reason: '工程进来了但图层树没挂上' };
+  return { ok: true, reason: '' };
+}
+
 /** 结果收集：每行一个 OK/FAIL，最后汇总退出码 */
 export function reporter() {
   const results = [];

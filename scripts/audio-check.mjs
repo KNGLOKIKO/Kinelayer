@@ -9,7 +9,7 @@
  *
  * 需要 dev server 跑在 5273（脚本会自己清 IndexedDB，不影响已有工程）。
  */
-import { launch, reporter, sleep } from './_cdp.mjs';
+import { enterEditor, launch, reporter, sleep } from './_cdp.mjs';
 
 const base = 'http://localhost:5273/';
 const ORIGIN = 'http://localhost:5273';
@@ -36,13 +36,10 @@ const main = async () => {
     /*
      * project.create 只落数据、不负责导航（导航是界面的决定），所以这里手动进编辑器。
      * 主时钟活在 EditorApp 里，不进编辑器就没有 rAF 循环 —— 播放相关的断言全会假失败。
+     * enterEditor 会等到「要的那份工程」真的进 store：只等图层树出现会在内存占位工程上就绪。
      */
-    await cdp.conn.call('Page.navigate', { url: `${base}?view=editor&projectId=${created.id}` });
-    const mounted = await cdp.waitFor(
-      `typeof window.__kly !== 'undefined' && document.querySelectorAll('[data-testid="layer-row"]').length > 0`,
-      25000,
-    );
-    check('进入编辑器（图层树已挂载）', mounted);
+    const entered = await enterEditor(cdp, created.id, { base });
+    check('进入编辑器（图层树已挂载）', entered.ok, entered.reason);
 
     const dur = await cdp.ev(`(async () => {
       const r = await window.__kly.dispatch('canvas.setDuration', { duration: 12000 });

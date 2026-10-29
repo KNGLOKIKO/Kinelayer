@@ -11,7 +11,7 @@
  *
  * 需要 dev server 跑在 5273。
  */
-import { launch, reporter, sleep } from './_cdp.mjs';
+import { enterEditor, launch, reporter, sleep } from './_cdp.mjs';
 
 const base = 'http://localhost:5273/';
 const ORIGIN = 'http://localhost:5273';
@@ -118,12 +118,12 @@ const main = async () => {
     })()`);
     check('建一个验收用工程', created.ok && !!created.id, JSON.stringify(created));
 
-    await cdp.conn.call('Page.navigate', { url: `${base}?view=editor&projectId=${created.id}` });
-    const mounted = await cdp.waitFor(
-      `typeof window.__kly !== 'undefined' && document.querySelectorAll('[data-testid="layer-row"]').length > 0`,
-      25000,
-    );
-    check('进入编辑器（图层树已挂载）', mounted);
+    /*
+     * 必须等「这个 id 的工程」真的进 store 再动手：只等图层树出现会在内存占位工程上就绪，
+     * 之后的命令全打在占位工程上，被 boot 的 project.open 整份替换 —— 就是这条偶发红的根因。
+     */
+    const entered = await enterEditor(cdp, created.id, { base });
+    check('进入编辑器（图层树已挂载）', entered.ok, entered.reason);
 
     const dur = await cdp.ev(`(async () => {
       const r = await window.__kly.dispatch('canvas.setDuration', { duration: 20000 });
@@ -155,12 +155,14 @@ const main = async () => {
       const keep = await window.__kly.dispatch('voice.set', { id, voice: { text: '你好' }, refit: false });
       const kept = window.__kly.state().project.layers.find((l) => l.id === id);
       return {
-        longerOk: longer.ok, longerMs: longer.data?.ms, longerOut: after?.outPoint,
+        id, longerOk: longer.ok, longerMs: longer.data?.ms, longerOut: after?.outPoint,
         keepOk: keep.ok, keepOut: kept?.outPoint, keepMs: keep.data?.ms,
       };
     })()`);
     check('改长词之后层自动变长', resynced.longerOk && resynced.longerOut > made.outPoint, JSON.stringify(resynced));
     check('refit:false 只改参数不动长度', resynced.keepOk && resynced.keepOut === resynced.longerOut, JSON.stringify({ out: resynced.keepOut, ms: resynced.keepMs }));
+    /* 层没了就让这里给一句人话，而不是三步之后崩在 TypeError 上（看不见根因） */
+    if (!resynced.id) throw new Error('人声层不见了：voice.set 之前工程被整份替换，检查是否绕过了 enterEditor');
 
     const rejected = await cdp.ev(`(async () => {
       const bg = window.__kly.state().project.layers.find((l) => l.type === 'background');
