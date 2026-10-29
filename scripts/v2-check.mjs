@@ -10,7 +10,8 @@ import fs from 'node:fs';
 const require = createRequire(new URL('../agent-bridge/package.json', import.meta.url));
 const WebSocket = require('ws');
 
-const EDGE = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
+/* 浏览器路径统一从 _cdp 取（可用 KLY_BROWSER_PATH 覆盖），这里不要再写死一份 */
+import { EDGE } from './_cdp.mjs';
 const DBG = 9300 + Math.floor(Math.random() * 40);
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 

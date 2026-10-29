@@ -11,7 +11,9 @@ import fs from 'node:fs';
 const require = createRequire(new URL('../agent-bridge/package.json', import.meta.url));
 const WebSocket = require('ws');
 
-export const EDGE = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
+/* 浏览器路径允许用 KLY_BROWSER_PATH 覆盖：这台机器装的是 Edge，别人的机器可能是 Chrome，
+   或者 Edge 装在 Program Files 而不是 Program Files (x86)。默认值保持原路径不变。 */
+export const EDGE = process.env.KLY_BROWSER_PATH || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function openWs(url) {

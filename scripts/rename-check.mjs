@@ -26,7 +26,8 @@ const OLD_NAME = String.fromCharCode(0x6d, 0x6f, 0x74, 0x69, 0x6f, 0x6e, 0x6c, 0
 const OLD_CN = String.fromCharCode(0x5c42, 0x52a8);
 const OLD_CHANNEL = 'poster' + '-editor';
 
-const EDGE = 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe';
+/* 浏览器路径统一从 _cdp 取（可用 KLY_BROWSER_PATH 覆盖），这里不要再写死一份 */
+import { EDGE } from './_cdp.mjs';
 const DBG = 9420 + Math.floor(Math.random() * 30);
 const PORT = 5273;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

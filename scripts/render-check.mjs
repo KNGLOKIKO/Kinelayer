@@ -20,7 +20,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
-const WORK = path.join(ROOT, '.workbuddy', 'tmp', 'render-check');
+const WORK = path.join(ROOT, '.workbuddy', 'tmp', 'render-check', `${Date.now()}-${process.pid}`);
 const PROJECT = process.env.KLY_PROJECT ?? 'prj_sample_revision';
 
 let failed = 0;
@@ -54,8 +54,8 @@ function head(file, n = 4) {
 const MIN_PNG = 20 * 1024;
 
 console.log(`\n渲染器自检 · ${PROJECT}\n`);
-fs.rmSync(WORK, { recursive: true, force: true });
 fs.mkdirSync(WORK, { recursive: true });
+console.log(`  产物目录：${WORK}`);
 
 /* ── 1 · stills ─────────────────────────────────────── */
 {
